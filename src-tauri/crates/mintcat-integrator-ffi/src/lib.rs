@@ -343,32 +343,42 @@ unsafe fn backend_invoke(
             install_mods_with_progress(&progress, request)?;
             Ok(r#"{"ok":true}"#.to_string())
         }
-        "uninstall_mods" => backend_command_response(envelope.payload, |request: UninstallModsRequest| {
-            uninstall_mods_by_game_path(request.game_path, request.is_delete_ue4ss)
-        }),
-        "check_installed" => backend_command_response(envelope.payload, |request: CheckInstalledRequest| {
-            check_installed_by_game_path(request.game_path, request.install_time)
-        }),
-        "find_game_pak" => backend_command_response(envelope.payload, |request: FindGamePakRequest| {
-            Ok(find_game_pak_by_name(request.game_name.as_deref()))
-        }),
+        "uninstall_mods" => {
+            backend_command_response(envelope.payload, |request: UninstallModsRequest| {
+                uninstall_mods_by_game_path(request.game_path, request.is_delete_ue4ss)
+            })
+        }
+        "check_installed" => {
+            backend_command_response(envelope.payload, |request: CheckInstalledRequest| {
+                check_installed_by_game_path(request.game_path, request.install_time)
+            })
+        }
+        "find_game_pak" => {
+            backend_command_response(envelope.payload, |request: FindGamePakRequest| {
+                Ok(find_game_pak_by_name(request.game_name.as_deref()))
+            })
+        }
         "check_foreign_paks_in_paks_dir" | "check_foreign_paks" => {
             backend_command_response(envelope.payload, |request: CheckForeignPaksRequest| {
                 check_foreign_paks_by_game_path(&request.game_path)
             })
         }
-        "is_valid_unpacked_mod" => backend_command_response(envelope.payload, |request: PathRequest| {
-            Ok(is_valid_mod_directory(&request.path))
-        }),
+        "is_valid_unpacked_mod" => {
+            backend_command_response(envelope.payload, |request: PathRequest| {
+                Ok(is_valid_mod_directory(&request.path))
+            })
+        }
         "check_mod_conflicts" => {
             backend_command_response(envelope.payload, |request: CheckModConflictsRequest| {
                 check_mod_conflicts_from_json(&request.mod_list_json, request.game_name.as_deref())
                     .map_err(anyhow::Error::msg)
             })
         }
-        "validate_zip_file" => backend_command_response(envelope.payload, |request: PathRequest| {
-            Ok(is_valid_zip(&request.path))
-        }),
+        "validate_zip_file" => {
+            backend_command_response(envelope.payload, |request: PathRequest| {
+                Ok(is_valid_zip(&request.path))
+            })
+        }
         "launch_steam_game" => {
             backend_command_response(envelope.payload, |request: LaunchSteamGameRequest| {
                 launch_steam_game(request.steam_app_id)

@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test": "vitest run",
     "preview": "vite preview",
     "tauri": "tauri",
     "gen-sql": "drizzle-kit generate --out migrations-sql --schema ./src/storage/db/Schema.ts --dialect sqlite",
@@ -58,6 +59,7 @@
     "drizzle-kit": "^0.31.5",
     "jsdom": "^26.1.0",
     "typescript": "^5.2.2",
-    "vite": "7.1.12"
+    "vite": "7.1.12",
+    "vitest": "^4.1.11"
   }
 }

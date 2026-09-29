@@ -12,13 +12,10 @@ import {ClipboardApi} from "@/apis/ClipboardApi.ts";
 import {AddModType} from "@/dialogs/AddModDialog/index.tsx";
 import StatusBar from "@/components/StatusBar.tsx";
 import {StorageAPI} from "@/storage";
-import {asyncPoolAll} from "@/utils/AsyncPool";
 import {message} from "antd";
 import {frontendRouteUrl} from "@/utils/FrontendUpdateRuntime.ts";
-import {ModUpdateService} from "@/services/ModUpdateService.ts";
-import type {AddModFromUrlResult} from "@/services/HomeService.ts";
-import type {AddModFromPathResult} from "@/services/HomeService.ts";
-
+import {OnlineModAddService} from "@/services/OnlineModAddService";
+import type {AddModFromPathResult} from "@/services/HomeService";
 let windowInstance: WebviewWindow;
 
 type AddModDialogInitData = {
@@ -123,76 +120,25 @@ export async function openWindow(addModType: string = AddModType.LOCAL,
 
 }
 
-type NexusModsParsedUrl = NonNullable<ReturnType<typeof NexusModsApi.parseModLinks>>;
-
 async function addOnlineMods(vm: HomeViewModel, list: string[], groupId: number): Promise<void> {
-    const directAddList: string[] = [];
-    const nexusWebviewList: Array<{ url: string; parsed: NexusModsParsedUrl }> = [];
+    const service = new OnlineModAddService(vm);
+    const summary = await service.addUrls(
+        list,
+        groupId,
+        (url, parsed) => captureNexusDownloadUrl(url, {parsed}),
+    );
 
-    for (const item of list) {
-        const parsed = NexusModsApi.parseModLinks(item);
-        if (parsed && !NexusModsApi.hasReusableDownloadCredential(item)) {
-            nexusWebviewList.push({ url: item, parsed });
-        } else {
-            directAddList.push(item);
-        }
-    }
-
-    const results: AddModFromUrlResult[] = [];
-    let errorCount = 0;
-
-    if (directAddList.length > 0) {
-        const directResult = await asyncPoolAll(
-            directAddList,
-            (item) => vm.addModFromUrl(item, groupId),
-            5
-        );
-        results.push(...directResult.results.filter(Boolean));
-        errorCount += directResult.errors.length;
-    }
-
-    for (const item of nexusWebviewList) {
-        try {
-            const addModUrl = await captureNexusDownloadUrl(item.url, { parsed: item.parsed });
-            results.push(await vm.addModFromUrl(addModUrl, groupId));
-        } catch (error) {
-            errorCount++;
-            console.error('[AddModDialog] Failed to capture Nexus Mods download URL:', error);
-            message.error(error instanceof Error ? error.message : t('nexusmods.resolveNxmFailed'));
-        }
-    }
-
-    const existsCount = results.filter((r) => r?.status === "exists").length;
+    const existsCount = summary.results.filter((result) => result.status === "exists").length;
     if (existsCount > 0) {
         message.warning(t("Mod Already Exists") + ` (${existsCount} ${t("in current list")})`);
     }
-    if (errorCount > 0) {
-        message.warning(t("mod.someFailedToAdd") + `: ${errorCount}/${list.length}`);
-    }
-
-    await downloadNexusModsAfterAdd(results);
-}
-
-async function downloadNexusModsAfterAdd(results: AddModFromUrlResult[]): Promise<void> {
-    const nexusDownloadMods = results
-        .filter((r) => r?.downloadAfterAdd && r.mod)
-        .map((r) => r.mod!);
-    if (nexusDownloadMods.length === 0) {
-        return;
-    }
-
-    const { errors: downloadErrors } = await asyncPoolAll(
-        nexusDownloadMods,
-        async (mod) => {
-            if (await ModUpdateService.needsOnlineModDownload(mod)) {
-                await StatusBar.info(t("Batch downloading mod", { name: mod.displayName }));
-                await ModUpdateService.updateModFile(mod);
-            }
-        },
-        2
-    );
-    if (downloadErrors.length > 0) {
-        message.warning(t("mod.someFailedToAdd") + `: ${downloadErrors.length}/${nexusDownloadMods.length}`);
+    const totalErrors = summary.errorCount + summary.downloadErrorCount;
+    if (totalErrors > 0) {
+        message.warning(t("mod.someFailedToAdd") + `: ${totalErrors}/${list.length}`);
+        const firstError = summary.errors[0];
+        if (firstError) {
+            console.error('[AddModDialog] Failed to add online mod:', firstError);
+        }
     }
 }
 

@@ -103,7 +103,8 @@ fn default_bind() -> String {
 pub fn invoke(command: &str, payload: Value) -> Result<Value> {
     match command {
         "install_proxy_runtime_from_manifest" => {
-            let envelope: ProxyCommandEnvelope<ProxyRuntimeManifest> = serde_json::from_value(payload)?;
+            let envelope: ProxyCommandEnvelope<ProxyRuntimeManifest> =
+                serde_json::from_value(payload)?;
             serde_json::to_value(install_from_manifest(&envelope.context, envelope.data)?)
                 .map_err(Into::into)
         }
@@ -112,7 +113,8 @@ pub fn invoke(command: &str, payload: Value) -> Result<Value> {
             serde_json::to_value(status(&envelope.context)).map_err(Into::into)
         }
         "start_proxy_runtime" => {
-            let envelope: ProxyCommandEnvelope<StartProxyRuntimeOptions> = serde_json::from_value(payload)?;
+            let envelope: ProxyCommandEnvelope<StartProxyRuntimeOptions> =
+                serde_json::from_value(payload)?;
             serde_json::to_value(start(&envelope.context, envelope.data)?).map_err(Into::into)
         }
         "stop_proxy_runtime" => {
@@ -159,7 +161,10 @@ fn install_from_manifest(
     Ok(status(context))
 }
 
-fn start(context: &ProxyHostContext, options: StartProxyRuntimeOptions) -> Result<ProxyRuntimeStatus> {
+fn start(
+    context: &ProxyHostContext,
+    options: StartProxyRuntimeOptions,
+) -> Result<ProxyRuntimeStatus> {
     let current = status(context);
     if current.running {
         return Ok(current);
@@ -342,7 +347,10 @@ fn valid_version(version: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_compatibility(context: &ProxyHostContext, manifest: &ProxyRuntimeManifest) -> Result<()> {
+fn validate_compatibility(
+    context: &ProxyHostContext,
+    manifest: &ProxyRuntimeManifest,
+) -> Result<()> {
     if let Some(min) = &manifest.min_app_version {
         if cmp_version(&context.app_version, min).is_lt() {
             anyhow::bail!("proxy runtime requires app >= {min}");
@@ -395,7 +403,9 @@ fn active_downloaded_runtime_path(context: &ProxyHostContext) -> Option<PathBuf>
     if version == BUNDLED_RUNTIME_VERSION || valid_version(&version).is_err() {
         return None;
     }
-    let path = versions_dir(context).join(version).join(runtime_file_name());
+    let path = versions_dir(context)
+        .join(version)
+        .join(runtime_file_name());
     path.is_file().then_some(path)
 }
 
@@ -409,7 +419,11 @@ fn bundled_runtime_path(context: &ProxyHostContext) -> Result<PathBuf> {
 
 fn download(context: &ProxyHostContext, url: &str) -> Result<Vec<u8>> {
     let mut builder = reqwest::blocking::Client::builder();
-    if let Some(proxy_url) = context.proxy_url.as_deref().filter(|value| !value.is_empty()) {
+    if let Some(proxy_url) = context
+        .proxy_url
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
         builder = builder.proxy(reqwest::Proxy::all(proxy_url)?);
     }
     let response = builder.build()?.get(url).send()?;
@@ -435,7 +449,8 @@ fn is_zip_payload(bytes: &[u8]) -> bool {
 }
 
 fn extract_runtime_from_zip(bytes: &[u8], runtime_path: &Path) -> Result<()> {
-    let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).context("invalid proxy runtime zip")?;
+    let mut archive =
+        zip::ZipArchive::new(Cursor::new(bytes)).context("invalid proxy runtime zip")?;
     let Some(index) = find_runtime_zip_entry(&mut archive) else {
         anyhow::bail!("proxy runtime executable not found in zip");
     };

@@ -1,0 +1,282 @@
+.agent-page {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 16px 16px;
+    gap: 12px;
+    box-sizing: border-box;
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--ant-color-primary) 5%, transparent) 0%,
+        transparent 220px
+    );
+}
+
+/* ---------- 消息列表 ---------- */
+
+.agent-message-list {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    min-height: 0;
+    padding: 8px 4px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--ant-color-fill-secondary) transparent;
+}
+
+.agent-message-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.agent-message-list::-webkit-scrollbar-thumb {
+    border-radius: 3px;
+    background: var(--ant-color-fill-secondary);
+}
+
+.agent-message-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ---------- 空状态 ---------- */
+
+.agent-empty {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.agent-empty-icon-wrap {
+    width: 88px;
+    height: 88px;
+    border-radius: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 12px;
+    background: linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--ant-color-primary) 22%, transparent),
+        color-mix(in srgb, var(--ant-color-primary) 6%, transparent)
+    );
+    box-shadow: 0 8px 24px color-mix(in srgb, var(--ant-color-primary) 18%, transparent);
+}
+
+.agent-empty-icon {
+    font-size: 44px;
+    color: var(--ant-color-primary);
+}
+
+/* ---------- 消息气泡 ---------- */
+
+@keyframes agent-message-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.agent-message {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+    max-width: 88%;
+    animation: agent-message-in 0.25s ease-out;
+}
+
+.agent-message-user {
+    margin-left: auto;
+    flex-direction: row-reverse;
+}
+
+.agent-message-icon {
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    color: #fff;
+    background: linear-gradient(135deg, var(--ant-color-primary), var(--ant-color-primary-active));
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--ant-color-primary) 35%, transparent);
+}
+
+.agent-message-user .agent-message-icon {
+    background: linear-gradient(135deg, var(--ant-color-text-secondary), var(--ant-color-text-quaternary));
+    box-shadow: none;
+}
+
+.agent-message-tool .agent-message-icon,
+.agent-message-error .agent-message-icon {
+    background: var(--ant-color-fill-secondary);
+    color: var(--ant-color-text-secondary);
+    box-shadow: none;
+}
+
+.agent-message-body {
+    min-width: 0;
+    padding: 10px 14px;
+    border-radius: 4px 14px 14px 14px;
+    background: var(--ant-color-bg-container);
+    border: 1px solid var(--ant-color-border-secondary);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+    overflow-wrap: anywhere;
+    line-height: 1.65;
+}
+
+.agent-message-user .agent-message-body {
+    border-radius: 14px 4px 14px 14px;
+    border: none;
+    background: linear-gradient(135deg, var(--ant-color-primary), var(--ant-color-primary-active));
+    box-shadow: 0 2px 10px color-mix(in srgb, var(--ant-color-primary) 30%, transparent);
+}
+
+.agent-message-user .agent-message-body,
+.agent-message-user .agent-message-body .ant-typography {
+    color: #fff;
+}
+
+.agent-message-tool .agent-message-body,
+.agent-message-error .agent-message-body {
+    background: transparent;
+    border-style: dashed;
+    box-shadow: none;
+    font-size: 12px;
+}
+
+.agent-message-tool,
+.agent-message-error {
+    max-width: 78%;
+    opacity: 0.9;
+}
+
+.agent-tool-tag {
+    margin-bottom: 6px;
+    border-radius: 6px;
+    font-family: var(--ant-font-family-code);
+}
+
+.agent-message-body p:first-child {
+    margin-top: 0;
+}
+
+.agent-message-body p:last-child {
+    margin-bottom: 0;
+}
+
+.agent-message-body pre {
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--ant-color-fill-quaternary);
+    overflow-x: auto;
+}
+
+.agent-message-body code {
+    font-family: var(--ant-font-family-code);
+    font-size: 0.92em;
+}
+
+/* ---------- 确认卡片 / 错误 / 加载 ---------- */
+
+.agent-confirmation {
+    margin: 4px auto 16px;
+    max-width: 680px;
+    border-radius: 12px;
+    border-color: var(--ant-color-warning-border);
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--ant-color-warning) 12%, transparent);
+    animation: agent-message-in 0.25s ease-out;
+}
+
+.agent-error-alert {
+    margin-bottom: 12px;
+    border-radius: 10px;
+}
+
+.agent-loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    margin-left: 42px;
+    width: fit-content;
+    border-radius: 4px 14px 14px 14px;
+    background: var(--ant-color-bg-container);
+    border: 1px solid var(--ant-color-border-secondary);
+}
+
+.agent-typing {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.agent-typing span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ant-color-primary);
+    animation: agent-typing-bounce 1.2s infinite ease-in-out;
+}
+
+.agent-typing span:nth-child(2) {
+    animation-delay: 0.15s;
+}
+
+.agent-typing span:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+@keyframes agent-typing-bounce {
+    0%, 60%, 100% {
+        transform: translateY(0);
+        opacity: 0.4;
+    }
+    30% {
+        transform: translateY(-4px);
+        opacity: 1;
+    }
+}
+
+/* ---------- 输入区 ---------- */
+
+.agent-composer {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 14px;
+    background: var(--ant-color-bg-container);
+    border: 1px solid var(--ant-color-border-secondary);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.agent-composer:focus-within {
+    border-color: var(--ant-color-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ant-color-primary) 15%, transparent);
+}
+
+.agent-composer .ant-input {
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    resize: none;
+    padding: 6px 8px;
+}
+
+.agent-composer .ant-input:focus {
+    box-shadow: none;
+}
+
+.agent-send-button {
+    flex: 0 0 auto;
+    border-radius: 10px;
+}

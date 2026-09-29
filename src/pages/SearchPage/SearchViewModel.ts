@@ -1,14 +1,10 @@
 import {
     SearchResultItem,
-    SearchParams,
     SearchSource,
-    SearchProviderRegistry,
-    ISearchProvider,
 } from '@/apis/search';
 import {CacheApi} from '@/apis/CacheApi';
 import {TranslateApi} from '@/apis/TranslateApi';
-import {StorageAPI} from '@/storage';
-import {NEXUSMODS_DRG_DOMAIN, NEXUSMODS_ROGUE_CORE_DOMAIN} from '@/apis/nexusmods';
+import {ModSearchService} from '@/services/ModSearchService';
 
 /**
  * 搜索状态
@@ -68,68 +64,18 @@ export class SearchViewModel {
     private abortController: AbortController | null = null;
     private requestSequence = 0;
     private imageLoadingQueue: Map<string, Promise<string | undefined>> = new Map();
+    private readonly modSearchService = new ModSearchService();
 
     constructor() {
         this.state = {...initialSearchState};
-        this.initAvailableSources();
     }
 
-    /**
-     * 初始化可用的搜索源（同步，先使用全部已注册源）
-     */
-    private initAvailableSources(): void {
-        const registry = SearchProviderRegistry.getInstance();
-        this.state.availableSources = registry.getSources();
-        if (this.state.availableSources.length > 0 && !this.state.availableSources.includes(this.state.currentSource)) {
-            this.state.currentSource = this.state.availableSources[0];
-        }
-    }
-
-    /**
-     * 根据当前游戏解析 ModCat 游戏 ID：drg -> "drg", rc -> "drgrc"
-     */
-    private async getModcatGameIdForCurrentGame(): Promise<string | undefined> {
-        const gameDAO = await StorageAPI.getGames();
-        const activeGame = await gameDAO.getActiveGame();
-        const name = activeGame?.name?.toLowerCase();
-        if (name === 'drg') return 'drg';
-        if (name === 'rc') return 'drgrc';
-        return undefined;
-    }
-
-    private async getNexusmodsDomainForCurrentGame(): Promise<string | undefined> {
-        const gameDAO = await StorageAPI.getGames();
-        const activeGame = await gameDAO.getActiveGame();
-        const name = activeGame?.name?.toLowerCase();
-        if (name === 'drg') return NEXUSMODS_DRG_DOMAIN;
-        if (name === 'rc') return NEXUSMODS_ROGUE_CORE_DOMAIN;
-        return undefined;
-    }
-
-    /**
-     * 根据当前游戏得到可用搜索源：DRG 支持 mod.io + ModCat + Nexus Mods，RC 支持 ModCat + Nexus 跳转入口
-     */
-    private async getAvailableSourcesForCurrentGame(): Promise<SearchSource[]> {
-        const registry = SearchProviderRegistry.getInstance();
-        const allSources = registry.getSources();
-        const gameDAO = await StorageAPI.getGames();
-        const activeGame = await gameDAO.getActiveGame();
-        const gameName = activeGame?.name?.toLowerCase();
-
-        if (gameName === 'rc') {
-            return [SearchSource.NEXUSMODS, SearchSource.MODCAT].filter((s) => allSources.includes(s));
-        }
-        if (gameName === 'drg') {
-            return allSources.filter((s) => s === SearchSource.MODIO || s === SearchSource.MODCAT || s === SearchSource.NEXUSMODS);
-        }
-        return allSources;
-    }
 
     /**
      * 刷新可用的搜索源（按当前游戏过滤：DRG=mod.io+ModCat，RC=仅 ModCat）
      */
     public async refreshAvailableSources(): Promise<void> {
-        const newSources = await this.getAvailableSourcesForCurrentGame();
+        const {availableSources: newSources} = await this.modSearchService.getContext();
         if (newSources.length === 0) return;
 
         const prev = this.state.availableSources;
@@ -146,12 +92,6 @@ export class SearchViewModel {
         }
     }
 
-    /**
-     * 获取当前搜索提供者
-     */
-    private getCurrentProvider(): ISearchProvider | undefined {
-        return SearchProviderRegistry.getInstance().get(this.state.currentSource);
-    }
 
     /**
      * 订阅状态变化
@@ -227,24 +167,13 @@ export class SearchViewModel {
         });
 
         try {
-            const provider = this.getCurrentProvider();
-            if (!provider) {
-                throw new Error('No search provider available');
-            }
-
-            const modcatGameId = await this.getModcatGameIdForCurrentGame();
-            const nexusmodsGameDomain = await this.getNexusmodsDomainForCurrentGame();
-            const params: SearchParams = {
+            const result = await this.modSearchService.search(this.state.currentSource, {
                 query,
                 page: 0,
                 pageSize: this.state.pageSize,
-                modcatGameId,
-                nexusmodsGameDomain,
                 sortBy: this.state.sortBy,
                 sortOrder: this.state.sortOrder,
-            };
-
-            const result = await provider.search(params);
+            });
 
             // 检查请求是否被取消
             if (this.isRequestStale(requestId)) return;
@@ -285,24 +214,13 @@ export class SearchViewModel {
         this.setState({loading: true});
 
         try {
-            const provider = this.getCurrentProvider();
-            if (!provider) {
-                throw new Error('No search provider available');
-            }
-
-            const modcatGameId = await this.getModcatGameIdForCurrentGame();
-            const nexusmodsGameDomain = await this.getNexusmodsDomainForCurrentGame();
-            const params: SearchParams = {
+            const result = await this.modSearchService.search(this.state.currentSource, {
                 query: this.state.query,
                 page: nextPage,
                 pageSize: this.state.pageSize,
-                modcatGameId,
-                nexusmodsGameDomain,
                 sortBy: this.state.sortBy,
                 sortOrder: this.state.sortOrder,
-            };
-
-            const result = await provider.search(params);
+            });
             if (this.isRequestStale(requestId)) return;
 
             this.setState({
@@ -500,8 +418,7 @@ export class SearchViewModel {
      * 获取搜索占位符
      */
     public getSearchPlaceholder(): string {
-        const provider = this.getCurrentProvider();
-        return provider?.getSearchPlaceholder() || 'Search...';
+        return this.modSearchService.getSearchPlaceholder(this.state.currentSource);
     }
 
     /**

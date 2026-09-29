@@ -226,7 +226,8 @@ pub fn rollback_unconfirmed_pending(app: &AppHandle) -> Result<(), String> {
         state.pending_launch_count = 0;
         state.safe_mode = true;
         write_state(app, &state)?;
-        let _ = crate::hot_update::enter_safe_mode(app.clone(), state.active_release_set_id.clone());
+        let _ =
+            crate::hot_update::enter_safe_mode(app.clone(), state.active_release_set_id.clone());
     }
     Ok(())
 }

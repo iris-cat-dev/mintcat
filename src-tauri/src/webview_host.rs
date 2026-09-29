@@ -171,7 +171,10 @@ fn decide_deferred(
     .and_then(|value| serde_json::from_value::<WebviewDecision>(value).ok())?;
 
     if let Some(event) = &decision.emit_event {
-        let payload = decision.emit_payload.clone().unwrap_or(serde_json::Value::Null);
+        let payload = decision
+            .emit_payload
+            .clone()
+            .unwrap_or(serde_json::Value::Null);
         let _ = app.emit(event, payload);
     }
     if let Some(navigate_url) = &decision.navigate_url {

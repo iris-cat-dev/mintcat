@@ -413,12 +413,16 @@ export class HomeService {
     public async removeModFromActiveProfile(modId: number): Promise<void> {
         const profile = await this.getActiveProfile();
         const profiles = await StorageAPI.getProfiles();
-        await profiles.removeModFromProfile(profile.id!, modId);
+        if (!await profiles.removeModFromProfile(profile.id!, modId)) {
+            throw new Error(`Failed to remove mod ${modId} from profile ${profile.id}`);
+        }
     }
 
     public async updateModDisplayName(modId: number, name: string): Promise<void> {
         const modsApi = await StorageAPI.getMods();
-        await modsApi.updateMod(modId, { displayName: name });
+        if (!await modsApi.updateMod(modId, { displayName: name })) {
+            throw new Error(`Failed to rename mod ${modId}`);
+        }
     }
 
     /**
@@ -429,16 +433,16 @@ export class HomeService {
      */
     public async setModEnabled(modId: number, enable: boolean, profileModId?: number): Promise<void> {
         const profiles = await StorageAPI.getProfiles();
-        
-        // 如果提供了 profileModId，直接通过 ID 更新（避免竞态条件）
+        let updated: boolean;
         if (profileModId !== undefined) {
-            await profiles.setModEnabledById(profileModId, enable);
+            updated = await profiles.setModEnabledById(profileModId, enable);
         } else {
-            // 兼容旧调用方式：通过 profileId + modId 更新
             const profile = await this.getActiveProfile();
-            await profiles.setModEnabled(profile.id!, modId, enable);
+            updated = await profiles.setModEnabled(profile.id!, modId, enable);
         }
-
+        if (!updated) {
+            throw new Error(`Failed to change enabled state for mod ${modId}`);
+        }
     }
 
     /**
@@ -447,12 +451,23 @@ export class HomeService {
     public async batchSetModEnabled(modIds: number[], enable: boolean): Promise<void> {
         const profiles = await StorageAPI.getProfiles();
         const profile = await this.getActiveProfile();
-        await profiles.batchSetModEnabled(profile.id!, modIds, enable);
+        if (!await profiles.batchSetModEnabled(profile.id!, modIds, enable)) {
+            throw new Error(`Failed to change enabled state for ${modIds.length} mods`);
+        }
     }
 
     public async setModUsedVersion(profileModId: number, version: string): Promise<void> {
         const profiles = await StorageAPI.getProfiles();
-        await profiles.updateProfileMod(profileModId, { usedVersion: version });
+        if (!await profiles.updateProfileMod(profileModId, { usedVersion: version })) {
+            throw new Error(`Failed to change version for profile mod ${profileModId}`);
+        }
+    }
+
+    public async moveMod(profileModId: number, folderId: number): Promise<void> {
+        const profiles = await StorageAPI.getProfiles();
+        if (!await profiles.updateProfileMod(profileModId, {parentFolderId: folderId})) {
+            throw new Error(`Failed to move profile mod ${profileModId}`);
+        }
     }
 
     public async addGroup(parentGroupId: number, groupName: string): Promise<void> {

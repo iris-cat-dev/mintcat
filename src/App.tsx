@@ -15,6 +15,7 @@ import {HomePage} from "@/pages/HomePage";
 import {SearchPage} from "@/pages/SearchPage";
 import {SettingPage} from "@/pages/SettingPage";
 import {AcceleratorPage} from "@/pages/AcceleratorPage";
+import {AgentPanel} from "@/components/AgentPanel";
 import {AppInitializer} from "@/core/AppInitializer";
 
 import './App.css';
@@ -43,6 +44,7 @@ const AppContent = () => {
     const [isAppViewModelReady, setIsAppViewModelReady] = React.useState(false);
     const [initError, setInitError] = React.useState<Error | null>(null);
     const [showOnboarding, setShowOnboarding] = React.useState(false);
+    const [agentPanelOpen, setAgentPanelOpen] = React.useState(false);
     const onboardingOpenedByUserRef = React.useRef(false);
     const navigate = useNavigate();
     const location = useLocation();
@@ -137,8 +139,9 @@ const AppContent = () => {
             <UpdateDialog/>
             <ConfigManageDialog/>
             <SelectGameDialog/>
+            {isAppViewModelReady ? <AgentPanel open={agentPanelOpen} onClose={() => setAgentPanelOpen(false)}/> : null}
             <Header className={"app-header"}>
-                <TitleBar/>
+                <TitleBar onAgentClick={() => setAgentPanelOpen(true)}/>
             </Header>
             <Layout>
                 <Sider width="50px">

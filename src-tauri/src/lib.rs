@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod app;
 pub mod control_plane;
 pub mod download;

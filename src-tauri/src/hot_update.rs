@@ -202,7 +202,10 @@ fn state_file(app: &AppHandle, key: &HotUpdateComponentKey) -> Result<PathBuf, S
     Ok(scoped_dir(app, key)?.join("state.json"))
 }
 
-fn artifact_path(app: &AppHandle, request: &HotUpdateArtifactPathRequest) -> Result<PathBuf, String> {
+fn artifact_path(
+    app: &AppHandle,
+    request: &HotUpdateArtifactPathRequest,
+) -> Result<PathBuf, String> {
     Ok(scoped_dir(app, &request.key)?
         .join(safe_segment(&request.version)?)
         .join(safe_file_name(&request.file_name)?))
@@ -429,10 +432,14 @@ pub fn activate_release_set(
 }
 
 #[tauri::command]
-pub fn enter_safe_mode(app: AppHandle, failed_release_set_id: Option<String>) -> Result<HotUpdateStoreManifest, String> {
+pub fn enter_safe_mode(
+    app: AppHandle,
+    failed_release_set_id: Option<String>,
+) -> Result<HotUpdateStoreManifest, String> {
     with_store_lock(&app, || {
         let mut manifest = read_store_manifest(&app);
-        manifest.failed_release_set_id = failed_release_set_id.or(manifest.active_release_set_id.take());
+        manifest.failed_release_set_id =
+            failed_release_set_id.or(manifest.active_release_set_id.take());
         manifest.active_release_set_id = None;
         manifest.safe_mode = true;
         write_store_manifest(&app, &manifest)?;
@@ -452,7 +459,10 @@ pub fn disable_active_release_set(app: AppHandle) -> Result<HotUpdateStoreManife
 }
 
 #[tauri::command]
-pub fn hot_update_asset_url(app: AppHandle, request: HotUpdateArtifactPathRequest) -> Result<String, String> {
+pub fn hot_update_asset_url(
+    app: AppHandle,
+    request: HotUpdateArtifactPathRequest,
+) -> Result<String, String> {
     let path = artifact_path(&app, &request)?;
     if !path.is_file() {
         return Err("hot update asset is not installed".to_string());

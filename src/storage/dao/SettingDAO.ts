@@ -13,6 +13,10 @@ import {
 } from '@/services/network';
 
 const INTEGRATOR_COMPRESS_MOD_PAK_KEY = 'integrator.compressModPak';
+export const AGENT_LLM_BASE_URL_KEY = 'agent.llm.base_url';
+export const AGENT_LLM_MODEL_KEY = 'agent.llm.model';
+export const AGENT_LLM_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
+
 
 
 export interface SettingData {
@@ -113,6 +117,22 @@ export class SettingDAO {
     public async setIntegratorCompressModPak(enabled: boolean): Promise<void> {
         await this.setValue(INTEGRATOR_COMPRESS_MOD_PAK_KEY, enabled ? 'true' : 'false');
     }
+    public async getAgentLlmBaseUrl(): Promise<string> {
+        return (await this.getValue(AGENT_LLM_BASE_URL_KEY)).trim() || AGENT_LLM_DEFAULT_BASE_URL;
+    }
+
+    public async setAgentLlmBaseUrl(value: string): Promise<void> {
+        await this.setValue(AGENT_LLM_BASE_URL_KEY, value.trim());
+    }
+
+    public async getAgentLlmModel(): Promise<string> {
+        return (await this.getValue(AGENT_LLM_MODEL_KEY)).trim();
+    }
+
+    public async setAgentLlmModel(value: string): Promise<void> {
+        await this.setValue(AGENT_LLM_MODEL_KEY, value.trim());
+    }
+
 
     public async getValue(name: string): Promise<string> {
         try {

@@ -3,6 +3,7 @@ import { AppViewModel } from '@/AppViewModel';
 import { TreeViewModel } from '@/pages/HomePage/TreeViewModel';
 import { HomeViewModel } from '@/pages/HomePage/HomeViewModel';
 import { ProfileViewModel } from '@/dialogs/ProfileEditDialog/ProfileViewModel';
+import { AgentViewModel } from '@/components/AgentPanel/AgentViewModel';
 import { ProfileService } from '@/services/ProfileService';
 import {
     AuthResolver,
@@ -90,6 +91,12 @@ export function registerIoC(): void {
         async () => new HomeViewModel(),
         async (vm) => await vm.initialize()
     );
+    IoC.register(
+        AgentViewModel,
+        async () => new AgentViewModel(),
+        async (vm) => await vm.initialize()
+    );
+
 
     IoC.register(
         ProfileViewModel,

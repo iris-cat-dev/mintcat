@@ -7,6 +7,7 @@ import {
     CloudOutlined,
     EllipsisOutlined,
     PlayCircleOutlined,
+    RobotOutlined,
     SkinOutlined,
     SyncOutlined,
     UserOutlined
@@ -22,7 +23,11 @@ import { CloudBackupApi } from "@/apis/mintcat";
 import StatusBar from "./StatusBar.tsx";
 
 
-class TitleBar extends React.Component<any, any> {
+interface TitleBarProps {
+    onAgentClick: () => void;
+}
+
+class TitleBar extends React.Component<TitleBarProps, any> {
 
     private readonly userSettingDialogRef: React.RefObject<UserSettingDialog>
     private unlistenActiveGameChange: UnlistenFn | undefined;
@@ -347,6 +352,11 @@ class TitleBar extends React.Component<any, any> {
                                 <Button type={"text"} icon={<BookOutlined/>}/>
                             </Tooltip>
                         </Popover>
+                    </span>
+                    <span>
+                        <Tooltip title={t("agent.title")}>
+                            <Button type={"text"} icon={<RobotOutlined/>} onClick={this.props.onAgentClick}/>
+                        </Tooltip>
                     </span>
                     <Avatar className={"app-header-avatar tour-step-avatar"}
                             icon={<UserOutlined/>}

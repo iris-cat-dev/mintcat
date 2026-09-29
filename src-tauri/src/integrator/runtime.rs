@@ -117,7 +117,9 @@ pub async fn backend_invoke(
         .map_err(|error| error.to_string())?;
         std::thread::spawn(move || {
             let progress = crate::integrator::progress::TauriInstallProgress::new(app.clone());
-            if let Err(error) = invoke_backend_runtime_command(&app, &command, payload, Some(&progress)) {
+            if let Err(error) =
+                invoke_backend_runtime_command(&app, &command, payload, Some(&progress))
+            {
                 let _ = progress.emit(InstallEvent::Error(mintcat_integrator_api::text(format!(
                     "{error:#}"
                 ))));
@@ -126,7 +128,8 @@ pub async fn backend_invoke(
         return Ok(serde_json::json!({ "ok": true }));
     }
 
-    invoke_backend_runtime_command(&app, &command, payload, None).map_err(|error| format!("{error:#}"))
+    invoke_backend_runtime_command(&app, &command, payload, None)
+        .map_err(|error| format!("{error:#}"))
 }
 
 pub fn stop_proxy_runtime_blocking(app: &AppHandle) -> Result<()> {
