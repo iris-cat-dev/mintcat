@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": 1,
+  "moduleId": "mintcat.install",
+  "entry": "ui/index.js",
+  "css": ["ui/styles.css"],
+  "pages": [
+    {
+      "id": "mintcat.install/tasks",
+      "route": "/mintcat.install/tasks",
+      "title": "安装与打包",
+      "export": "mountInstall",
+      "stateVersion": 1
+    }
+  ],
+  "navigation": [
+    {
+      "id": "mintcat.install/navigation",
+      "pageId": "mintcat.install/tasks",
+      "order": 50,
+      "icon": "install",
+      "placement": "titlebar"
+    }
+  ],
+  "commands": [],
+  "settings": [],
+  "games": []
+}

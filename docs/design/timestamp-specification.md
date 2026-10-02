@@ -1,5 +1,7 @@
 # 时间戳处理规范
 
+> 历史规范：本文中的旧 `src/utils/TimeUtils.ts`、TypeScript 服务和兼容方法已随根目录旧源码清理移除，不再是当前依赖。当前各 CommandSpec/schema 声明的时间字段单位是合约权威；不通过恢复旧工具类或别名统一新运行时。当前边界见 [模块化运行时架构](modular-runtime-architecture.md)。
+
 ## 概述
 
 本文档定义了 MintCat 项目中统一的时间戳处理规范，解决了历史代码中时间单位混乱、转换分散、缺乏类型安全等问题。

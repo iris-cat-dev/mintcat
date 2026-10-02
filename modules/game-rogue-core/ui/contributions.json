@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": 1,
+  "moduleId": "mintcat.game.rogue-core",
+  "entry": "ui/index.js",
+  "css": [],
+  "pages": [
+    {
+      "id": "mintcat.game.rogue-core/settings",
+      "route": "/mintcat.game.rogue-core/settings",
+      "title": "Rogue Core 游戏设置",
+      "export": "mountGameSettings",
+      "stateVersion": 1
+    }
+  ],
+  "navigation": [
+    {
+      "id": "mintcat.game.rogue-core/navigation",
+      "pageId": "mintcat.game.rogue-core/settings",
+      "order": 31,
+      "icon": "settings",
+      "placement": "settings"
+    }
+  ],
+  "commands": [],
+  "settings": [],
+  "games": [
+    {
+      "gameId": "game:rogue-core",
+      "displayName": "Deep Rock Galactic: Rogue Core",
+      "adapterContract": "mintcat.game-adapter@2"
+    }
+  ]
+}

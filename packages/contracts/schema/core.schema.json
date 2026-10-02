@@ -1,0 +1,4520 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mintcat.work/contracts/core.schema.json",
+  "title": "Mintcat Core Application Contracts",
+  "$defs": {
+    "Identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "Digest": {
+      "type": "string",
+      "minLength": 71,
+      "maxLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "PackageVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "PackageSchemaVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "ContractVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "DataSchemaVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "JsonRpcId": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        {
+          "type": "integer",
+          "minimum": 0
+        }
+      ]
+    },
+    "RecoveryAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "arguments"
+      ],
+      "properties": {
+        "command": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "arguments": {
+          "type": "object"
+        }
+      }
+    },
+    "AppError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "messageKey",
+        "details",
+        "requestId",
+        "retryable",
+        "recoveryActions"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "messageKey": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "details": {
+          "type": "object"
+        },
+        "requestId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "jobId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "recoveryActions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RecoveryAction"
+          }
+        }
+      }
+    },
+    "JsonRpcRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jsonrpc",
+        "id",
+        "method",
+        "contractVersion",
+        "sessionGeneration",
+        "deadlineMs",
+        "params"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0",
+          "type": "string"
+        },
+        "id": {
+          "$ref": "#/$defs/JsonRpcId"
+        },
+        "method": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contractVersion": {
+          "$ref": "#/$defs/ContractVersion"
+        },
+        "sessionGeneration": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "deadlineMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400000
+        },
+        "idempotencyKey": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "params": {
+          "type": "object"
+        }
+      }
+    },
+    "JsonRpcResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jsonrpc",
+        "id"
+      ],
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0",
+          "type": "string"
+        },
+        "id": {
+          "$ref": "#/$defs/JsonRpcId"
+        },
+        "result": {},
+        "error": {
+          "$ref": "#/$defs/AppError"
+        }
+      }
+    },
+    "JobRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jobId"
+      ],
+      "properties": {
+        "jobId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "JobState": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "preparing",
+        "awaiting-approval",
+        "running",
+        "committing",
+        "succeeded",
+        "cancelling",
+        "cancelled",
+        "failed",
+        "recovery-required"
+      ]
+    },
+    "JobEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jobId",
+        "seq",
+        "generationId",
+        "phase",
+        "state"
+      ],
+      "properties": {
+        "jobId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "phase": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "state": {
+          "$ref": "#/$defs/JobState"
+        },
+        "completedUnits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "totalUnits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "messageKey": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "details": {
+          "type": "object"
+        }
+      }
+    },
+    "JobSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jobId",
+        "command",
+        "state",
+        "generationId",
+        "lastSeq",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "jobId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "command": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "state": {
+          "$ref": "#/$defs/JobState"
+        },
+        "generationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "lastSeq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "createdAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "updatedAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {},
+        "error": {
+          "$ref": "#/$defs/AppError"
+        }
+      }
+    },
+    "JobEventPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "snapshot",
+        "events",
+        "nextAfterSeq",
+        "retentionStartSeq",
+        "resetRequired"
+      ],
+      "properties": {
+        "snapshot": {
+          "$ref": "#/$defs/JobSnapshot"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JobEvent"
+          }
+        },
+        "nextAfterSeq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retentionStartSeq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resetRequired": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ActionState": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "expired",
+        "consumed"
+      ]
+    },
+    "ActionRequired": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actionId",
+        "revision",
+        "kind",
+        "state",
+        "operationId",
+        "target",
+        "targetRevision",
+        "planHash",
+        "moduleLockDigest",
+        "expiresAt",
+        "responseSchema"
+      ],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kind": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "state": {
+          "$ref": "#/$defs/ActionState"
+        },
+        "operationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "target": {
+          "type": "object"
+        },
+        "targetRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "planHash": {
+          "$ref": "#/$defs/Digest"
+        },
+        "moduleLockDigest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "expiresAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "responseSchema": {
+          "type": "object"
+        }
+      }
+    },
+    "ModRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "remoteGameKey",
+        "remoteModId"
+      ],
+      "properties": {
+        "sourceId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "remoteGameKey": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "remoteModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "versionId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "remoteFileId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ProfileRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "revision",
+        "contentRevision"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contentRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ProfileModRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "profileModId",
+        "incarnationId",
+        "expectedContentRevision"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "incarnationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ArtifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "digest",
+        "size",
+        "verified"
+      ],
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "verified": {
+          "type": "boolean"
+        },
+        "mediaType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "DownloadMode": {
+      "type": "string",
+      "enum": [
+        "cache-only",
+        "prepare-and-apply"
+      ]
+    },
+    "OperationFence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationId",
+        "resourceKey",
+        "fenceEpoch",
+        "ownerGeneration",
+        "expectedContentRevision",
+        "targetIncarnationId"
+      ],
+      "properties": {
+        "operationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "resourceKey": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "fenceEpoch": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ownerGeneration": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "targetIncarnationId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "SignatureAlgorithm": {
+      "type": "string",
+      "enum": [
+        "ed25519"
+      ]
+    },
+    "ModuleSignature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "publisher",
+        "keyId",
+        "algorithm",
+        "signature"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "$ref": "#/$defs/PackageSchemaVersion"
+        },
+        "publisher": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "keyId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "algorithm": {
+          "$ref": "#/$defs/SignatureAlgorithm"
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "ArtifactGrantAccess": {
+      "type": "string",
+      "enum": [
+        "read"
+      ]
+    },
+    "ArtifactGrantDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "grantId",
+        "digest",
+        "size",
+        "path",
+        "access"
+      ],
+      "properties": {
+        "grantId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "access": {
+          "$ref": "#/$defs/ArtifactGrantAccess"
+        }
+      }
+    },
+    "WorkerRequestKind": {
+      "type": "string",
+      "enum": [
+        "health",
+        "invoke",
+        "shutdown"
+      ]
+    },
+    "WorkerHello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocolVersion",
+        "instanceId",
+        "moduleId",
+        "moduleVersion",
+        "moduleDigest",
+        "provides"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "instanceId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "moduleId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "moduleVersion": {
+          "$ref": "#/$defs/PackageVersion"
+        },
+        "moduleDigest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "provides": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProvidedContract"
+          }
+        }
+      }
+    },
+    "WorkerHostHello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocolVersion",
+        "generationId",
+        "accepted"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "generationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    },
+    "WorkerRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "params",
+        "grants"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "kind": {
+          "$ref": "#/$defs/WorkerRequestKind"
+        },
+        "contractId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contractVersion": {
+          "$ref": "#/$defs/ContractVersion"
+        },
+        "method": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "params": {
+          "type": "object"
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ArtifactGrantDescriptor"
+          }
+        }
+      }
+    },
+    "WorkerResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "ok"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "result": {},
+        "error": {
+          "$ref": "#/$defs/AppError"
+        }
+      }
+    },
+    "ModuleComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "entry",
+        "runtime",
+        "stateModel"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "service",
+            "ui",
+            "resource",
+            "native"
+          ]
+        },
+        "entry": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime": {
+          "type": "string",
+          "enum": [
+            "worker",
+            "native-library",
+            "mintcat.proxy-service/1",
+            "webview",
+            "data",
+            "payload"
+          ]
+        },
+        "stateModel": {
+          "type": "string",
+          "enum": [
+            "stateless",
+            "single-writer",
+            "daemon-owned"
+          ]
+        }
+      }
+    },
+    "ProvidedContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractId",
+        "version"
+      ],
+      "properties": {
+        "contractId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cardinality": {
+          "type": "string",
+          "enum": [
+            "single",
+            "singleton",
+            "multi"
+          ]
+        }
+      }
+    },
+    "RequiredContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractId",
+        "versionRange",
+        "optional"
+      ],
+      "properties": {
+        "contractId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "versionRange": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "bindingScope": {
+          "type": "string",
+          "enum": [
+            "platform",
+            "consumer",
+            "game",
+            "feature"
+          ]
+        }
+      }
+    },
+    "PermissionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capability",
+        "scope"
+      ],
+      "properties": {
+        "capability": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "ModuleFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "size",
+        "sha256",
+        "executable"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "$ref": "#/$defs/Digest"
+        },
+        "executable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ModuleState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "readableRange",
+        "writableRange"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "$ref": "#/$defs/DataSchemaVersion"
+        },
+        "readableRange": {
+          "type": "string",
+          "minLength": 1
+        },
+        "writableRange": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rollbackBeforeWriteOnly": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ModuleActivation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trigger",
+        "drainPolicy"
+      ],
+      "properties": {
+        "trigger": {
+          "type": "string",
+          "enum": [
+            "on-demand",
+            "startup"
+          ]
+        },
+        "drainPolicy": {
+          "type": "string",
+          "enum": [
+            "immediate",
+            "finish-requests",
+            "safe-point"
+          ]
+        }
+      }
+    },
+    "ModuleManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "version",
+        "publisher",
+        "target",
+        "hostApi",
+        "components",
+        "provides",
+        "requires",
+        "permissions",
+        "contributes",
+        "state",
+        "activation",
+        "files"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "$ref": "#/$defs/PackageSchemaVersion"
+        },
+        "id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "version": {
+          "$ref": "#/$defs/PackageVersion"
+        },
+        "publisher": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "hostApi": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModuleComponent"
+          }
+        },
+        "provides": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProvidedContract"
+          }
+        },
+        "requires": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RequiredContract"
+          }
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PermissionRequest"
+          }
+        },
+        "contributes": {
+          "type": "object"
+        },
+        "state": {
+          "$ref": "#/$defs/ModuleState"
+        },
+        "activation": {
+          "$ref": "#/$defs/ModuleActivation"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModuleFile"
+          }
+        }
+      }
+    },
+    "ScopedProviderBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scopeId",
+        "contractId",
+        "contractVersion",
+        "providerModuleId",
+        "providerDigest"
+      ],
+      "properties": {
+        "scopeId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contractId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contractVersion": {
+          "$ref": "#/$defs/ContractVersion"
+        },
+        "providerModuleId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "providerDigest": {
+          "$ref": "#/$defs/Digest"
+        }
+      }
+    },
+    "ReleasePackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleId",
+        "version",
+        "target",
+        "digest",
+        "schemaVersion"
+      ],
+      "properties": {
+        "moduleId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "version": {
+          "$ref": "#/$defs/PackageVersion"
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/PackageSchemaVersion"
+        }
+      }
+    },
+    "ScopeReleaseSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "scopeId",
+        "releaseId",
+        "sequence",
+        "channel",
+        "target",
+        "minHostApi",
+        "packages",
+        "providerBindings",
+        "singletonRequirements",
+        "signatureMetadataRef"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "$ref": "#/$defs/PackageSchemaVersion"
+        },
+        "scopeId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "releaseId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "channel": {
+          "type": "string",
+          "enum": [
+            "stable",
+            "beta",
+            "alpha"
+          ]
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minHostApi": {
+          "type": "string",
+          "minLength": 1
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReleasePackage"
+          }
+        },
+        "providerBindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ScopedProviderBinding"
+          }
+        },
+        "singletonRequirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RequiredContract"
+          }
+        },
+        "signatureMetadataRef": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ScopeLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scopeId",
+        "releaseId",
+        "scopeRevision",
+        "sequence"
+      ],
+      "properties": {
+        "scopeId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "releaseId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "scopeRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "EnvironmentLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "generationId",
+        "createdAt",
+        "scopes",
+        "packages",
+        "providerBindings"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "$ref": "#/$defs/PackageSchemaVersion"
+        },
+        "generationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "createdAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ScopeLock"
+          }
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReleasePackage"
+          }
+        },
+        "providerBindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ScopedProviderBinding"
+          }
+        }
+      }
+    },
+    "SystemStatusParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "SystemStatusResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "daemonVersion",
+        "hostApi",
+        "generationId",
+        "dataDir",
+        "ready"
+      ],
+      "properties": {
+        "daemonVersion": {
+          "$ref": "#/$defs/PackageVersion"
+        },
+        "hostApi": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "dataDir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ready": {
+          "type": "boolean"
+        }
+      }
+    },
+    "DoctorCheckStatus": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "warning",
+        "error"
+      ]
+    },
+    "DoctorCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "status",
+        "message"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "status": {
+          "$ref": "#/$defs/DoctorCheckStatus"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    },
+    "SystemDoctorParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "SystemDoctorResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "healthy",
+        "checks"
+      ],
+      "properties": {
+        "healthy": {
+          "type": "boolean"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DoctorCheck"
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "GamesListParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pageSize"
+      ],
+      "properties": {
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "InstallationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "installationId",
+        "state",
+        "incarnationId"
+      ],
+      "properties": {
+        "installationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "rootPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "state": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "incarnationId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "GameSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gameId",
+        "gameKey",
+        "displayName",
+        "active",
+        "installations"
+      ],
+      "properties": {
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "gameKey": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "installations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InstallationSummary"
+          }
+        }
+      }
+    },
+    "GamesListResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GameSummary"
+          }
+        },
+        "nextCursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "ProfilesListParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gameId",
+        "pageSize"
+      ],
+      "properties": {
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "ProfileSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "gameId",
+        "name",
+        "displayName",
+        "active",
+        "description",
+        "revision",
+        "contentRevision",
+        "incarnationId"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "incarnationId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ProfilesListResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProfileSummary"
+          }
+        },
+        "nextCursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "ProfilesContentStateParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "TransferState": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "downloading",
+        "verifying",
+        "publishing",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "DownloadOverlayItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileModId",
+        "incarnationId",
+        "resolvedVersion",
+        "verified"
+      ],
+      "properties": {
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "incarnationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "resolvedVersion": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "pendingSelection": {
+          "$ref": "#/$defs/VersionSelection"
+        },
+        "verified": {
+          "type": "boolean"
+        },
+        "transferId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "transferSeq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "transferPhase": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "transferState": {
+          "$ref": "#/$defs/TransferState"
+        },
+        "downloadedBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "totalBytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "DownloadOverlay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationId",
+        "mode",
+        "state",
+        "phase",
+        "completedUnits",
+        "totalUnits",
+        "items"
+      ],
+      "properties": {
+        "operationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "jobId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "mode": {
+          "$ref": "#/$defs/DownloadMode"
+        },
+        "state": {
+          "$ref": "#/$defs/JobState"
+        },
+        "phase": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "completedUnits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "totalUnits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DownloadOverlayItem"
+          }
+        }
+      }
+    },
+    "ProfilesContentStateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "contentRevision",
+        "writable",
+        "recoveryRequired",
+        "operations"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "writable": {
+          "type": "boolean"
+        },
+        "busyOperationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "recoveryRequired": {
+          "type": "boolean"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DownloadOverlay"
+          }
+        }
+      }
+    },
+    "ProfilesCreateParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gameId",
+        "name"
+      ],
+      "properties": {
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "active": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ProfilesUpdateParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "expectedRevision"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      }
+    },
+    "ProfilesActivateParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gameId",
+        "profileId",
+        "expectedRevision"
+      ],
+      "properties": {
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ProfilesDeleteParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "expectedRevision"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ProfilesCloneParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceProfileId",
+        "expectedContentRevision",
+        "name"
+      ],
+      "properties": {
+        "sourceProfileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "active": {
+          "type": "boolean"
+        }
+      }
+    },
+    "LibraryMutationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationId",
+        "profileId",
+        "revision",
+        "contentRevision",
+        "changed"
+      ],
+      "properties": {
+        "operationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "changed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "GroupsListParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "GroupSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "groupId",
+        "profileId",
+        "name",
+        "groupType",
+        "sortOrder",
+        "expanded"
+      ],
+      "properties": {
+        "groupId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "parentGroupId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "groupType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "sortOrder": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expanded": {
+          "type": "boolean"
+        }
+      }
+    },
+    "GroupsListResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "contentRevision",
+        "items"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GroupSummary"
+          }
+        }
+      }
+    },
+    "GroupsCreateParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "expectedContentRevision",
+        "name",
+        "groupType",
+        "position"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parentGroupId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "groupType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "position": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expanded": {
+          "type": "boolean"
+        }
+      }
+    },
+    "GroupsUpdateParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "groupId",
+        "expectedContentRevision"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "groupId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "expanded": {
+          "type": "boolean"
+        }
+      }
+    },
+    "GroupsMoveParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "groupId",
+        "expectedContentRevision",
+        "position"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "groupId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parentGroupId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "position": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "GroupsDeleteParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "groupId",
+        "expectedContentRevision"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "groupId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ModsListParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "pageSize"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "query": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "sourceId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "groupId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ModSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileModId",
+        "incarnationId",
+        "modId",
+        "mod",
+        "displayName",
+        "tags",
+        "approvalStatus",
+        "entityRevision",
+        "enabled",
+        "sortOrder",
+        "versionSelection"
+      ],
+      "properties": {
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "incarnationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "modId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "mod": {
+          "$ref": "#/$defs/ModRef"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "approvalStatus": {
+          "type": "string"
+        },
+        "entityRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "sortOrder": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "groupId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "versionSelection": {
+          "$ref": "#/$defs/VersionSelection"
+        },
+        "currentVersionId": {
+          "$ref": "#/$defs/Identifier",
+          "description": "Known current Library metadata; not evidence that this version is verified or applied to the profile."
+        },
+        "appliedVersionId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ModsListResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "contentRevision",
+        "total",
+        "items"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModSummary"
+          }
+        },
+        "nextCursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "ModsGetParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "profileModId"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ModVersionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "versionId",
+        "availability",
+        "current",
+        "fileSize"
+      ],
+      "properties": {
+        "versionId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "remoteFileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "artifactDigest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "availability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "current": {
+          "type": "boolean"
+        },
+        "fileSize": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ModDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "versions"
+      ],
+      "properties": {
+        "summary": {
+          "$ref": "#/$defs/ModSummary"
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModVersionSummary"
+          }
+        }
+      }
+    },
+    "ModsRenameParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modId",
+        "displayName",
+        "expectedEntityRevision",
+        "scope"
+      ],
+      "properties": {
+        "modId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "expectedEntityRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "shared"
+          ]
+        }
+      }
+    },
+    "ModEntityResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationId",
+        "modId",
+        "entityRevision",
+        "changed"
+      ],
+      "properties": {
+        "operationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "modId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "entityRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "changed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ModsSetEnabledParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "profileModId",
+        "expectedContentRevision",
+        "enabled"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ModsSetEnabledBatchParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "profileModIds",
+        "expectedContentRevision",
+        "enabled"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileModIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 500,
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ModsMoveParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "profileModId",
+        "expectedContentRevision",
+        "position"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "groupId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "position": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ModsRemoveParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "profileModId",
+        "expectedContentRevision"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ModsCleanupMissingParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gameId",
+        "profileId",
+        "expectedContentRevision"
+      ],
+      "properties": {
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "VersionSelectionKind": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "pinned"
+      ]
+    },
+    "VersionSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/VersionSelectionKind"
+        },
+        "versionId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ModsSetVersionParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "profileModId",
+        "incarnationId",
+        "expectedContentRevision",
+        "selection",
+        "mode"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "incarnationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "selection": {
+          "$ref": "#/$defs/VersionSelection"
+        },
+        "mode": {
+          "$ref": "#/$defs/DownloadMode"
+        }
+      }
+    },
+    "JobsGetParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jobId"
+      ],
+      "properties": {
+        "jobId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "JobsWatchParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jobId",
+        "afterSeq"
+      ],
+      "properties": {
+        "jobId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "afterSeq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      }
+    },
+    "JobsCancelParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jobId",
+        "expectedRevision"
+      ],
+      "properties": {
+        "jobId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ActionsGetParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actionId"
+      ],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ActionsApproveParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actionId",
+        "expectedRevision",
+        "response"
+      ],
+      "properties": {
+        "actionId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "response": {
+          "type": "object"
+        }
+      }
+    },
+    "ActionsRejectParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "expectedRevision", "reason"],
+      "properties": {
+        "actionId": { "$ref": "#/$defs/Identifier" },
+        "expectedRevision": { "type": "integer", "minimum": 0 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ModulesInspectParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleId"
+      ],
+      "properties": {
+        "moduleId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ModuleInspectResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest",
+        "status"
+      ],
+      "properties": {
+        "manifest": {
+          "$ref": "#/$defs/ModuleManifest"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "installed",
+            "active",
+            "blocked",
+            "failed",
+            "draining"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      }
+    },
+    "InstallPlanParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "revision",
+        "contentRevision",
+        "gameId",
+        "installationId",
+        "options"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "installationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "options": {
+          "type": "object"
+        }
+      }
+    },
+    "InstallApplyParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "planId",
+        "planHash",
+        "approvalRef"
+      ],
+      "properties": {
+        "planId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "planHash": {
+          "$ref": "#/$defs/Digest"
+        },
+        "approvalRef": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "InstallUninstallParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "installationId",
+        "receiptId",
+        "revision"
+      ],
+      "properties": {
+        "installationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "receiptId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "UpdatesActivateParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationId"
+      ],
+      "properties": {
+        "operationId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "SourceSearchParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "gameId",
+        "query"
+      ],
+      "properties": {
+        "sourceId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "query": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "cursor": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "remoteGameKey": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "SourceSearchItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "displayName",
+        "reference"
+      ],
+      "properties": {
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "reference": {
+          "$ref": "#/$defs/ModRef"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "profileUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "logoUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "SourceSearchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SourceSearchItem"
+          }
+        },
+        "nextCursor": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ModsAddParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "reference",
+        "expectedContentRevision"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "reference": {
+          "$ref": "#/$defs/ModRef"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ModsImportLocalParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "remoteGameKey",
+        "inputKind",
+        "expectedContentRevision"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "remoteGameKey": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "inputKind": {
+          "type": "string",
+          "enum": [
+            "file",
+            "directory"
+          ]
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "SettingsScope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "global"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "gameId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "game"
+            },
+            "gameId": {
+              "$ref": "#/$defs/Identifier"
+            }
+          }
+        }
+      ]
+    },
+    "SettingsGetParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "section"
+      ],
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/SettingsScope"
+        },
+        "section": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "SettingsUpdateParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "section",
+        "values",
+        "expectedRevision"
+      ],
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/SettingsScope"
+        },
+        "section": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "values": {
+          "type": "object"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "SettingsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "values",
+        "revision"
+      ],
+      "properties": {
+        "values": {
+          "type": "object"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ModulesListParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {}
+    },
+    "GameInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gameId",
+        "displayName",
+        "descriptor"
+      ],
+      "properties": {
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "descriptor": {
+          "type": "object"
+        }
+      }
+    },
+    "ModuleInventoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleId",
+        "digest",
+        "enabled"
+      ],
+      "properties": {
+        "moduleId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "game": {
+          "$ref": "#/$defs/GameInventory"
+        }
+      }
+    },
+    "ModuleInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generationId",
+        "modules"
+      ],
+      "properties": {
+        "generationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModuleInventoryEntry"
+          }
+        }
+      }
+    },
+    "ModulesSetEnabledParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleId",
+        "enabled",
+        "expectedGenerationId"
+      ],
+      "properties": {
+        "moduleId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "expectedGenerationId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ModsPackParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "revision",
+        "contentRevision",
+        "gameId",
+        "installationId",
+        "options"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "installationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "options": {
+          "type": "object"
+        }
+      }
+    },
+    "UpdatesStageParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scopeId",
+        "channel",
+        "expectedScopeRevision"
+      ],
+      "properties": {
+        "scopeId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "channel": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedScopeRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "repositoryPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "repositoryUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "UpdatesOperationParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationId"
+      ],
+      "properties": {
+        "operationId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "UpdatesRollbackParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationId"
+      ],
+      "properties": {
+        "operationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "UpdatesOperationsParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {}
+    },
+    "UpdatesOperationsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operations",
+        "recoveryReason",
+        "scopeBlockers"
+      ],
+      "properties": {
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "recoveryReason": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scopeBlockers": {
+          "type": "object"
+        }
+      }
+    },
+    "UpdatesChannelParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scopeId",
+        "channel",
+        "expectedScopeRevision"
+      ],
+      "properties": {
+        "scopeId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "channel": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedScopeRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "UpdatesGcParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {}
+    },
+    "UpdatesGcResult": {
+      "type": "object"
+    },
+    "UiSessionOpenParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessionId",
+        "generationId"
+      ],
+      "properties": {
+        "sessionId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "generationId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "UiSessionOpenResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessionId",
+        "generationId",
+        "leaseId"
+      ],
+      "properties": {
+        "sessionId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "generationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "leaseId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "UiSessionCloseParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessionId"
+      ],
+      "properties": {
+        "sessionId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "UiSessionCloseResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "closed"
+      ],
+      "properties": {
+        "closed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "UiPrepareParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessionId"
+      ],
+      "properties": {
+        "sessionId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "UiBarrier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "barrierId",
+        "affectedModuleIds",
+        "scopeId",
+        "expectedGenerationId",
+        "newGenerationId",
+        "runtimeChanged",
+        "participants"
+      ],
+      "properties": {
+        "barrierId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "affectedModuleIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        },
+        "scopeId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedGenerationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "newGenerationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "runtimeChanged": {
+          "type": "boolean"
+        },
+        "participants": {
+          "type": "object"
+        }
+      }
+    },
+    "UiPrepareResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "barriers"
+      ],
+      "properties": {
+        "barriers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UiBarrier"
+          }
+        }
+      }
+    },
+    "UiAckParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "barrierId",
+        "sessionId",
+        "stage"
+      ],
+      "properties": {
+        "barrierId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "deferred",
+            "disposed",
+            "ready",
+            "failed",
+            "rebuild-required"
+          ]
+        },
+        "state": {},
+        "error": {
+          "type": "string"
+        },
+        "rebuilt": {
+          "type": "boolean"
+        }
+      }
+    },
+    "UiAckResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "acknowledged"
+      ],
+      "properties": {
+        "acknowledged": {
+          "type": "boolean"
+        }
+      }
+    },
+    "AgentConfiguration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "baseUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "credentialRef": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "baseUrl",
+        "model"
+      ]
+    },
+    "AgentSessionTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "installationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "installationRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "gameId",
+        "profileId",
+        "profileRevision",
+        "contentRevision",
+        "installationId",
+        "installationRevision"
+      ]
+    },
+    "AgentTimelineItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "user",
+            "assistant",
+            "tool",
+            "error"
+          ]
+        },
+        "content": {
+          "type": "string"
+        },
+        "toolName": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "content"
+      ]
+    },
+    "AgentTaskBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "jobId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "actionId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": []
+    },
+    "AgentSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sessionId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "sending",
+            "failed"
+          ]
+        },
+        "configuration": {
+          "$ref": "#/$defs/AgentConfiguration"
+        },
+        "target": {
+          "$ref": "#/$defs/AgentSessionTarget"
+        },
+        "timeline": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AgentTimelineItem"
+          }
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AgentTaskBinding"
+          }
+        },
+        "errorCode": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "sessionId",
+        "revision",
+        "state",
+        "configuration",
+        "target",
+        "timeline",
+        "bindings"
+      ]
+    },
+    "AgentSessionsCreateParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "$ref": "#/$defs/AgentConfiguration"
+        },
+        "target": {
+          "$ref": "#/$defs/AgentSessionTarget"
+        }
+      },
+      "required": [
+        "configuration",
+        "target"
+      ]
+    },
+    "AgentSessionsGetParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sessionId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "sessionId"
+      ]
+    },
+    "AgentSessionsSendParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sessionId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32768
+        }
+      },
+      "required": [
+        "sessionId",
+        "expectedRevision",
+        "content"
+      ]
+    },
+    "AgentSessionsDeleteParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sessionId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "sessionId",
+        "expectedRevision"
+      ]
+    },
+    "AgentSessionsDeleteResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deleted": {
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "deleted"
+      ]
+    },
+    "ProxyStatusParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "ProxyStopParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "ProxyIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "moduleDigest",
+        "moduleVersion",
+        "instanceId"
+      ],
+      "properties": {
+        "protocol": {
+          "type": "string"
+        },
+        "moduleDigest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "moduleVersion": {
+          "type": "string"
+        },
+        "instanceId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ProxyStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "running",
+        "identity",
+        "address",
+        "pid"
+      ],
+      "properties": {
+        "running": {
+          "type": "boolean"
+        },
+        "identity": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ProxyIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "address": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pid": {
+          "minimum": 1,
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ProxyStartParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "digest",
+        "options"
+      ],
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "options": {
+          "$ref": "#/$defs/ProxyStartOptions"
+        }
+      }
+    },
+    "ProxyStartOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "port",
+        "offline",
+        "bind"
+      ],
+      "properties": {
+        "port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "offline": {
+          "type": "boolean"
+        },
+        "bind": {
+          "type": "string",
+          "enum": [
+            "127.0.0.1",
+            "::1"
+          ]
+        }
+      }
+    },
+    "ProxyPrivilegeParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "digest",
+        "operation"
+      ],
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "operation": {
+          "$ref": "#/$defs/ProxyPrivilegeOperation"
+        }
+      }
+    },
+    "ProxyPrivilegeOperation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operation"
+          ],
+          "properties": {
+            "operation": {
+              "type": "string",
+              "enum": [
+                "create-credentials",
+                "install-certificate",
+                "remove-certificate",
+                "apply-hosts",
+                "cleanup-hosts"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operation",
+            "port"
+          ],
+          "properties": {
+            "operation": {
+              "const": "authorize-listen-port"
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1023
+            }
+          }
+        }
+      ]
+    },
+    "BackupExportParams": {
+      "type": "object",
+      "properties": {
+        "targetPath": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "targetPath"
+      ],
+      "additionalProperties": false
+    },
+    "BackupRestoreParams": {
+      "type": "object",
+      "properties": {
+        "sourcePath": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "sourcePath"
+      ],
+      "additionalProperties": false
+    },
+    "BackupRecoverParams": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "BackupCloudListParams": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "BackupCloudDownloadParams": {
+      "type": "object",
+      "properties": {
+        "backupId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "targetPath": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "backupId",
+        "targetPath"
+      ],
+      "additionalProperties": false
+    },
+    "LibraryImportLegacyParams": {
+      "type": "object",
+      "properties": {
+        "sourcePath": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "sourcePath"
+      ],
+      "additionalProperties": false
+    },
+    "LibraryConfigImportParams": {
+      "type": "object",
+      "properties": {
+        "sourcePath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "backup",
+            "legacy-sqlite"
+          ]
+        }
+      },
+      "required": [
+        "sourcePath",
+        "format"
+      ],
+      "additionalProperties": false
+    },
+    "BackupModuleVersion": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schemaVersion": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "version",
+        "schemaVersion"
+      ],
+      "additionalProperties": false
+    },
+    "BackupManifest": {
+      "type": "object",
+      "properties": {
+        "formatVersion": {
+          "const": 2
+        },
+        "ownerId": {
+          "const": "mintcat.backup.portable"
+        },
+        "ownerSchemaVersion": {
+          "const": 2
+        },
+        "moduleVersions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/BackupModuleVersion"
+          }
+        },
+        "credentialPolicy": {
+          "const": "references-only-reauthenticate-on-import"
+        },
+        "contentDigest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "contentSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "consistency": {
+          "const": "per-owner-logical-snapshots-under-common-maintenance-admission"
+        },
+        "ownerSchemas": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 1 }
+        },
+        "excludedAuthority": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "required": [
+        "formatVersion",
+        "ownerId",
+        "ownerSchemaVersion",
+        "moduleVersions",
+        "credentialPolicy",
+        "contentDigest",
+        "contentSize",
+        "consistency",
+        "ownerSchemas",
+        "excludedAuthority"
+      ],
+      "additionalProperties": false
+    },
+    "BackupCounts": {
+      "type": "object",
+      "properties": {
+        "games": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "installations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "profiles": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "groups": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mods": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "versions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "profileMods": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "settings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "credentials": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "legacyInstallHints": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "games",
+        "installations",
+        "profiles",
+        "groups",
+        "mods",
+        "versions",
+        "profileMods",
+        "settings",
+        "credentials",
+        "legacyInstallHints"
+      ],
+      "additionalProperties": false
+    },
+    "BackupResult": {
+      "type": "object",
+      "properties": {
+        "manifest": {
+          "$ref": "#/$defs/BackupManifest"
+        },
+        "counts": {
+          "$ref": "#/$defs/BackupCounts"
+        }
+      },
+      "required": [
+        "manifest",
+        "counts"
+      ],
+      "additionalProperties": false
+    },
+    "BackupRecoverResult": {
+      "type": "object",
+      "properties": {
+        "recovered": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "recovered"
+      ],
+      "additionalProperties": false
+    },
+    "BackupCloudMetadata": {
+      "type": "object",
+      "properties": {
+        "createdAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "checksum": {
+          "type": "string"
+        },
+        "appVersion": {
+          "type": "string"
+        },
+        "schemaVersion": {
+          "type": "string"
+        },
+        "deviceId": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "createdAt",
+        "size"
+      ],
+      "additionalProperties": false
+    },
+    "BackupCloudUploadParams": {
+      "type": "object",
+      "properties": {
+        "metadata": {
+          "$ref": "#/$defs/BackupCloudMetadata"
+        }
+      },
+      "required": [
+        "metadata"
+      ],
+      "additionalProperties": false
+    },
+    "BackupCloudRecord": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "createdAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "checksum": {
+          "type": "string"
+        },
+        "appVersion": {
+          "type": "string"
+        },
+        "schemaVersion": {
+          "type": "string"
+        },
+        "deviceId": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "createdAt",
+        "size"
+      ],
+      "additionalProperties": false
+    },
+    "BackupCloudListResult": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BackupCloudRecord"
+      }
+    },
+    "LegacyImportReport": {
+      "type": "object",
+      "properties": {
+        "sourceDigest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "alreadyImported": {
+          "type": "boolean"
+        },
+        "counts": {
+          "$ref": "#/$defs/BackupCounts"
+        },
+        "importedCredentials": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "sourceDigest",
+        "alreadyImported",
+        "counts",
+        "importedCredentials",
+        "warnings"
+      ],
+      "additionalProperties": false
+    },
+    "LibraryConfigImportResult": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/BackupResult"
+        },
+        {
+          "$ref": "#/$defs/LegacyImportReport"
+        }
+      ]
+    },
+    "BackupImportApprovalResponse": {
+      "type": "object",
+      "properties": {
+        "approved": {
+          "const": true
+        },
+        "importCredentials": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "approved",
+        "importCredentials"
+      ],
+      "additionalProperties": false
+    },
+    "GamesRegisterParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gameId",
+        "rootPath",
+        "variantId"
+      ],
+      "properties": {
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "rootPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "variantId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "EnrolledInstallation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "installationId",
+        "gameId",
+        "rootPath",
+        "state",
+        "incarnationId",
+        "createdAtMs",
+        "updatedAtMs"
+      ],
+      "properties": {
+        "installationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "rootPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "configured",
+            "unresolved"
+          ]
+        },
+        "incarnationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "createdAtMs": {
+          "type": "integer"
+        },
+        "updatedAtMs": {
+          "type": "integer"
+        }
+      }
+    },
+    "GamesRegisterResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gameId",
+        "definitionRevision",
+        "installation"
+      ],
+      "properties": {
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "definitionRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "installation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnrolledInstallation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "GamesDiscoverParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gameId"
+      ],
+      "properties": {
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "roots": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rootPath",
+              "variantId"
+            ],
+            "properties": {
+              "rootPath": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "variantId": {
+                "$ref": "#/$defs/Identifier"
+              }
+            }
+          }
+        },
+        "includeSteam": {
+          "type": "boolean"
+        }
+      }
+    },
+    "GameInstallationCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gameId",
+        "variantId",
+        "rootPath",
+        "mainPakPath",
+        "confidence",
+        "evidence"
+      ],
+      "properties": {
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "variantId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "rootPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "mainPakPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "user-selected",
+            "store-manifest",
+            "layout-match"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "GamesDiscoverResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GameInstallationCandidate"
+          }
+        }
+      }
+    },
+    "UiArtifactsAuthorityParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expectedGenerationId"
+      ],
+      "properties": {
+        "expectedGenerationId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "UiAdmittedPackageRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest",
+        "signature",
+        "digest",
+        "length",
+        "recordDigest"
+      ],
+      "properties": {
+        "manifest": {
+          "$ref": "#/$defs/ModuleManifest"
+        },
+        "signature": {
+          "$ref": "#/$defs/ModuleSignature"
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recordDigest": {
+          "$ref": "#/$defs/Digest"
+        }
+      }
+    },
+    "UiRootHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "schemaVersion",
+        "version",
+        "expires"
+      ],
+      "properties": {
+        "kind": {
+          "const": "root",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expires": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "UiRootRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keyIds",
+        "threshold"
+      ],
+      "properties": {
+        "keyIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        },
+        "threshold": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "UiFrozenRootMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "header",
+        "keys",
+        "roles",
+        "publishers"
+      ],
+      "properties": {
+        "header": {
+          "$ref": "#/$defs/UiRootHeader"
+        },
+        "keys": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "roles": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/UiRootRole"
+          }
+        },
+        "publishers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "UiMetadataSignature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keyId",
+        "signature"
+      ],
+      "properties": {
+        "keyId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "UiFrozenVerifiedRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signed",
+        "signatures"
+      ],
+      "properties": {
+        "signed": {
+          "$ref": "#/$defs/UiFrozenRootMetadata"
+        },
+        "signatures": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/UiMetadataSignature"
+          }
+        }
+      }
+    },
+    "UiArtifactBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleId",
+        "digest",
+        "package",
+        "verifiedRoot"
+      ],
+      "properties": {
+        "moduleId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "package": {
+          "$ref": "#/$defs/UiAdmittedPackageRecord"
+        },
+        "verifiedRoot": {
+          "$ref": "#/$defs/UiFrozenVerifiedRoot"
+        }
+      }
+    },
+    "UiArtifactsAuthorityResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generationId",
+        "modules"
+      ],
+      "properties": {
+        "generationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UiArtifactBinding"
+          }
+        }
+      }
+    },
+    "UiRequestParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessionId",
+        "generationId",
+        "moduleId",
+        "digest",
+        "request"
+      ],
+      "properties": {
+        "sessionId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "generationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "moduleId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "request": {
+          "$ref": "#/$defs/JsonRpcRequest"
+        }
+      }
+    },
+    "UiRequestResult": {
+      "$ref": "#/$defs/JsonRpcResponse"
+    }
+  }
+}

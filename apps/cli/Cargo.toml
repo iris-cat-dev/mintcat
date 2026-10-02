@@ -1,0 +1,22 @@
+[package]
+name = "mintcat-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "mintcat"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap = { workspace = true, features = ["string"] }
+clap_complete = "4.5"
+mintcat-runtime-ipc.workspace = true
+mintcat-runtime-kernel.workspace = true
+mintcat-sdk.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+uuid.workspace = true

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MintCat",
+  "version": "0.1.0",
+  "identifier": "com.mint.cat.vnext.dev",
+  "build": {
+    "beforeDevCommand": "pnpm --filter @mintcat/desktop-vnext dev",
+    "devUrl": "http://127.0.0.1:1430",
+    "beforeBuildCommand": "pnpm --filter @mintcat/desktop-vnext build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "width": 1500,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 620,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": { "x": 18, "y": 18 },
+        "backgroundColor": "#f5f3f5",
+        "hiddenTitle": true,
+        "title": "MintCat"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' mintcat-ui: http://mintcat-ui.localhost https://mintcat-ui.localhost; style-src 'self' 'unsafe-inline' mintcat-ui: http://mintcat-ui.localhost https://mintcat-ui.localhost; font-src 'self' mintcat-ui: http://mintcat-ui.localhost https://mintcat-ui.localhost; img-src 'self' https: data: blob: mintcat-ui: http://mintcat-ui.localhost https://mintcat-ui.localhost; worker-src mintcat-ui: http://mintcat-ui.localhost https://mintcat-ui.localhost; connect-src ipc: http://ipc.localhost mintcat-ui: http://mintcat-ui.localhost https://mintcat-ui.localhost"
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": ["icons/bundle-icon.png", "icons/icon.ico"]
+  }
+}

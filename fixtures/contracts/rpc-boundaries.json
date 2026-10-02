@@ -1,0 +1,107 @@
+[
+  {
+    "name": "valid-system-status",
+    "ok": true,
+    "request": {
+      "jsonrpc": "2.0",
+      "id": "request-1",
+      "method": "system.status",
+      "contractVersion": 1,
+      "sessionGeneration": "generation-1",
+      "deadlineMs": 5000,
+      "params": {}
+    }
+  },
+  {
+    "name": "valid-set-version",
+    "ok": true,
+    "request": {
+      "jsonrpc": "2.0",
+      "id": "request-2",
+      "method": "mods.setVersion",
+      "contractVersion": 1,
+      "sessionGeneration": "generation-1",
+      "deadlineMs": 5000,
+      "idempotencyKey": "operation-1",
+      "params": {
+        "profileId": "profile-1",
+        "profileModId": "profile-mod-1",
+        "incarnationId": "incarnation-1",
+        "expectedContentRevision": 7,
+        "selection": {
+          "kind": "pinned",
+          "versionId": "version-2"
+        },
+        "mode": "prepare-and-apply"
+      }
+    }
+  },
+  {
+    "name": "unknown-method",
+    "ok": false,
+    "errorCode": "UNKNOWN_METHOD",
+    "request": {
+      "jsonrpc": "2.0",
+      "id": "request-3",
+      "method": "unknown.run",
+      "contractVersion": 1,
+      "sessionGeneration": "generation-1",
+      "deadlineMs": 5000,
+      "params": {}
+    }
+  },
+  {
+    "name": "wrong-field-type",
+    "ok": false,
+    "errorCode": "INVALID_ARGUMENT",
+    "request": {
+      "jsonrpc": "2.0",
+      "id": "request-4",
+      "method": "mods.setVersion",
+      "contractVersion": 1,
+      "sessionGeneration": "generation-1",
+      "deadlineMs": 5000,
+      "idempotencyKey": "operation-2",
+      "params": {
+        "profileId": "profile-1",
+        "profileModId": "profile-mod-1",
+        "incarnationId": "incarnation-1",
+        "expectedContentRevision": "7",
+        "selection": {
+          "kind": "latest"
+        },
+        "mode": "cache-only"
+      }
+    }
+  },
+  {
+    "name": "unknown-parameter",
+    "ok": false,
+    "errorCode": "INVALID_ARGUMENT",
+    "request": {
+      "jsonrpc": "2.0",
+      "id": "request-5",
+      "method": "system.status",
+      "contractVersion": 1,
+      "sessionGeneration": "generation-1",
+      "deadlineMs": 5000,
+      "params": {
+        "unexpected": true
+      }
+    }
+  },
+  {
+    "name": "incompatible-contract-version",
+    "ok": false,
+    "errorCode": "INCOMPATIBLE_CONTRACT",
+    "request": {
+      "jsonrpc": "2.0",
+      "id": "request-6",
+      "method": "system.status",
+      "contractVersion": 2,
+      "sessionGeneration": "generation-1",
+      "deadlineMs": 5000,
+      "params": {}
+    }
+  }
+]

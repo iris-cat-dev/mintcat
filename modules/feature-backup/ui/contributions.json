@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": 1,
+  "moduleId": "mintcat.feature.backup",
+  "entry": "ui/index.js",
+  "css": ["ui/styles.css"],
+  "pages": [{ "id": "mintcat.feature.backup/page", "route": "/mintcat.feature.backup/backups", "title": "备份", "export": "mountBackupPage", "stateVersion": 1 }],
+  "navigation": [{ "id": "mintcat.feature.backup/navigation", "pageId": "mintcat.feature.backup/page", "order": 60, "icon": "cloud", "placement": "settings" }],
+  "commands": [],
+  "settings": [],
+  "games": []
+}

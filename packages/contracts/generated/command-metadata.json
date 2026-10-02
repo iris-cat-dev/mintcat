@@ -1,0 +1,4723 @@
+{
+  "schemaVersion": 1,
+  "contractSetVersion": "1.6.0",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "system_status",
+        "description": "Read daemon, host API, generation, and isolated data directory status.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      },
+      "xMintcat": {
+        "command": "system.status",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "system.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "system_doctor",
+        "description": "Inspect the isolated runtime layout, local transport, ownership, and writeability.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      },
+      "xMintcat": {
+        "command": "system.doctor",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "system.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "games_list",
+        "description": "List explicit game definitions and registered installations without discovery side effects.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pageSize"
+          ],
+          "properties": {
+            "gameId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "pageSize": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "games.list",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "library.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "profiles_list",
+        "description": "List profiles for an explicit game without creating or activating one.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "gameId",
+            "pageSize"
+          ],
+          "properties": {
+            "gameId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "pageSize": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "profiles.list",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "library.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "profiles_contentState",
+        "description": "Read authoritative Profile content availability and transient download overlays without mutating Library data.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "profiles.contentState",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "library.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "profiles_create",
+        "description": "Create and explicitly initialize a profile for one game.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "gameId",
+            "name"
+          ],
+          "properties": {
+            "gameId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "displayName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "active": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "profiles.create",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.profile.write",
+        "idempotency": "required",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "profiles_update",
+        "description": "Update profile metadata using an explicit profile and revision.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "expectedRevision"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "displayName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "profiles.update",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.profile.write",
+        "idempotency": "required",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "profiles_activate",
+        "description": "Activate an explicit profile only within its explicit game.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "gameId",
+            "profileId",
+            "expectedRevision"
+          ],
+          "properties": {
+            "gameId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "profiles.activate",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.profile.write",
+        "idempotency": "required",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "profiles_delete",
+        "description": "Delete one explicit profile without implicitly activating another.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "expectedRevision"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "profiles.delete",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.profile.write",
+        "idempotency": "required",
+        "confirmation": "policy"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "profiles_clone",
+        "description": "Clone one revision-bound profile configuration with stable group and list order.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sourceProfileId",
+            "expectedContentRevision",
+            "name"
+          ],
+          "properties": {
+            "sourceProfileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expectedContentRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "displayName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "active": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "profiles.clone",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.profile.write",
+        "idempotency": "required",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "groups_list",
+        "description": "List the ordered group tree for one explicit profile.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "groups.list",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "library.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "groups_create",
+        "description": "Create a group at an explicit sibling position.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "expectedContentRevision",
+            "name",
+            "groupType",
+            "position"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expectedContentRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "parentGroupId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "groupType": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "position": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "expanded": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "groups.create",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.content.write",
+        "idempotency": "required",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "groups_update",
+        "description": "Rename or expand one revision-bound group.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "groupId",
+            "expectedContentRevision"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "groupId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expectedContentRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expanded": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "groups.update",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.content.write",
+        "idempotency": "required",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "groups_move",
+        "description": "Move a group to an explicit parent and first-wins sibling position.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "groupId",
+            "expectedContentRevision",
+            "position"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "groupId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expectedContentRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "parentGroupId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "position": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "groups.move",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.content.write",
+        "idempotency": "required",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "groups_delete",
+        "description": "Delete a leaf group while preserving at least one group and its mod associations.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "groupId",
+            "expectedContentRevision"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "groupId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expectedContentRevision": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "groups.delete",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.content.write",
+        "idempotency": "required",
+        "confirmation": "policy"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mods_list",
+        "description": "List a specific profile snapshot with bound opaque pagination.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "pageSize"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "pageSize": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "query": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "sourceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "groupId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "mods.list",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "library.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mods_get",
+        "description": "Read one safe profile-mod projection and its known versions.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "profileModId"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "profileModId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "mods.get",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "library.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mods_rename",
+        "description": "Rename shared mod metadata with explicit shared scope and entity revision.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "modId",
+            "displayName",
+            "expectedEntityRevision",
+            "scope"
+          ],
+          "properties": {
+            "modId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "displayName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expectedEntityRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "shared"
+              ]
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "mods.rename",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.metadata.write",
+        "idempotency": "required",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mods_setEnabled",
+        "description": "Enable or disable one explicit profile association.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "profileModId",
+            "expectedContentRevision",
+            "enabled"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "profileModId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expectedContentRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "mods.setEnabled",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.content.write",
+        "idempotency": "required",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mods_setEnabledBatch",
+        "description": "Atomically enable or disable a deduplicated explicit association set.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "profileModIds",
+            "expectedContentRevision",
+            "enabled"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "profileModIds": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 500,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "expectedContentRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "mods.setEnabledBatch",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.content.write",
+        "idempotency": "required",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mods_move",
+        "description": "Move one association to an explicit group and first-wins position.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "profileModId",
+            "expectedContentRevision",
+            "position"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "profileModId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "groupId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "position": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "expectedContentRevision": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "mods.move",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.content.write",
+        "idempotency": "required",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mods_remove",
+        "description": "Remove only the explicit profile association, retaining shared metadata and content.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "profileModId",
+            "expectedContentRevision"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "profileModId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expectedContentRevision": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "mods.remove",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.content.write",
+        "idempotency": "required",
+        "confirmation": "policy"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mods_cleanupMissing",
+        "description": "Remove missing local associations from one explicit game and profile.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "gameId",
+            "profileId",
+            "expectedContentRevision"
+          ],
+          "properties": {
+            "gameId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expectedContentRevision": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "mods.cleanupMissing",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.content.write",
+        "idempotency": "required",
+        "confirmation": "policy"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mods_setVersion",
+        "description": "Resolve an exact version plan, then atomically apply it to a Profile or cache its verified artifact.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "profileModId",
+            "incarnationId",
+            "expectedContentRevision",
+            "selection",
+            "mode"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "profileModId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "incarnationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expectedContentRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "selection": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "auto",
+                    "pinned"
+                  ]
+                },
+                "versionId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              }
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "cache-only",
+                "prepare-and-apply"
+              ]
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "mods.setVersion",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "job",
+        "permission": "library.content.write",
+        "idempotency": "required",
+        "confirmation": "policy"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "jobs_get",
+        "description": "Read a durable job snapshot after timeout, restart, or reconnect.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "jobId"
+          ],
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "jobs.get",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "jobs.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "jobs_watch",
+        "description": "Read retained events after a per-job sequence cursor, with snapshot reset metadata.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "jobId",
+            "afterSeq"
+          ],
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "afterSeq": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "jobs.watch",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "jobs.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "jobs_cancel",
+        "description": "Request cancellation; the returned job state remains authoritative.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "jobId",
+            "expectedRevision"
+          ],
+          "properties": {
+            "jobId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "jobs.cancel",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "jobs.cancel",
+        "idempotency": "required",
+        "confirmation": "policy"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "actions_get",
+        "description": "Read a durable action and its immutable approval binding.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "actionId"
+          ],
+          "properties": {
+            "actionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "actions.get",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "actions.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "modules_inspect",
+        "description": "Inspect a module manifest and its resolved lifecycle state.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "moduleId"
+          ],
+          "properties": {
+            "moduleId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "modules.inspect",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "modules.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "install_plan",
+        "description": "Build and verify an immutable deploy plan for an explicit profile snapshot.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "revision",
+            "contentRevision",
+            "gameId",
+            "installationId",
+            "options"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "contentRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "gameId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "installationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "options": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "install.plan",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "job",
+        "permission": "install.plan",
+        "idempotency": "required",
+        "confirmation": "policy"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "sources_search",
+        "description": "Execute sources.search through the authoritative Application service.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sourceId",
+            "gameId",
+            "query"
+          ],
+          "properties": {
+            "sourceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "gameId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "query": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "pageSize": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "remoteGameKey": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "sources.search",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "source.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mods_add",
+        "description": "Execute mods.add through the authoritative Application service.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "reference",
+            "expectedContentRevision"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "reference": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "sourceId",
+                "remoteGameKey",
+                "remoteModId"
+              ],
+              "properties": {
+                "sourceId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "remoteGameKey": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "remoteModId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "versionId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "remoteFileId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              }
+            },
+            "expectedContentRevision": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "mods.add",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "job",
+        "permission": "library.content.write",
+        "idempotency": "required",
+        "confirmation": "policy"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "settings_get",
+        "description": "Execute settings.get through the authoritative Application service.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope",
+            "section"
+          ],
+          "properties": {
+            "scope": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "global"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "gameId"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "game"
+                    },
+                    "gameId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  }
+                }
+              ]
+            },
+            "section": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "settings.get",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "library.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mods_pack",
+        "description": "Execute mods.pack through the authoritative Application service.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "revision",
+            "contentRevision",
+            "gameId",
+            "installationId",
+            "options"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "contentRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "gameId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "installationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "options": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "mods.pack",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "job",
+        "permission": "mods.pack",
+        "idempotency": "required",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "proxy_status",
+        "description": "Read actual daemon-owned proxy readiness and leased service identity.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      },
+      "xMintcat": {
+        "command": "proxy.status",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "proxy.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "proxy_start",
+        "description": "Start verified signed proxy service; pin actual artifact and protocol until stop.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "digest",
+            "options"
+          ],
+          "properties": {
+            "digest": {
+              "type": "string",
+              "minLength": 71,
+              "maxLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "options": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "port",
+                "offline",
+                "bind"
+              ],
+              "properties": {
+                "port": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 65535
+                },
+                "offline": {
+                  "type": "boolean"
+                },
+                "bind": {
+                  "type": "string",
+                  "enum": [
+                    "127.0.0.1",
+                    "::1"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "proxy.start",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "job",
+        "permission": "proxy.service",
+        "idempotency": "required",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "proxy_stop",
+        "description": "Stop owned leased child with its startup protocol, including revoked versions.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      },
+      "xMintcat": {
+        "command": "proxy.stop",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "job",
+        "permission": "proxy.service",
+        "idempotency": "required",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "proxy_privilege",
+        "description": "Request a separate durable approval for CA credentials, trust, system hosts, or privileged listen authorization.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "digest",
+            "operation"
+          ],
+          "properties": {
+            "digest": {
+              "type": "string",
+              "minLength": 71,
+              "maxLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "operation": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "operation"
+                  ],
+                  "properties": {
+                    "operation": {
+                      "type": "string",
+                      "enum": [
+                        "create-credentials",
+                        "install-certificate",
+                        "remove-certificate",
+                        "apply-hosts",
+                        "cleanup-hosts"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "operation",
+                    "port"
+                  ],
+                  "properties": {
+                    "operation": {
+                      "const": "authorize-listen-port"
+                    },
+                    "port": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1023
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "proxy.privilege",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "job",
+        "permission": "proxy.system",
+        "idempotency": "required",
+        "confirmation": "required"
+      }
+    }
+  ],
+  "cli": [
+    {
+      "command": "system.status",
+      "path": [
+        "status"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "resultSchema": "#/$defs/SystemStatusResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "system.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "system.doctor",
+      "path": [
+        "doctor"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "resultSchema": "#/$defs/SystemDoctorResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "system.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "games.list",
+      "path": [
+        "games",
+        "list"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "pageSize"
+        ],
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "resultSchema": "#/$defs/GamesListResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "profiles.list",
+      "path": [
+        "profiles",
+        "list"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gameId",
+          "pageSize"
+        ],
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ProfilesListResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "profiles.contentState",
+      "path": [
+        "profiles",
+        "content-state"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ProfilesContentStateResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "profiles.create",
+      "path": [
+        "profiles",
+        "create"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gameId",
+          "name"
+        ],
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ProfileSummary",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.profile.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "profiles.update",
+      "path": [
+        "profiles",
+        "update"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "expectedRevision"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ProfileSummary",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.profile.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "profiles.activate",
+      "path": [
+        "profiles",
+        "activate"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gameId",
+          "profileId",
+          "expectedRevision"
+        ],
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ProfileSummary",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.profile.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "profiles.delete",
+      "path": [
+        "profiles",
+        "delete"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "expectedRevision"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.profile.write",
+      "idempotency": "required",
+      "confirmation": "policy"
+    },
+    {
+      "command": "profiles.clone",
+      "path": [
+        "profiles",
+        "clone"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceProfileId",
+          "expectedContentRevision",
+          "name"
+        ],
+        "properties": {
+          "sourceProfileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedContentRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ProfileSummary",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.profile.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "groups.list",
+      "path": [
+        "groups",
+        "list"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/GroupsListResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "groups.create",
+      "path": [
+        "groups",
+        "create"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "expectedContentRevision",
+          "name",
+          "groupType",
+          "position"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedContentRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "parentGroupId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "groupType": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "expanded": {
+            "type": "boolean"
+          }
+        }
+      },
+      "resultSchema": "#/$defs/GroupSummary",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "groups.update",
+      "path": [
+        "groups",
+        "update"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "groupId",
+          "expectedContentRevision"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "groupId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedContentRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expanded": {
+            "type": "boolean"
+          }
+        }
+      },
+      "resultSchema": "#/$defs/GroupSummary",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "groups.move",
+      "path": [
+        "groups",
+        "move"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "groupId",
+          "expectedContentRevision",
+          "position"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "groupId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedContentRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "parentGroupId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "groups.delete",
+      "path": [
+        "groups",
+        "delete"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "groupId",
+          "expectedContentRevision"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "groupId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedContentRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "policy"
+    },
+    {
+      "command": "mods.list",
+      "path": [
+        "mods",
+        "list"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "pageSize"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "sourceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "groupId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ModsListResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "mods.get",
+      "path": [
+        "mods",
+        "get"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "profileModId"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "profileModId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ModDetails",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "mods.rename",
+      "path": [
+        "mods",
+        "rename"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "modId",
+          "displayName",
+          "expectedEntityRevision",
+          "scope"
+        ],
+        "properties": {
+          "modId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedEntityRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "shared"
+            ]
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ModEntityResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.metadata.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "mods.setEnabled",
+      "path": [
+        "mods",
+        "set-enabled"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "profileModId",
+          "expectedContentRevision",
+          "enabled"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "profileModId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedContentRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "mods.setEnabledBatch",
+      "path": [
+        "mods",
+        "set-enabled-batch"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "profileModIds",
+          "expectedContentRevision",
+          "enabled"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "profileModIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 500,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "expectedContentRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "mods.move",
+      "path": [
+        "mods",
+        "move"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "profileModId",
+          "expectedContentRevision",
+          "position"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "profileModId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "groupId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "expectedContentRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "mods.remove",
+      "path": [
+        "mods",
+        "remove"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "profileModId",
+          "expectedContentRevision"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "profileModId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedContentRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "policy"
+    },
+    {
+      "command": "mods.cleanupMissing",
+      "path": [
+        "mods",
+        "cleanup-missing"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gameId",
+          "profileId",
+          "expectedContentRevision"
+        ],
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedContentRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "policy"
+    },
+    {
+      "command": "mods.setVersion",
+      "path": [
+        "mods",
+        "set-version"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "profileModId",
+          "incarnationId",
+          "expectedContentRevision",
+          "selection",
+          "mode"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "profileModId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "incarnationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedContentRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "selection": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "pinned"
+                ]
+              },
+              "versionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            }
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "cache-only",
+              "prepare-and-apply"
+            ]
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "policy"
+    },
+    {
+      "command": "jobs.get",
+      "path": [
+        "jobs",
+        "get"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "jobId"
+        ],
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobSnapshot",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "jobs.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "jobs.watch",
+      "path": [
+        "jobs",
+        "watch"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "jobId",
+          "afterSeq"
+        ],
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "afterSeq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobEventPage",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "jobs.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "jobs.cancel",
+      "path": [
+        "jobs",
+        "cancel"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "jobId",
+          "expectedRevision"
+        ],
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobSnapshot",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "jobs.cancel",
+      "idempotency": "required",
+      "confirmation": "policy"
+    },
+    {
+      "command": "actions.get",
+      "path": [
+        "actions",
+        "get"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "actionId"
+        ],
+        "properties": {
+          "actionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ActionRequired",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "actions.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "actions.approve",
+      "path": [
+        "actions",
+        "approve"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "actionId",
+          "expectedRevision",
+          "response"
+        ],
+        "properties": {
+          "actionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "response": {
+            "type": "object"
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "actions.approve",
+      "idempotency": "required",
+      "confirmation": "required"
+    },
+    {
+      "command": "actions.reject",
+      "path": [
+        "actions",
+        "reject"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "actionId",
+          "expectedRevision",
+          "reason"
+        ],
+        "properties": {
+          "actionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "actions.reject",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "modules.inspect",
+      "path": [
+        "modules",
+        "inspect"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "moduleId"
+        ],
+        "properties": {
+          "moduleId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ModuleInspectResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "modules.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "install.plan",
+      "path": [
+        "install",
+        "plan"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "revision",
+          "contentRevision",
+          "gameId",
+          "installationId",
+          "options"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "contentRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "gameId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "installationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "options": {
+            "type": "object"
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "install.plan",
+      "idempotency": "required",
+      "confirmation": "policy"
+    },
+    {
+      "command": "install.apply",
+      "path": [
+        "install",
+        "apply"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "planId",
+          "planHash",
+          "approvalRef"
+        ],
+        "properties": {
+          "planId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "planHash": {
+            "type": "string",
+            "minLength": 71,
+            "maxLength": 71,
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "approvalRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "installation.write",
+      "idempotency": "required",
+      "confirmation": "required"
+    },
+    {
+      "command": "install.uninstall",
+      "path": [
+        "uninstall"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "installationId",
+          "receiptId",
+          "revision"
+        ],
+        "properties": {
+          "installationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "receiptId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "installation.write",
+      "idempotency": "required",
+      "confirmation": "required"
+    },
+    {
+      "command": "updates.activate",
+      "path": [
+        "updates",
+        "activate"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationId"
+        ],
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "updates.activate",
+      "idempotency": "required",
+      "confirmation": "required"
+    },
+    {
+      "command": "sources.search",
+      "path": [
+        "sources",
+        "search"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceId",
+          "gameId",
+          "query"
+        ],
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "gameId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "remoteGameKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/SourceSearchResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "source.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "mods.add",
+      "path": [
+        "mods",
+        "add"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "reference",
+          "expectedContentRevision"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "reference": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sourceId",
+              "remoteGameKey",
+              "remoteModId"
+            ],
+            "properties": {
+              "sourceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "remoteGameKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "remoteModId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "versionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "remoteFileId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            }
+          },
+          "expectedContentRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "policy"
+    },
+    {
+      "command": "mods.importLocal",
+      "path": [
+        "mods",
+        "importLocal"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "remoteGameKey",
+          "inputKind",
+          "expectedContentRevision"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "remoteGameKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "inputKind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "directory"
+            ]
+          },
+          "expectedContentRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "policy"
+    },
+    {
+      "command": "settings.get",
+      "path": [
+        "settings",
+        "get"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope",
+          "section"
+        ],
+        "properties": {
+          "scope": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "global"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "gameId"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "game"
+                  },
+                  "gameId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                }
+              }
+            ]
+          },
+          "section": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/SettingsResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "settings.update",
+      "path": [
+        "settings",
+        "update"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scope",
+          "section",
+          "values",
+          "expectedRevision"
+        ],
+        "properties": {
+          "scope": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "global"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "gameId"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "game"
+                  },
+                  "gameId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  }
+                }
+              }
+            ]
+          },
+          "section": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "values": {
+            "type": "object"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "resultSchema": "#/$defs/SettingsResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.metadata.write",
+      "idempotency": "required",
+      "confirmation": "policy"
+    },
+    {
+      "command": "modules.list",
+      "path": [
+        "modules",
+        "list"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "resultSchema": "#/$defs/ModuleInventory",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "modules.list",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "modules.setEnabled",
+      "path": [
+        "modules",
+        "setEnabled"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "moduleId",
+          "enabled",
+          "expectedGenerationId"
+        ],
+        "properties": {
+          "moduleId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "expectedGenerationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ModuleInventory",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "modules.ui.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "mods.pack",
+      "path": [
+        "mods",
+        "pack"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "revision",
+          "contentRevision",
+          "gameId",
+          "installationId",
+          "options"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "contentRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "gameId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "installationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "options": {
+            "type": "object"
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "mods.pack",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "updates.stage",
+      "path": [
+        "updates",
+        "stage"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scopeId",
+          "channel",
+          "expectedScopeRevision"
+        ],
+        "properties": {
+          "scopeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "channel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedScopeRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "repositoryPath": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "repositoryUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "updates.stage",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "updates.prepare",
+      "path": [
+        "updates",
+        "prepare"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationId"
+        ],
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "updates.prepare",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "updates.confirm",
+      "path": [
+        "updates",
+        "confirm"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationId"
+        ],
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "updates.confirm",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "updates.rollback",
+      "path": [
+        "updates",
+        "rollback"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationId"
+        ],
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "updates.rollback",
+      "idempotency": "required",
+      "confirmation": "required"
+    },
+    {
+      "command": "updates.operations",
+      "path": [
+        "updates",
+        "operations"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "resultSchema": "#/$defs/UpdatesOperationsResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "updates.operations",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "updates.channel",
+      "path": [
+        "updates",
+        "channel"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scopeId",
+          "channel",
+          "expectedScopeRevision"
+        ],
+        "properties": {
+          "scopeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "channel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedScopeRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "updates.channel",
+      "idempotency": "required",
+      "confirmation": "required"
+    },
+    {
+      "command": "updates.gc",
+      "path": [
+        "updates",
+        "gc"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "resultSchema": "#/$defs/UpdatesGcResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "updates.gc",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "ui.session.open",
+      "path": [
+        "ui",
+        "session",
+        "open"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "generationId"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "generationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/UiSessionOpenResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "ui.session",
+      "idempotency": "optional",
+      "confirmation": "none"
+    },
+    {
+      "command": "ui.session.close",
+      "path": [
+        "ui",
+        "session",
+        "close"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/UiSessionCloseResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "ui.session",
+      "idempotency": "optional",
+      "confirmation": "none"
+    },
+    {
+      "command": "ui.prepare",
+      "path": [
+        "ui",
+        "prepare"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/UiPrepareResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "ui.prepare",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "ui.ack",
+      "path": [
+        "ui",
+        "ack"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "barrierId",
+          "sessionId",
+          "stage"
+        ],
+        "properties": {
+          "barrierId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "deferred",
+              "disposed",
+              "ready",
+              "failed",
+              "rebuild-required"
+            ]
+          },
+          "state": {},
+          "error": {
+            "type": "string"
+          },
+          "rebuilt": {
+            "type": "boolean"
+          }
+        }
+      },
+      "resultSchema": "#/$defs/UiAckResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "ui.session",
+      "idempotency": "optional",
+      "confirmation": "none"
+    },
+    {
+      "command": "agent.sessions.create",
+      "path": [
+        "agent",
+        "sessions",
+        "create"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "configuration": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "baseUrl": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "credentialRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "baseUrl",
+              "model"
+            ]
+          },
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "gameId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "profileId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "profileRevision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "contentRevision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "installationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "installationRevision": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "gameId",
+              "profileId",
+              "profileRevision",
+              "contentRevision",
+              "installationId",
+              "installationRevision"
+            ]
+          }
+        },
+        "required": [
+          "configuration",
+          "target"
+        ]
+      },
+      "resultSchema": "#/$defs/AgentSession",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "agent.sessions.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "agent.sessions.get",
+      "path": [
+        "agent",
+        "sessions",
+        "get"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "sessionId"
+        ]
+      },
+      "resultSchema": "#/$defs/AgentSession",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "agent.sessions.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "agent.sessions.send",
+      "path": [
+        "agent",
+        "sessions",
+        "send"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32768
+          }
+        },
+        "required": [
+          "sessionId",
+          "expectedRevision",
+          "content"
+        ]
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "agent.sessions.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "agent.sessions.delete",
+      "path": [
+        "agent",
+        "sessions",
+        "delete"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "sessionId",
+          "expectedRevision"
+        ]
+      },
+      "resultSchema": "#/$defs/AgentSessionsDeleteResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "agent.sessions.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "proxy.status",
+      "path": [
+        "proxy",
+        "status"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "resultSchema": "#/$defs/ProxyStatus",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "proxy.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "proxy.start",
+      "path": [
+        "proxy",
+        "start"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "digest",
+          "options"
+        ],
+        "properties": {
+          "digest": {
+            "type": "string",
+            "minLength": 71,
+            "maxLength": 71,
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "options": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "port",
+              "offline",
+              "bind"
+            ],
+            "properties": {
+              "port": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535
+              },
+              "offline": {
+                "type": "boolean"
+              },
+              "bind": {
+                "type": "string",
+                "enum": [
+                  "127.0.0.1",
+                  "::1"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "proxy.service",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "proxy.stop",
+      "path": [
+        "proxy",
+        "stop"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "proxy.service",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "proxy.privilege",
+      "path": [
+        "proxy",
+        "privilege"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "digest",
+          "operation"
+        ],
+        "properties": {
+          "digest": {
+            "type": "string",
+            "minLength": 71,
+            "maxLength": 71,
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "operation": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operation"
+                ],
+                "properties": {
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "create-credentials",
+                      "install-certificate",
+                      "remove-certificate",
+                      "apply-hosts",
+                      "cleanup-hosts"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operation",
+                  "port"
+                ],
+                "properties": {
+                  "operation": {
+                    "const": "authorize-listen-port"
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1023
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "proxy.system",
+      "idempotency": "required",
+      "confirmation": "required"
+    },
+    {
+      "command": "backup.export",
+      "path": [
+        "backup",
+        "export"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "properties": {
+          "targetPath": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "targetPath"
+        ],
+        "additionalProperties": false
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "backup.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "backup.restore",
+      "path": [
+        "backup",
+        "restore"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "properties": {
+          "sourcePath": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "sourcePath"
+        ],
+        "additionalProperties": false
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "backup.write",
+      "idempotency": "required",
+      "confirmation": "required"
+    },
+    {
+      "command": "backup.recover",
+      "path": [
+        "backup",
+        "recover"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "backup.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "backup.cloud.list",
+      "path": [
+        "backup",
+        "cloud",
+        "list"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "resultSchema": "#/$defs/BackupCloudListResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "backup.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "backup.cloud.upload",
+      "path": [
+        "backup",
+        "cloud",
+        "upload"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "properties": {
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "createdAt": {
+                "type": "string",
+                "minLength": 1
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "checksum": {
+                "type": "string"
+              },
+              "appVersion": {
+                "type": "string"
+              },
+              "schemaVersion": {
+                "type": "string"
+              },
+              "deviceId": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "createdAt",
+              "size"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "metadata"
+        ],
+        "additionalProperties": false
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "backup.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "backup.cloud.download",
+      "path": [
+        "backup",
+        "cloud",
+        "download"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "properties": {
+          "backupId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "targetPath": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "backupId",
+          "targetPath"
+        ],
+        "additionalProperties": false
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "backup.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "library.import-legacy",
+      "path": [
+        "library",
+        "import-legacy"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "properties": {
+          "sourcePath": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "sourcePath"
+        ],
+        "additionalProperties": false
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "backup.write",
+      "idempotency": "required",
+      "confirmation": "required"
+    },
+    {
+      "command": "library.config-import",
+      "path": [
+        "library",
+        "config-import"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "properties": {
+          "sourcePath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "backup",
+              "legacy-sqlite"
+            ]
+          }
+        },
+        "required": [
+          "sourcePath",
+          "format"
+        ],
+        "additionalProperties": false
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "backup.write",
+      "idempotency": "required",
+      "confirmation": "required"
+    },
+    {
+      "command": "games.register",
+      "path": [
+        "games",
+        "register"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gameId",
+          "rootPath",
+          "variantId"
+        ],
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "rootPath": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "variantId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/GamesRegisterResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.metadata.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "games.discover",
+      "path": [
+        "games",
+        "discover"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gameId"
+        ],
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "roots": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "rootPath",
+                "variantId"
+              ],
+              "properties": {
+                "rootPath": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                "variantId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              }
+            }
+          },
+          "includeSteam": {
+            "type": "boolean"
+          }
+        }
+      },
+      "resultSchema": "#/$defs/GamesDiscoverResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "ui.artifacts.authority",
+      "path": [
+        "ui",
+        "artifacts",
+        "authority"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expectedGenerationId"
+        ],
+        "properties": {
+          "expectedGenerationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/UiArtifactsAuthorityResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "ui.session",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "ui.request",
+      "path": [
+        "ui",
+        "request"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionId",
+          "generationId",
+          "moduleId",
+          "digest",
+          "request"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "generationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "moduleId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "digest": {
+            "type": "string",
+            "minLength": 71,
+            "maxLength": 71,
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "request": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "jsonrpc",
+              "id",
+              "method",
+              "contractVersion",
+              "sessionGeneration",
+              "deadlineMs",
+              "params"
+            ],
+            "properties": {
+              "jsonrpc": {
+                "const": "2.0",
+                "type": "string"
+              },
+              "id": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                ]
+              },
+              "method": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "contractVersion": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "sessionGeneration": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "deadlineMs": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 86400000
+              },
+              "idempotencyKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "params": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "resultSchema": "#/$defs/UiRequestResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "ui.session",
+      "idempotency": "optional",
+      "confirmation": "none"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "@mintcat/desktop-vnext",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1430 --strictPort",
+    "native": "tauri dev --config src-tauri/tauri.conf.json",
+    "build": "tsc -p tsconfig.json && vite build",
+    "check": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@mintcat/sdk-ts": "workspace:*",
+    "@mintcat/sdk-ui": "workspace:*",
+    "@tauri-apps/api": "2.9.1",
+    "antd": "^6.3.4",
+    "@ant-design/icons": "^6.0.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.5.0",
+    "@types/react": "^19.1.1",
+    "@types/react-dom": "^19.1.1",
+    "typescript": "^5.2.2",
+    "vite": "7.1.12"
+  }
+}

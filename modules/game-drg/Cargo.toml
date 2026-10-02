@@ -1,0 +1,40 @@
+[package]
+name = "mintcat-game-drg"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "mintcat-game-drg-worker"
+path = "src/bin/worker.rs"
+
+[dependencies]
+anyhow.workspace = true
+log = "0.4.27"
+mintcat-engine-unreal-pak.workspace = true
+mintcat-game-api.workspace = true
+mintcat-integrator-core.workspace = true
+mintcat-loader-ue4ss.workspace = true
+mintcat-runtime-artifacts.workspace = true
+mintcat-runtime-kernel.workspace = true
+mintcat-sdk.workspace = true
+mintcat-unreal-pak.workspace = true
+repak = { git = "https://github.com/trumank/repak", features = ["oodle"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+steamlocate.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing = { version = "0.1.41", features = ["attributes"] }
+unreal_asset = { git = "https://github.com/trumank/unrealmodding", branch = "patches" }
+zip.workspace = true
+
+[dev-dependencies]
+base64.workspace = true
+ed25519-dalek.workspace = true

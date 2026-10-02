@@ -1,0 +1,27 @@
+[package]
+name = "mintcat-runtime-downloads"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+mintcat-library-service.workspace = true
+mintcat-runtime-artifacts.workspace = true
+mintcat-runtime-broker.workspace = true
+mintcat-runtime-jobs.workspace = true
+mintcat-runtime-transfers.workspace = true
+mintcat-sdk.workspace = true
+mintcat-source-api.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true
+mintcat-runtime-kernel.workspace = true
+tempfile.workspace = true
+url.workspace = true
+sha2.workspace = true

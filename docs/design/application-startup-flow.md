@@ -1,5 +1,7 @@
 # MintCat 应用启动流程
 
+> 历史文档：旧前端初始化/SQL/任务队列启动链已切除，根目录 `src/`、`src-tauri/` 及旧编译缓存已清理；下文旧路径和代码仅保留历史记录，不是可用入口。当前流程为独立 daemon 认证 IPC、验签离线 scope、只读接入实际 owner、恢复维护/文件事务，再开放业务写入；桌面只挂载签名 contribution 或独立 rescue。当前边界见 [模块化运行时架构](modular-runtime-architecture.md)，实际验收见 [执行记录](modular-refactor-todo.md)。
+
 本文档详细描述了 MintCat 应用从启动到完全初始化的完整流程。
 
 ## 目录
@@ -552,6 +554,6 @@ A: 查看日志文件 (Tauri 日志插件输出):
 ## 相关文档
 
 - [架构分层设计](./architecture-layers.md)
-- [数据库 Schema](../../src/storage/db/Schema.ts)
-- [依赖注入系统](../../src/core/IoC.ts)
-- [ViewModel 模式](../../src/core/BaseViewModel.ts)
+- [当前构建与启动入口](../../README.md)
+- [模块化运行时架构](./modular-runtime-architecture.md)
+- [执行验收记录](./modular-refactor-todo.md)

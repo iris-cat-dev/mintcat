@@ -1,0 +1,29 @@
+[package]
+name = "mintcat-engine-unreal-pak"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "mintcat-engine-unreal-pak-worker"
+path = "src/bin/worker.rs"
+
+[dependencies]
+anyhow.workspace = true
+mintcat-runtime-kernel.workspace = true
+mintcat-game-api.workspace = true
+mintcat-loader-ue4ss.workspace = true
+memmap2.workspace = true
+mintcat-runtime-artifacts.workspace = true
+mintcat-sdk.workspace = true
+mintcat-unreal-pak.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+zip.workspace = true
+

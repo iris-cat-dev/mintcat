@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "purpose": "R00 non-production characterization inputs; contains no user credentials or game files.",
+  "files": [
+    {
+      "path": "mod-inputs/baseline.pak",
+      "size": 544,
+      "sha256": "bf0b8d045d6a6f695fec40ea6e2f6d0fef7e8460a1812c35772a91c7332c1d7a"
+    },
+    {
+      "path": "mod-inputs/baseline.zip",
+      "size": 355,
+      "sha256": "e4b2b86193b8959845071f6cc7d7eb16c63b20444a6c6ee0593770043d7aafb3"
+    },
+    {
+      "path": "mod-inputs/directory-basic/pak/baseline.pak",
+      "size": 544,
+      "sha256": "bf0b8d045d6a6f695fec40ea6e2f6d0fef7e8460a1812c35772a91c7332c1d7a"
+    },
+    {
+      "path": "legacy/mintcat-v0.6.sqlite",
+      "size": 135168,
+      "sha256": "4394168bc61ddf7c7623b590daeee4e74ba66e3b43c702de3d0b1d0a070f5fbc"
+    }
+  ],
+  "expected": {
+    "pakEntry": "FSD/Content/MintcatFixture/fixture.txt",
+    "zipPakEntry": "pak/baseline.pak",
+    "legacyGames": [
+      "drg",
+      "rc"
+    ],
+    "legacyProfiles": [
+      "baseline-drg",
+      "baseline-rc"
+    ],
+    "containsCredentials": false
+  }
+}

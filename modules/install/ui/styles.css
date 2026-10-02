@@ -1,0 +1,24 @@
+.mintcat-install-page{height:100%;min-height:0;overflow:auto;box-sizing:border-box;padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px;background:var(--mc-page-bg,var(--ant-color-bg-layout));color:var(--mc-text,var(--ant-color-text));font-size:12px}
+.mintcat-install-page>.ant-card{flex:0 0 auto}
+.mintcat-install-header{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.mintcat-install-header .anticon{color:var(--mc-accent,#ef4da0)}
+.mintcat-install-targets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px}
+.mintcat-install-targets .ant-form-item{margin-bottom:10px}
+.mintcat-install-targets .ant-select{width:100%}
+.mintcat-install-page .ant-alert{margin-bottom:10px}
+.mintcat-install-page pre{white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto;max-height:360px;padding:10px 12px;border-radius:6px;background:var(--mc-row-alt,var(--ant-color-fill-quaternary));color:var(--mc-text,var(--ant-color-text));font-size:11px;line-height:1.6}
+.mintcat-install-page .ant-card,.mintcat-install-page .ant-collapse,.mintcat-install-page .ant-collapse-content{border-color:var(--mc-border,var(--ant-color-border-secondary));border-radius:8px;background:var(--mc-panel-bg,var(--ant-color-bg-container));color:var(--mc-text,var(--ant-color-text))}
+.mintcat-install-page .ant-card-head{min-height:38px;padding-inline:14px;font-size:13px;border-bottom-color:var(--mc-border,var(--ant-color-border-secondary));color:var(--mc-text,var(--ant-color-text))}
+.mintcat-install-page .ant-card-body{padding:12px 14px}
+.mintcat-install-page .ant-collapse-header{color:var(--mc-text,var(--ant-color-text)) !important}
+.mintcat-install-page .ant-table,.mintcat-install-page .ant-table-tbody>tr>td{background:transparent;color:var(--mc-text,var(--ant-color-text));font-size:12px}
+.mintcat-install-page .ant-table-thead>tr>th{background:var(--mc-row-alt,var(--ant-color-fill-quaternary));color:var(--mc-muted,var(--ant-color-text-secondary));font-size:11px;font-weight:500}
+.mintcat-install-page .ant-table-thead>tr>th,.mintcat-install-page .ant-table-tbody>tr>td{padding:4px 10px;border-bottom-color:var(--mc-border,var(--ant-color-border-secondary))}
+.mintcat-install-page .ant-table-tbody>tr:nth-child(even)>td{background:var(--mc-row-alt,var(--ant-color-fill-quaternary))}
+.mintcat-install-page .ant-table-tbody>tr:hover>td{background:var(--mc-hover,var(--ant-color-fill-tertiary))}
+.mintcat-install-page .ant-btn,.mintcat-install-page .ant-input,.mintcat-install-page .ant-select-selector{font-size:12px;border-radius:6px}
+.mintcat-install-page .ant-btn-default,.mintcat-install-page .ant-input,.mintcat-install-page .ant-select-selector{background:var(--mc-panel-bg,var(--ant-color-bg-container));border-color:var(--mc-border,var(--ant-color-border));color:var(--mc-text,var(--ant-color-text))}
+.mintcat-install-page .ant-btn-primary{background:var(--mc-accent,#ef4da0)}
+.mintcat-install-page .ant-typography-secondary,.mintcat-install-page .ant-empty-description{color:var(--mc-muted,var(--ant-color-text-secondary))}
+.mintcat-install-page .ant-tag{border-radius:4px;font-size:11px;line-height:18px}
+@media(max-width:680px){.mintcat-install-targets{grid-template-columns:1fr}}

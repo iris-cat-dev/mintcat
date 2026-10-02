@@ -1,0 +1,52 @@
+[package]
+name = "mintcat-desktop-vnext"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "mintcat_desktop_vnext"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mintcat-desktop-vnext"
+path = "src/main.rs"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "=2.5.1", features = [] }
+tauri-codegen = "=2.5.0"
+tauri-utils = "=2.8.0"
+
+[dependencies]
+mintcat-runtime-ipc.workspace = true
+mintcat-runtime-kernel.workspace = true
+mintcat-runtime-artifacts.workspace = true
+mintcat-runtime-release.workspace = true
+sha2.workspace = true
+mintcat-sdk.workspace = true
+serde_json.workspace = true
+tauri = { version = "=2.9.1", features = ["macos-private-api"] }
+tauri-macros = "=2.5.0"
+tauri-utils = "=2.8.0"
+tauri-runtime = "=2.9.1"
+tauri-runtime-wry = "=2.9.1"
+uuid.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAccessibility", "NSResponder", "NSUserInterfaceItemIdentification", "NSView", "NSVisualEffectView", "NSWindow", "NSWorkspace"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSNotification", "NSObject", "NSOperation", "NSString", "NSThread", "block2"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }
+
+[dev-dependencies]
+mintcat-daemon = { path = "../../../runtime/daemon", features = ["fixtures"] }
+tempfile.workspace = true
+tokio.workspace = true

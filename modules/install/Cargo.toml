@@ -1,0 +1,39 @@
+[package]
+name = "mintcat-install"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+mintcat-feature-backup.workspace = true
+mintcat-game-api.workspace = true
+mintcat-loader-ue4ss.workspace = true
+mintcat-library-service.workspace = true
+mintcat-runtime-artifacts.workspace = true
+mintcat-runtime-file-transactions.workspace = true
+mintcat-runtime-kernel.workspace = true
+mintcat-runtime-jobs.workspace = true
+mintcat-runtime-supervisor.workspace = true
+mintcat-sdk.workspace = true
+rusqlite.workspace = true
+semver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+sysinfo.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+mintcat-library-service = { workspace = true, features = ["fixtures"] }
+base64.workspace = true
+ed25519-dalek.workspace = true
+mintcat-engine-unreal-pak.workspace = true
+mintcat-game-drg.workspace = true
+mintcat-game-rogue-core.workspace = true
+mintcat-integrator-core.workspace = true
+mintcat-unreal-pak.workspace = true
+tempfile.workspace = true
+zip.workspace = true

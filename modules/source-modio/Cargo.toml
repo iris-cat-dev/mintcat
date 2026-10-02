@@ -1,0 +1,24 @@
+[package]
+name = "mintcat-source-modio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "mintcat-source-modio-worker"
+path = "src/bin/worker.rs"
+
+[dependencies]
+async-trait.workspace = true
+base64.workspace = true
+mintcat-runtime-broker.workspace = true
+mintcat-sdk.workspace = true
+mintcat-source-api.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+url.workspace = true
+tokio.workspace = true
+

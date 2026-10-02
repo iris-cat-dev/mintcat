@@ -1,0 +1,16 @@
+[package]
+name = "mintcat-game-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+mintcat-sdk.workspace = true
+mintcat-runtime-artifacts.workspace = true
+mintcat-loader-ue4ss.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true

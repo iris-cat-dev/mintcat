@@ -1,0 +1,7 @@
+use mintcat_sdk::{ModuleActivation, ModuleComponent, ModuleFile, ModuleManifest, ModuleState, PermissionRequest, ProvidedContract};
+use serde_json::json;
+use crate::{LIBRARY_CONTRACT_ID, LIBRARY_CONTRACT_VERSION};
+/// The package release signer signs this exact native executable manifest.
+pub fn module_manifest(target:&str,host_api:&str,worker:ModuleFile)->ModuleManifest {
+    ModuleManifest { schema_version:1,id:"mintcat.library".into(),version:env!("CARGO_PKG_VERSION").into(),publisher:"mintcat.official".into(),target:target.into(),host_api:host_api.into(),components:vec![ModuleComponent {kind:"service".into(),entry:worker.path.clone(),runtime:"worker".into(),state_model:"single-writer".into()}],provides:vec![ProvidedContract {contract_id:LIBRARY_CONTRACT_ID.into(),version:LIBRARY_CONTRACT_VERSION,cardinality:Some("single".into())}],requires:vec![],permissions:vec![PermissionRequest {capability:"state.write".into(),scope:"mintcat.library".into()},PermissionRequest {capability:"artifact.read".into(),scope:"operation-grants".into()},PermissionRequest {capability:"staging.write".into(),scope:"operation-staging".into()},PermissionRequest {capability:"credential.import".into(),scope:"approved-legacy-copy".into()}],contributes:json!({}),state:ModuleState {schema_version:5,readable_range:"5".into(),writable_range:"5".into(),rollback_before_write_only:Some(true)},activation:ModuleActivation {trigger:"startup".into(),drain_policy:"finish-requests".into()},files:vec![worker] }
+}

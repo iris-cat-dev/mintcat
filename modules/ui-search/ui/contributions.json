@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": 1,
+  "moduleId": "mintcat.ui.search",
+  "entry": "ui/index.js",
+  "css": ["ui/styles.css"],
+  "pages": [
+    {
+      "id": "mintcat.ui.search/search",
+      "route": "/mintcat.ui.search/search",
+      "title": "在线模组",
+      "export": "mountSearch",
+      "stateVersion": 1
+    }
+  ],
+  "navigation": [
+    {
+      "id": "mintcat.ui.search/navigation",
+      "pageId": "mintcat.ui.search/search",
+      "order": 10,
+      "icon": "search",
+      "placement": "sidebar"
+    }
+  ],
+  "commands": [],
+  "settings": [],
+  "games": []
+}

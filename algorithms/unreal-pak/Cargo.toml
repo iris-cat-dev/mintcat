@@ -1,0 +1,23 @@
+[package]
+name = "mintcat-unreal-pak"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+default = []
+legacy-path-api = ["dep:anyhow", "dep:walkdir", "dep:zip"]
+
+[dependencies]
+anyhow = { workspace = true, optional = true }
+repak.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+typed-path.workspace = true
+walkdir = { version = "2", optional = true }
+zip = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true

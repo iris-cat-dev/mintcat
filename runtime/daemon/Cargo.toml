@@ -1,0 +1,57 @@
+[package]
+name = "mintcat-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "mintcatd"
+path = "src/main.rs"
+
+[features]
+fixtures = ["mintcat-library-service/fixtures"]
+
+[dependencies]
+anyhow.workspace = true
+parking_lot.workspace = true
+async-trait.workspace = true
+mintcat-install.workspace = true
+mintcat-game-api.workspace = true
+mintcat-feature-agent.workspace = true
+mintcat-feature-backup.workspace = true
+mintcat-feature-proxy.workspace = true
+mintcat-source-api.workspace = true
+mintcat-source-local.workspace = true
+mintcat-source-service.workspace = true
+mintcat-runtime-file-transactions.workspace = true
+mintcat-runtime-release.workspace = true
+mintcat-runtime-updates.workspace = true
+rusqlite.workspace = true
+sha2.workspace = true
+url.workspace = true
+clap.workspace = true
+mintcat-library-service.workspace = true
+mintcat-runtime-artifacts.workspace = true
+mintcat-runtime-broker.workspace = true
+mintcat-runtime-downloads.workspace = true
+mintcat-runtime-ipc.workspace = true
+mintcat-runtime-jobs.workspace = true
+mintcat-runtime-kernel.workspace = true
+mintcat-runtime-transfers.workspace = true
+mintcat-sdk.workspace = true
+mintcat-runtime-supervisor.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+target-lexicon.workspace = true
+
+[dev-dependencies]
+mintcat-library-service = { workspace = true, features = ["fixtures"] }
+tempfile.workspace = true
+async-trait.workspace = true
+mintcat-source-api.workspace = true
+url.workspace = true

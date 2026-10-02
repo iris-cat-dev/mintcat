@@ -1,0 +1,9 @@
+{
+  "name": "@mintcat/game-drg-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@mintcat/sdk-ui": "workspace:*"
+  }
+}

@@ -1,0 +1,23 @@
+[package]
+name = "mintcat-release"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+autobins = false
+
+[dependencies]
+clap.workspace = true
+ed25519-dalek.workspace = true
+mintcat-runtime-release.workspace = true
+mintcat-sdk.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+mintcat-game-drg.workspace = true
+mintcat-game-rogue-core.workspace = true
+target-lexicon.workspace = true
+base64.workspace = true

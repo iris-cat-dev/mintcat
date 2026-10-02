@@ -1,0 +1,10 @@
+{
+  "name": "@mintcat/ui-search-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@mintcat/sdk-ts": "workspace:*",
+    "@mintcat/sdk-ui": "workspace:*"
+  }
+}

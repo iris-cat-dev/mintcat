@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Core-only capability for the isolated vNext development window","local":true,"windows":["main"],"permissions":["core:default","core:window:allow-start-dragging"]}}

@@ -1,0 +1,23 @@
+[package]
+name = "mintcat-module"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+clap.workspace = true
+mintcat-release = { path = "../release" }
+mintcat-runtime-release.workspace = true
+mintcat-runtime-artifacts.workspace = true
+mintcat-runtime-kernel.workspace = true
+mintcat-runtime-supervisor.workspace = true
+mintcat-sdk.workspace = true
+mintcat-source-api.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+target-lexicon.workspace = true
+sha2.workspace = true
+uuid.workspace = true

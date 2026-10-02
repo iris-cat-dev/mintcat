@@ -1,0 +1,28 @@
+[package]
+name = "mintcat-runtime-broker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+futures-util.workspace = true
+bytes.workspace = true
+keyring.workspace = true
+libc.workspace = true
+mintcat-runtime-jobs.workspace = true
+mintcat-runtime-kernel.workspace = true
+mintcat-sdk.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

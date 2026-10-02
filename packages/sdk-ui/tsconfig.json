@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2020", "module": "ESNext", "moduleResolution": "Bundler",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"], "strict": true, "noEmit": true,
+    "isolatedModules": true, "skipLibCheck": true, "baseUrl": "../..",
+    "paths": {
+      "@mintcat/sdk-ui": ["packages/sdk-ui/src/index.ts"],
+      "@mintcat/sdk-ts": ["packages/sdk-ts/src/index.ts"],
+      "react": ["packages/sdk-ui/node_modules/@types/react/index.d.ts"],
+      "react-dom": ["packages/sdk-ui/node_modules/@types/react-dom/index.d.ts"],
+      "react-dom/client": ["packages/sdk-ui/node_modules/@types/react-dom/client.d.ts"],
+      "antd": ["packages/sdk-ui/node_modules/antd"],
+      "@ant-design/icons": ["packages/sdk-ui/node_modules/@ant-design/icons"]
+    }
+  },
+  "include": ["src/**/*.ts", "../../modules/**/ui/**/*.ts", "../../tools/module-dev/host/**/*.ts"]
+}

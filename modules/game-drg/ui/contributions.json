@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": 1,
+  "moduleId": "mintcat.game.drg",
+  "entry": "ui/index.js",
+  "css": [],
+  "pages": [
+    {
+      "id": "mintcat.game.drg/settings",
+      "route": "/mintcat.game.drg/settings",
+      "title": "DRG 游戏设置",
+      "export": "mountGameSettings",
+      "stateVersion": 1
+    }
+  ],
+  "navigation": [
+    {
+      "id": "mintcat.game.drg/navigation",
+      "pageId": "mintcat.game.drg/settings",
+      "order": 30,
+      "icon": "settings",
+      "placement": "settings"
+    }
+  ],
+  "commands": [],
+  "settings": [],
+  "games": [
+    {
+      "gameId": "game:drg",
+      "displayName": "Deep Rock Galactic",
+      "adapterContract": "mintcat.game-adapter@2"
+    }
+  ]
+}

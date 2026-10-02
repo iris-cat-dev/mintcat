@@ -1,0 +1,25 @@
+[package]
+name = "mintcat-runtime-release"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+base64.workspace = true
+ed25519-dalek.workspace = true
+fs2.workspace = true
+mintcat-runtime-artifacts.workspace = true
+mintcat-sdk.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+semver.workspace = true
+target-lexicon.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+object = { version = "0.37.3", default-features = false, features = ["read", "std"] }
+
+[dev-dependencies]
+tempfile.workspace = true

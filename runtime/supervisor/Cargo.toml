@@ -1,0 +1,30 @@
+[package]
+name = "mintcat-runtime-supervisor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "mintcat-worker-example"
+path = "src/bin/mintcat-worker-example.rs"
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+mintcat-runtime-artifacts.workspace = true
+mintcat-sdk.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+sha2.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+base64.workspace = true
+ed25519-dalek.workspace = true
+mintcat-runtime-kernel.workspace = true
+sha2.workspace = true
+target-lexicon.workspace = true
+tempfile.workspace = true

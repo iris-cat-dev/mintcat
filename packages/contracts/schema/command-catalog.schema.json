@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mintcat.work/contracts/command-catalog.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "contractSetVersion", "commands"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "contractSetVersion": { "type": "string", "minLength": 1 },
+    "commands": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/CommandSpec" }
+    }
+  },
+  "$defs": {
+    "CommandSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "contractVersion", "paramsSchema", "resultSchema", "classification", "execution", "permission", "idempotency", "confirmation", "errorCodes", "summary", "cli", "agentExposed"],
+      "properties": {
+        "method": { "type": "string", "minLength": 3, "maxLength": 200 },
+        "contractVersion": { "type": "integer", "minimum": 1 },
+        "paramsSchema": { "type": "string", "minLength": 10 },
+        "resultSchema": { "type": "string", "minLength": 10 },
+        "classification": { "type": "string", "enum": ["read", "mutation"] },
+        "execution": { "type": "string", "enum": ["sync", "job"] },
+        "permission": { "type": "string", "minLength": 1 },
+        "idempotency": { "type": "string", "enum": ["none", "optional", "required"] },
+        "confirmation": { "type": "string", "enum": ["none", "policy", "required"] },
+        "errorCodes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        },
+        "summary": { "type": "string", "minLength": 1 },
+        "cli": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        },
+        "agentExposed": { "type": "boolean" }
+      }
+    }
+  }
+}

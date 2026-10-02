@@ -1,5 +1,7 @@
 # Rust 后端多语言支持方案
 
+> 历史方案：本文针对已退役的 Tauri command/renderer 日志与 `src/locales` 翻译文件；根目录旧源码和语言包现已清理。下文不是当前模块的修改指引。当前消息/error 合约与模块文本命名空间以 [模块化运行时架构](modular-runtime-architecture.md) 和实际 CommandSpec/schema 为准。
+
 ## 现状
 
 后端当前直接发出或返回**英文硬编码字符串**，前端原样展示：

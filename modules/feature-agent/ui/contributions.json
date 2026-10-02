@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": 1,
+  "moduleId": "mintcat.feature.agent",
+  "entry": "ui/index.js",
+  "css": ["ui/styles.css"],
+  "pages": [{"id": "mintcat.feature.agent/page", "route": "/mintcat.feature.agent/agent", "title": "Agent 助手", "export": "mountAgentPage", "stateVersion": 1}],
+  "navigation": [{"id": "mintcat.feature.agent/nav", "pageId": "mintcat.feature.agent/page", "order": 40, "icon": "robot", "placement": "titlebar"}],
+  "commands": [],
+  "settings": [],
+  "games": []
+}

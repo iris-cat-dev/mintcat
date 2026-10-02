@@ -1,0 +1,22 @@
+[package]
+name = "mintcat-integrator-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+mintcat-integrator-api = { path = "../mintcat-integrator-api" }
+mintcat-unreal-pak = { path = "../unreal-pak", features = ["legacy-path-api"] }
+zip = { version = "2.2.0", default-features = false, features = ["aes-crypto", "deflate", "time"] }
+repak = { git = "https://github.com/trumank/repak", features = ["oodle"] }
+typed-path = "0.8"
+unicase = "2.7"
+unreal_asset = { git = "https://github.com/trumank/unrealmodding", branch = "patches" }
+byteorder = "1.5"
+cityhasher = "0.1"
+indexmap = "2"
+log = "0.4.27"
+
+[dev-dependencies]
+tempfile = "3"
+

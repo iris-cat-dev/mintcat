@@ -1,5 +1,7 @@
 # Mod 安装顺序机制设计文档
 
+> 历史文档：保留旧规则的背景，不再以旧 DAO/ViewModel/ModInstallTask 调用链作为现状。当前安装输入来自固定 Profile snapshot、内容 revision 与模块闭包；引擎按固定输入顺序产生 winner/conflict manifest，批准绑定不可变 DeployPlan，文件 journal 提交生成 receipt。当前架构与验收见 [模块化运行时架构](modular-runtime-architecture.md) 和 [执行记录](modular-refactor-todo.md)。
+
 ## 概述
 
 本文档详细说明 MintCat 应用中 Mod 安装顺序的确定机制、数据流程和相关组件的技术实现。

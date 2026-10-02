@@ -1,0 +1,1907 @@
+{
+  "$schema": "./schema/command-catalog.schema.json",
+  "schemaVersion": 1,
+  "contractSetVersion": "1.6.0",
+  "commands": [
+    {
+      "method": "system.status",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/SystemStatusParams",
+      "resultSchema": "#/$defs/SystemStatusResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "system.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "MODULE_UNAVAILABLE",
+        "STALE_SESSION",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Read daemon, host API, generation, and isolated data directory status.",
+      "cli": [
+        "status"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "system.doctor",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/SystemDoctorParams",
+      "resultSchema": "#/$defs/SystemDoctorResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "system.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "MODULE_UNAVAILABLE",
+        "STALE_SESSION",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Inspect the isolated runtime layout, local transport, ownership, and writeability.",
+      "cli": [
+        "doctor"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "games.list",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/GamesListParams",
+      "resultSchema": "#/$defs/GamesListResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "List explicit game definitions and registered installations without discovery side effects.",
+      "cli": [
+        "games",
+        "list"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "profiles.list",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ProfilesListParams",
+      "resultSchema": "#/$defs/ProfilesListResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "REVISION_CONFLICT",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "List profiles for an explicit game without creating or activating one.",
+      "cli": [
+        "profiles",
+        "list"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "profiles.contentState",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ProfilesContentStateParams",
+      "resultSchema": "#/$defs/ProfilesContentStateResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Read authoritative Profile content availability and transient download overlays without mutating Library data.",
+      "cli": [
+        "profiles",
+        "content-state"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "profiles.create",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ProfilesCreateParams",
+      "resultSchema": "#/$defs/ProfileSummary",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.profile.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Create and explicitly initialize a profile for one game.",
+      "cli": [
+        "profiles",
+        "create"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "profiles.update",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ProfilesUpdateParams",
+      "resultSchema": "#/$defs/ProfileSummary",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.profile.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Update profile metadata using an explicit profile and revision.",
+      "cli": [
+        "profiles",
+        "update"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "profiles.activate",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ProfilesActivateParams",
+      "resultSchema": "#/$defs/ProfileSummary",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.profile.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Activate an explicit profile only within its explicit game.",
+      "cli": [
+        "profiles",
+        "activate"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "profiles.delete",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ProfilesDeleteParams",
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.profile.write",
+      "idempotency": "required",
+      "confirmation": "policy",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "RESOURCE_BUSY",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Delete one explicit profile without implicitly activating another.",
+      "cli": [
+        "profiles",
+        "delete"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "profiles.clone",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ProfilesCloneParams",
+      "resultSchema": "#/$defs/ProfileSummary",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.profile.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "RESOURCE_BUSY",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Clone one revision-bound profile configuration with stable group and list order.",
+      "cli": [
+        "profiles",
+        "clone"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "groups.list",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/GroupsListParams",
+      "resultSchema": "#/$defs/GroupsListResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "List the ordered group tree for one explicit profile.",
+      "cli": [
+        "groups",
+        "list"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "groups.create",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/GroupsCreateParams",
+      "resultSchema": "#/$defs/GroupSummary",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "RESOURCE_BUSY",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Create a group at an explicit sibling position.",
+      "cli": [
+        "groups",
+        "create"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "groups.update",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/GroupsUpdateParams",
+      "resultSchema": "#/$defs/GroupSummary",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "RESOURCE_BUSY",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Rename or expand one revision-bound group.",
+      "cli": [
+        "groups",
+        "update"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "groups.move",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/GroupsMoveParams",
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "RESOURCE_BUSY",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Move a group to an explicit parent and first-wins sibling position.",
+      "cli": [
+        "groups",
+        "move"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "groups.delete",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/GroupsDeleteParams",
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "policy",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "RESOURCE_BUSY",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Delete a leaf group while preserving at least one group and its mod associations.",
+      "cli": [
+        "groups",
+        "delete"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "mods.list",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsListParams",
+      "resultSchema": "#/$defs/ModsListResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "REVISION_CONFLICT",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "List a specific profile snapshot with bound opaque pagination.",
+      "cli": [
+        "mods",
+        "list"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "mods.get",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsGetParams",
+      "resultSchema": "#/$defs/ModDetails",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Read one safe profile-mod projection and its known versions.",
+      "cli": [
+        "mods",
+        "get"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "mods.rename",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsRenameParams",
+      "resultSchema": "#/$defs/ModEntityResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.metadata.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Rename shared mod metadata with explicit shared scope and entity revision.",
+      "cli": [
+        "mods",
+        "rename"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "mods.setEnabled",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsSetEnabledParams",
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "RESOURCE_BUSY",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Enable or disable one explicit profile association.",
+      "cli": [
+        "mods",
+        "set-enabled"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "mods.setEnabledBatch",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsSetEnabledBatchParams",
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "RESOURCE_BUSY",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Atomically enable or disable a deduplicated explicit association set.",
+      "cli": [
+        "mods",
+        "set-enabled-batch"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "mods.move",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsMoveParams",
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "RESOURCE_BUSY",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Move one association to an explicit group and first-wins position.",
+      "cli": [
+        "mods",
+        "move"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "mods.remove",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsRemoveParams",
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "policy",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "RESOURCE_BUSY",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Remove only the explicit profile association, retaining shared metadata and content.",
+      "cli": [
+        "mods",
+        "remove"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "mods.cleanupMissing",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsCleanupMissingParams",
+      "resultSchema": "#/$defs/LibraryMutationResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "policy",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "RESOURCE_BUSY",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Remove missing local associations from one explicit game and profile.",
+      "cli": [
+        "mods",
+        "cleanup-missing"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "mods.setVersion",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsSetVersionParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "policy",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "RESOURCE_BUSY",
+        "STALE_TARGET",
+        "STALE_FENCE",
+        "REVISION_CONFLICT",
+        "ARTIFACT_NOT_VERIFIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Resolve an exact version plan, then atomically apply it to a Profile or cache its verified artifact.",
+      "cli": [
+        "mods",
+        "set-version"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "jobs.get",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/JobsGetParams",
+      "resultSchema": "#/$defs/JobSnapshot",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "jobs.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Read a durable job snapshot after timeout, restart, or reconnect.",
+      "cli": [
+        "jobs",
+        "get"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "jobs.watch",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/JobsWatchParams",
+      "resultSchema": "#/$defs/JobEventPage",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "jobs.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Read retained events after a per-job sequence cursor, with snapshot reset metadata.",
+      "cli": [
+        "jobs",
+        "watch"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "jobs.cancel",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/JobsCancelParams",
+      "resultSchema": "#/$defs/JobSnapshot",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "jobs.cancel",
+      "idempotency": "required",
+      "confirmation": "policy",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Request cancellation; the returned job state remains authoritative.",
+      "cli": [
+        "jobs",
+        "cancel"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "actions.get",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ActionsGetParams",
+      "resultSchema": "#/$defs/ActionRequired",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "actions.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Read a durable action and its immutable approval binding.",
+      "cli": [
+        "actions",
+        "get"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "actions.approve",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ActionsApproveParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "actions.approve",
+      "idempotency": "required",
+      "confirmation": "required",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "CONFLICT",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "STALE_PLAN",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Approve a durable action bound to its revision, target, plan, and module lock.",
+      "cli": [
+        "actions",
+        "approve"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "actions.reject",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ActionsRejectParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "actions.reject",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": ["INVALID_ARGUMENT", "NOT_FOUND", "CONFLICT", "REVISION_CONFLICT", "PERMISSION_DENIED", "STALE_PLAN", "INCOMPATIBLE_CONTRACT"],
+      "summary": "Reject a pending durable action at its reviewed revision without executing its operation.",
+      "cli": ["actions", "reject"],
+      "agentExposed": false
+    },
+    {
+      "method": "modules.inspect",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModulesInspectParams",
+      "resultSchema": "#/$defs/ModuleInspectResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "modules.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "MODULE_UNAVAILABLE",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Inspect a module manifest and its resolved lifecycle state.",
+      "cli": [
+        "modules",
+        "inspect"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "install.plan",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/InstallPlanParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "install.plan",
+      "idempotency": "required",
+      "confirmation": "policy",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "RESOURCE_BUSY",
+        "REVISION_CONFLICT",
+        "MODULE_UNAVAILABLE",
+        "GAME_RUNNING",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Build and verify an immutable deploy plan for an explicit profile snapshot.",
+      "cli": [
+        "install",
+        "plan"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "install.apply",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/InstallApplyParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "installation.write",
+      "idempotency": "required",
+      "confirmation": "required",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "STALE_PLAN",
+        "RESOURCE_BUSY",
+        "PERMISSION_DENIED",
+        "GAME_RUNNING",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Apply one approved immutable deploy plan through the file journal.",
+      "cli": [
+        "install",
+        "apply"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "install.uninstall",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/InstallUninstallParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "installation.write",
+      "idempotency": "required",
+      "confirmation": "required",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "RESOURCE_BUSY",
+        "PERMISSION_DENIED",
+        "GAME_RUNNING",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Plan and remove only files owned by a specific installation receipt.",
+      "cli": [
+        "uninstall"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "updates.activate",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/UpdatesActivateParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "updates.activate",
+      "idempotency": "required",
+      "confirmation": "required",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT",
+        "RECOVERY_REQUIRED"
+      ],
+      "summary": "Activate one verified scope delta without overwriting unrelated scopes.",
+      "cli": [
+        "updates",
+        "activate"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "sources.search",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/SourceSearchParams",
+      "resultSchema": "#/$defs/SourceSearchResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "source.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute sources.search through the authoritative Application service.",
+      "cli": [
+        "sources",
+        "search"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "mods.add",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsAddParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "policy",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute mods.add through the authoritative Application service.",
+      "cli": [
+        "mods",
+        "add"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "mods.importLocal",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsImportLocalParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "policy",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute mods.importLocal through the authoritative Application service.",
+      "cli": [
+        "mods",
+        "importLocal"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "settings.get",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/SettingsGetParams",
+      "resultSchema": "#/$defs/SettingsResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute settings.get through the authoritative Application service.",
+      "cli": [
+        "settings",
+        "get"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "settings.update",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/SettingsUpdateParams",
+      "resultSchema": "#/$defs/SettingsResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.metadata.write",
+      "idempotency": "required",
+      "confirmation": "policy",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute settings.update through the authoritative Application service.",
+      "cli": [
+        "settings",
+        "update"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "modules.list",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModulesListParams",
+      "resultSchema": "#/$defs/ModuleInventory",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "modules.list",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute modules.list through the authoritative Application service.",
+      "cli": [
+        "modules",
+        "list"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "modules.setEnabled",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModulesSetEnabledParams",
+      "resultSchema": "#/$defs/ModuleInventory",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "modules.ui.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute modules.setEnabled through the authoritative Application service.",
+      "cli": [
+        "modules",
+        "setEnabled"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "mods.pack",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsPackParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "mods.pack",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute mods.pack through the authoritative Application service.",
+      "cli": [
+        "mods",
+        "pack"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "updates.stage",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/UpdatesStageParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "updates.stage",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute updates.stage through the authoritative Application service.",
+      "cli": [
+        "updates",
+        "stage"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "updates.prepare",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/UpdatesOperationParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "updates.prepare",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute updates.prepare through the authoritative Application service.",
+      "cli": [
+        "updates",
+        "prepare"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "updates.confirm",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/UpdatesOperationParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "updates.confirm",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute updates.confirm through the authoritative Application service.",
+      "cli": [
+        "updates",
+        "confirm"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "updates.rollback",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/UpdatesRollbackParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "updates.rollback",
+      "idempotency": "required",
+      "confirmation": "required",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute updates.rollback through the authoritative Application service.",
+      "cli": [
+        "updates",
+        "rollback"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "updates.operations",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/UpdatesOperationsParams",
+      "resultSchema": "#/$defs/UpdatesOperationsResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "updates.operations",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute updates.operations through the authoritative Application service.",
+      "cli": [
+        "updates",
+        "operations"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "updates.channel",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/UpdatesChannelParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "updates.channel",
+      "idempotency": "required",
+      "confirmation": "required",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute updates.channel through the authoritative Application service.",
+      "cli": [
+        "updates",
+        "channel"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "updates.gc",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/UpdatesGcParams",
+      "resultSchema": "#/$defs/UpdatesGcResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "updates.gc",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute updates.gc through the authoritative Application service.",
+      "cli": [
+        "updates",
+        "gc"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "ui.session.open",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/UiSessionOpenParams",
+      "resultSchema": "#/$defs/UiSessionOpenResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "ui.session",
+      "idempotency": "optional",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute ui.session.open through the authoritative Application service.",
+      "cli": [
+        "ui",
+        "session",
+        "open"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "ui.session.close",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/UiSessionCloseParams",
+      "resultSchema": "#/$defs/UiSessionCloseResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "ui.session",
+      "idempotency": "optional",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute ui.session.close through the authoritative Application service.",
+      "cli": [
+        "ui",
+        "session",
+        "close"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "ui.prepare",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/UiPrepareParams",
+      "resultSchema": "#/$defs/UiPrepareResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "ui.prepare",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute ui.prepare through the authoritative Application service.",
+      "cli": [
+        "ui",
+        "prepare"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "ui.ack",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/UiAckParams",
+      "resultSchema": "#/$defs/UiAckResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "ui.session",
+      "idempotency": "optional",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Execute ui.ack through the authoritative Application service.",
+      "cli": [
+        "ui",
+        "ack"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "agent.sessions.create",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/AgentSessionsCreateParams",
+      "resultSchema": "#/$defs/AgentSession",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "agent.sessions.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "STALE_REVISION",
+        "SESSION_BUSY",
+        "PERMISSION_DENIED",
+        "AGENT_STORAGE",
+        "AGENT_PROVIDER",
+        "AGENT_RESPONSE",
+        "AGENT_TURN_LIMIT",
+        "INCOMPATIBLE_CONTRACT",
+        "CONFLICT",
+        "INTERNAL",
+        "MODULE_UNAVAILABLE",
+        "TURN_INTERRUPTED",
+        "CANCELLED"
+      ],
+      "summary": "create a module-owned conversation; jobs/actions remain daemon-owned.",
+      "cli": [
+        "agent",
+        "sessions",
+        "create"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "agent.sessions.get",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/AgentSessionsGetParams",
+      "resultSchema": "#/$defs/AgentSession",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "agent.sessions.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "STALE_REVISION",
+        "SESSION_BUSY",
+        "PERMISSION_DENIED",
+        "AGENT_STORAGE",
+        "AGENT_PROVIDER",
+        "AGENT_RESPONSE",
+        "AGENT_TURN_LIMIT",
+        "INCOMPATIBLE_CONTRACT",
+        "CONFLICT",
+        "INTERNAL",
+        "MODULE_UNAVAILABLE",
+        "TURN_INTERRUPTED",
+        "CANCELLED"
+      ],
+      "summary": "get a module-owned conversation; jobs/actions remain daemon-owned.",
+      "cli": [
+        "agent",
+        "sessions",
+        "get"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "agent.sessions.send",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/AgentSessionsSendParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "agent.sessions.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "STALE_REVISION",
+        "SESSION_BUSY",
+        "PERMISSION_DENIED",
+        "AGENT_STORAGE",
+        "AGENT_PROVIDER",
+        "AGENT_RESPONSE",
+        "AGENT_TURN_LIMIT",
+        "INCOMPATIBLE_CONTRACT",
+        "CONFLICT",
+        "INTERNAL",
+        "MODULE_UNAVAILABLE",
+        "TURN_INTERRUPTED",
+        "CANCELLED"
+      ],
+      "summary": "Start a durable daemon-owned model turn without exposing credentials or prompts in diagnostics.",
+      "cli": [
+        "agent",
+        "sessions",
+        "send"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "agent.sessions.delete",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/AgentSessionsDeleteParams",
+      "resultSchema": "#/$defs/AgentSessionsDeleteResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "agent.sessions.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "STALE_REVISION",
+        "SESSION_BUSY",
+        "PERMISSION_DENIED",
+        "AGENT_STORAGE",
+        "AGENT_PROVIDER",
+        "AGENT_RESPONSE",
+        "AGENT_TURN_LIMIT",
+        "INCOMPATIBLE_CONTRACT",
+        "CONFLICT",
+        "INTERNAL",
+        "MODULE_UNAVAILABLE",
+        "TURN_INTERRUPTED",
+        "CANCELLED"
+      ],
+      "summary": "delete a module-owned conversation; jobs/actions remain daemon-owned.",
+      "cli": [
+        "agent",
+        "sessions",
+        "delete"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "proxy.status",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ProxyStatusParams",
+      "resultSchema": "#/$defs/ProxyStatus",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "proxy.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "MODULE_UNAVAILABLE",
+        "SERVICE_PROTOCOL_MISMATCH",
+        "SERVICE_UNHEALTHY",
+        "CONFLICT",
+        "INTERNAL",
+        "PERMISSION_DENIED"
+      ],
+      "summary": "Read actual daemon-owned proxy readiness and leased service identity.",
+      "cli": [
+        "proxy",
+        "status"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "proxy.start",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ProxyStartParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "proxy.service",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "MODULE_UNAVAILABLE",
+        "ARTIFACT_REVOKED",
+        "SERVICE_PROTOCOL_MISMATCH",
+        "SERVICE_START_FAILED",
+        "PERMISSION_DENIED",
+        "CONFLICT",
+        "INTERNAL"
+      ],
+      "summary": "Start verified signed proxy service; pin actual artifact and protocol until stop.",
+      "cli": [
+        "proxy",
+        "start"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "proxy.stop",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ProxyStopParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "proxy.service",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "SERVICE_PROTOCOL_MISMATCH",
+        "SERVICE_STOP_FAILED",
+        "PERMISSION_DENIED",
+        "CONFLICT",
+        "INTERNAL",
+        "MODULE_UNAVAILABLE"
+      ],
+      "summary": "Stop owned leased child with its startup protocol, including revoked versions.",
+      "cli": [
+        "proxy",
+        "stop"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "proxy.privilege",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ProxyPrivilegeParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "proxy.system",
+      "idempotency": "required",
+      "confirmation": "required",
+      "errorCodes": [
+        "APPROVAL_REQUIRED",
+        "STALE_PLAN",
+        "ARTIFACT_REVOKED",
+        "PERMISSION_DENIED",
+        "SYSTEM_AUTHORIZATION_REQUIRED",
+        "CONFLICT",
+        "INTERNAL",
+        "MODULE_UNAVAILABLE"
+      ],
+      "summary": "Request a separate durable approval for CA credentials, trust, system hosts, or privileged listen authorization.",
+      "cli": [
+        "proxy",
+        "privilege"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "backup.export",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/BackupExportParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "backup.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "BUSY",
+        "RECOVERY_REQUIRED",
+        "INVALID_ARGUMENT",
+        "CONFLICT",
+        "INCOMPATIBLE_CONTRACT",
+        "CLOUD_PREREQUISITE",
+        "CLOUD_FAILURE"
+      ],
+      "summary": "Export a consistent Library-owned snapshot to an explicit new file.",
+      "cli": ["backup", "export"],
+      "agentExposed": false
+    },
+    {
+      "method": "backup.restore",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/BackupRestoreParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "backup.write",
+      "idempotency": "required",
+      "confirmation": "required",
+      "errorCodes": [
+        "BUSY",
+        "RECOVERY_REQUIRED",
+        "INVALID_ARGUMENT",
+        "CONFLICT",
+        "INCOMPATIBLE_CONTRACT",
+        "CLOUD_PREREQUISITE",
+        "CLOUD_FAILURE"
+      ],
+      "summary": "Request independent human approval to restore a portable archive into an empty owner.",
+      "cli": ["backup", "restore"],
+      "agentExposed": false
+    },
+    {
+      "method": "backup.recover",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/BackupRecoverParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "backup.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "BUSY",
+        "RECOVERY_REQUIRED",
+        "INVALID_ARGUMENT",
+        "CONFLICT",
+        "INCOMPATIBLE_CONTRACT",
+        "CLOUD_PREREQUISITE",
+        "CLOUD_FAILURE"
+      ],
+      "summary": "Explicitly inspect unresolved maintenance without overwriting newer owner writes.",
+      "cli": ["backup", "recover"],
+      "agentExposed": false
+    },
+    {
+      "method": "backup.cloud.list",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/BackupCloudListParams",
+      "resultSchema": "#/$defs/BackupCloudListResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "backup.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "BUSY",
+        "RECOVERY_REQUIRED",
+        "INVALID_ARGUMENT",
+        "CONFLICT",
+        "INCOMPATIBLE_CONTRACT",
+        "CLOUD_PREREQUISITE",
+        "CLOUD_FAILURE"
+      ],
+      "summary": "List remote backups via deployed Mintcat HTTPS endpoint and OAuth vault credentials.",
+      "cli": ["backup", "cloud", "list"],
+      "agentExposed": false
+    },
+    {
+      "method": "backup.cloud.upload",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/BackupCloudUploadParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "backup.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "BUSY",
+        "RECOVERY_REQUIRED",
+        "INVALID_ARGUMENT",
+        "CONFLICT",
+        "INCOMPATIBLE_CONTRACT",
+        "CLOUD_PREREQUISITE",
+        "CLOUD_FAILURE"
+      ],
+      "summary": "Upload a consistent owner snapshot through the genuine cloud transport.",
+      "cli": ["backup", "cloud", "upload"],
+      "agentExposed": false
+    },
+    {
+      "method": "backup.cloud.download",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/BackupCloudDownloadParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "backup.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "BUSY",
+        "RECOVERY_REQUIRED",
+        "INVALID_ARGUMENT",
+        "CONFLICT",
+        "INCOMPATIBLE_CONTRACT",
+        "CLOUD_PREREQUISITE",
+        "CLOUD_FAILURE"
+      ],
+      "summary": "Download and verify a remote archive into an explicit new file.",
+      "cli": ["backup", "cloud", "download"],
+      "agentExposed": false
+    },
+    {
+      "method": "library.import-legacy",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/LibraryImportLegacyParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "backup.write",
+      "idempotency": "required",
+      "confirmation": "required",
+      "errorCodes": [
+        "BUSY",
+        "RECOVERY_REQUIRED",
+        "INVALID_ARGUMENT",
+        "CONFLICT",
+        "INCOMPATIBLE_CONTRACT",
+        "CLOUD_PREREQUISITE",
+        "CLOUD_FAILURE"
+      ],
+      "summary": "Freeze an explicit read-only legacy SQLite snapshot including committed WAL and request approval.",
+      "cli": ["library", "import-legacy"],
+      "agentExposed": false
+    },
+    {
+      "method": "library.config-import",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/LibraryConfigImportParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "backup.write",
+      "idempotency": "required",
+      "confirmation": "required",
+      "errorCodes": [
+        "BUSY",
+        "RECOVERY_REQUIRED",
+        "INVALID_ARGUMENT",
+        "CONFLICT",
+        "INCOMPATIBLE_CONTRACT",
+        "CLOUD_PREREQUISITE",
+        "CLOUD_FAILURE"
+      ],
+      "summary": "Request approved import of an explicit portable archive or legacy SQLite owner snapshot.",
+      "cli": ["library", "config-import"],
+      "agentExposed": false
+    },
+    {
+      "method": "games.register",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/GamesRegisterParams",
+      "resultSchema": "#/$defs/GamesRegisterResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.metadata.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "INCOMPATIBLE_CONTRACT",
+        "IDEMPOTENCY_CONFLICT",
+        "STALE_TARGET"
+      ],
+      "summary": "Enroll an explicitly selected installation validated by the active signed native game.",
+      "cli": [
+        "games",
+        "register"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "games.discover",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/GamesDiscoverParams",
+      "resultSchema": "#/$defs/GamesDiscoverResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "MODULE_UNAVAILABLE",
+        "INCOMPATIBLE_CONTRACT",
+        "IDEMPOTENCY_CONFLICT",
+        "STALE_TARGET"
+      ],
+      "summary": "Discover real candidate installations through the active signed native game without registering them.",
+      "cli": [
+        "games",
+        "discover"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "ui.artifacts.authority",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/UiArtifactsAuthorityParams",
+      "resultSchema": "#/$defs/UiArtifactsAuthorityResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "ui.session",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "MODULE_UNAVAILABLE",
+        "STALE_SESSION",
+        "INCOMPATIBLE_CONTRACT",
+        "INVALID_PARAMS",
+        "CONFLICT",
+        "PERMISSION_DENIED"
+      ],
+      "summary": "Read exact enabled UI package records and frozen verified roots from the protected admitted active environment; this is not release admission.",
+      "cli": [
+        "ui",
+        "artifacts",
+        "authority"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "ui.request",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/UiRequestParams",
+      "resultSchema": "#/$defs/UiRequestResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "ui.session",
+      "idempotency": "optional",
+      "confirmation": "none",
+      "errorCodes": [
+        "MODULE_UNAVAILABLE",
+        "STALE_SESSION",
+        "INCOMPATIBLE_CONTRACT",
+        "INVALID_PARAMS",
+        "CONFLICT",
+        "PERMISSION_DENIED"
+      ],
+      "summary": "Admit a nested standard Application request under the live UI session and exact enabled module/environment binding before dispatch.",
+      "cli": [
+        "ui",
+        "request"
+      ],
+      "agentExposed": false
+    }
+  ]
+}

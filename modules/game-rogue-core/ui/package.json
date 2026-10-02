@@ -1,0 +1,9 @@
+{
+  "name": "@mintcat/game-rogue-core-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@mintcat/sdk-ui": "workspace:*"
+  }
+}

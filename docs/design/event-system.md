@@ -1,10 +1,12 @@
 # MintCat 事件系统设计方案
 
+> 历史文档：以下描述旧 renderer 事件总线，旧根目录 `src/`、`src-tauri/` 已清理，文中的旧路径/示例不再对应可运行源码，也不作为执行或完成状态权威。当前客户端通过 Application API 查询持久 job/action，并以 jobId、单调 seq、cursor 和权威 snapshot 重连；以 [模块化运行时架构](modular-runtime-architecture.md) 和 [执行验收记录](modular-refactor-todo.md) 为准。
+
 ## 文档信息
 
 - **版本**: v1.0
 - **日期**: 2025-12-24
-- **状态**: 已实施
+- **状态**: 历史已实施；旧实现已移除
 - **作者**: Claude Code
 
 ---

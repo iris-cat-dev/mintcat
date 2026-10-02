@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": 1,
+  "moduleId": "mintcat.feature.proxy",
+  "entry": "ui/index.js",
+  "css": ["ui/styles.css"],
+  "pages": [{"id":"mintcat.feature.proxy/page","route":"/mintcat.feature.proxy/accelerator","title":"加速器","export":"mountProxyPage","stateVersion":1}],
+  "navigation": [{"id":"mintcat.feature.proxy/navigation","pageId":"mintcat.feature.proxy/page","order":50,"icon":"proxy","placement":"settings"}],
+  "commands": [],
+  "settings": [],
+  "games": []
+}

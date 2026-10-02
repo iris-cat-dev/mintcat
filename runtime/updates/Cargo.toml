@@ -1,0 +1,38 @@
+[package]
+name = "mintcat-runtime-updates"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+mintcat-runtime-kernel.workspace = true
+mintcat-runtime-artifacts.workspace = true
+mintcat-runtime-release.workspace = true
+mintcat-runtime-supervisor.workspace = true
+mintcat-runtime-transfers.workspace = true
+mintcat-runtime-broker.workspace = true
+mintcat-feature-backup.workspace = true
+mintcat-library-service.workspace = true
+mintcat-source-api.workspace = true
+mintcat-sdk.workspace = true
+mintcat-game-api.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+ed25519-dalek.workspace = true
+tempfile.workspace = true
+target-lexicon.workspace = true
+
+[[bin]]
+name = "mintcat-update-readiness-failure"
+path = "tests/fixtures/readiness_failure.rs"
+test = false
+bench = false

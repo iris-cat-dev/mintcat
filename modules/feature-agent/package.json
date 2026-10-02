@@ -1,0 +1,9 @@
+{
+  "name": "@mintcat/feature-agent-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "check": "tsc -p tsconfig.json" },
+  "dependencies": { "@mintcat/sdk-ts": "workspace:*", "@mintcat/sdk-ui": "workspace:*" },
+  "devDependencies": { "typescript": "^5.2.2" }
+}

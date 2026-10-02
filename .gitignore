@@ -1,8 +1,6 @@
 /target
 /hook/target
 
-# WebView2 固定版运行时（build-fixed-webview2 解压产物，体积大）
-src-tauri/Microsoft.WebView2.FixedVersionRuntime.x64
 /.idea
 /result
 .DS_Store
@@ -36,3 +34,4 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+target

@@ -1,0 +1,12 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+  - 'modules/*'
+  - 'modules/*/ui'
+  - 'tools/*'
+
+allowBuilds:
+  esbuild: true
+
+overrides:
+  '@rc-component/util': ^1.11.1

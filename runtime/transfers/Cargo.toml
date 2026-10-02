@@ -1,0 +1,26 @@
+[package]
+name = "mintcat-runtime-transfers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+md-5.workspace = true
+mintcat-runtime-artifacts.workspace = true
+mintcat-runtime-broker.workspace = true
+mintcat-runtime-kernel.workspace = true
+mintcat-sdk.workspace = true
+mintcat-source-api.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+url.workspace = true

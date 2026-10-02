@@ -1,5 +1,7 @@
 # Mod 更新与下载流程设计文档
 
+> 历史文档：旧 TypeScript provider/renderer 任务编排不再运行，根目录 `src/`、`src-tauri/` 和旧 `TimeUtils` 已清理；文中的旧源码路径仅是历史索引。当前来源 worker、Network/Credential broker、共享 transfer、artifact grants 和 Library 条件提交由独立 daemon 协调；下载与列表编辑的原子边界见 [下载并发设计](mod-download-concurrency.md)，实现与验收见 [执行记录](modular-refactor-todo.md)。
+
 ## 概述
 
 本文档详细描述 MintCat 应用中 Mod 的更新检测、下载和安装的完整流程，包括各服务层的职责、数据流向和事件机制。

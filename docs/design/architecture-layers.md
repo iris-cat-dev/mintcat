@@ -1,5 +1,7 @@
 # MintCat 项目分层架构设计
 
+> 已被模块化架构替代：以下为旧 renderer ViewModel/Service/DAO 分层的历史说明。当前 Workbench 仅装配签名贡献；业务执行通过唯一 Application API、独立 daemon、版本化 worker 契约和实际数据 owner 完成，不存在前端业务 SQL 写者。以 [模块化运行时架构](modular-runtime-architecture.md) 和 [当前执行验收](modular-refactor-todo.md) 为准。
+
 ## 架构概览
 
 MintCat 采用经典的分层架构模式，确保职责分离、代码复用和可维护性。

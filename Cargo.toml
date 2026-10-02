@@ -1,0 +1,141 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/desktop/src-tauri",
+    "apps/cli",
+    "packages/sdk-rust",
+    "algorithms/unreal-pak",
+    "algorithms/mintcat-integrator-api",
+    "algorithms/mintcat-integrator-core",
+    "modules/library/service",
+    "modules/engine-unreal-pak",
+    "modules/source/api",
+    "modules/source/service",
+    "modules/loader-ue4ss",
+    "modules/game/api",
+    "modules/game-drg",
+    "modules/game-rogue-core",
+    "modules/install",
+    "modules/feature-backup",
+    "modules/feature-agent",
+    "modules/feature-proxy",
+    "modules/source-modio",
+    "modules/source-modcat",
+    "modules/source-nexusmods",
+    "modules/source-local",
+    "runtime/transfers",
+    "runtime/downloads",
+    "runtime/file-transactions",
+    "runtime/artifacts",
+    "runtime/broker",
+    "runtime/daemon",
+    "runtime/release",
+    "runtime/updates",
+    "tools/release",
+    "tools/module-dev",
+    "runtime/ipc",
+    "runtime/jobs",
+    "runtime/kernel",
+    "runtime/supervisor",
+]
+default-members = [
+    "apps/desktop/src-tauri",
+    "apps/cli",
+    "algorithms/unreal-pak",
+    "algorithms/mintcat-integrator-api",
+    "algorithms/mintcat-integrator-core",
+    "modules/source/api",
+    "modules/source/service",
+    "modules/engine-unreal-pak",
+    "modules/source-modio",
+    "modules/loader-ue4ss",
+    "modules/game/api",
+    "modules/game-drg",
+    "modules/game-rogue-core",
+    "modules/install",
+    "modules/feature-backup",
+    "modules/feature-agent",
+    "modules/feature-proxy",
+    "modules/source-modcat",
+    "modules/source-nexusmods",
+    "modules/source-local",
+    "runtime/transfers",
+    "runtime/downloads",
+    "runtime/file-transactions",
+    "modules/library/service",
+    "runtime/daemon",
+    "runtime/release",
+    "runtime/updates",
+    "runtime/broker",
+    "runtime/ipc",
+    "runtime/kernel",
+    "runtime/jobs",
+    "runtime/supervisor",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.80"
+
+[workspace.dependencies]
+bytes = "1"
+async-trait = "0.1"
+anyhow = "1"
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+clap = { version = "4", features = ["derive", "env"] }
+md-5 = "0.10"
+fs2 = "0.4"
+ed25519-dalek = "2"
+rusqlite = { version = "0.40.2", default-features = false, features = ["bundled", "fallible_uint"] }
+futures-util = "0.3"
+keyring = "3"
+libc = "0.2"
+parking_lot = "0.12"
+semver = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+thiserror = "2"
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+steamlocate = "2.0.1"
+tempfile = "3"
+memmap2 = "0.9"
+repak = { git = "https://github.com/trumank/repak", rev = "e215472c51db69328b1ce77be2db24d24c1d646b" }
+typed-path = "0.8"
+tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+target-lexicon = "0.13"
+zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
+url = { version = "2", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+mintcat-sdk = { path = "packages/sdk-rust" }
+mintcat-unreal-pak = { path = "algorithms/unreal-pak" }
+mintcat-engine-unreal-pak = { path = "modules/engine-unreal-pak" }
+mintcat-loader-ue4ss = { path = "modules/loader-ue4ss" }
+mintcat-game-api = { path = "modules/game/api" }
+mintcat-game-drg = { path = "modules/game-drg" }
+mintcat-game-rogue-core = { path = "modules/game-rogue-core" }
+mintcat-install = { path = "modules/install" }
+mintcat-integrator-core = { path = "algorithms/mintcat-integrator-core" }
+mintcat-runtime-kernel = { path = "runtime/kernel" }
+mintcat-runtime-ipc = { path = "runtime/ipc" }
+mintcat-runtime-artifacts = { path = "runtime/artifacts" }
+mintcat-runtime-supervisor = { path = "runtime/supervisor" }
+mintcat-runtime-broker = { path = "runtime/broker" }
+mintcat-runtime-transfers = { path = "runtime/transfers" }
+mintcat-runtime-downloads = { path = "runtime/downloads" }
+mintcat-runtime-file-transactions = { path = "runtime/file-transactions" }
+mintcat-runtime-jobs = { path = "runtime/jobs" }
+mintcat-source-api = { path = "modules/source/api" }
+mintcat-source-service = { path = "modules/source/service" }
+mintcat-source-nexusmods = { path = "modules/source-nexusmods" }
+mintcat-source-local = { path = "modules/source-local" }
+mintcat-library-service = { path = "modules/library/service" }
+mintcat-feature-backup = { path = "modules/feature-backup" }
+mintcat-feature-agent = { path = "modules/feature-agent" }
+mintcat-feature-proxy = { package = "mintcat-module-feature-proxy", path = "modules/feature-proxy" }
+mintcat-runtime-release = { path = "runtime/release" }
+mintcat-runtime-updates = { path = "runtime/updates" }

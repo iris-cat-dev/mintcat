@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": 1,
+  "moduleId": "mintcat.library",
+  "entry": "ui/index.js",
+  "css": ["ui/library.css"],
+  "pages": [
+    { "id": "mintcat.library/library", "route": "/mintcat.library/library", "title": "模组管理", "export": "mountLibrary", "stateVersion": 1 },
+    { "id": "mintcat.library/local", "route": "/mintcat.library/local", "title": "本地导入", "export": "mountLocalImport", "stateVersion": 1 },
+    { "id": "mintcat.library/downloads", "route": "/mintcat.library/downloads", "title": "下载管理", "export": "mountDownloads", "stateVersion": 1 }
+  ],
+  "navigation": [
+    { "id": "mintcat.library/navigation", "pageId": "mintcat.library/library", "order": 0, "icon": "home", "placement": "sidebar" },
+    { "id": "mintcat.library/local-navigation", "pageId": "mintcat.library/local", "order": 20, "icon": "local", "placement": "sidebar" },
+    { "id": "mintcat.library/downloads-navigation", "pageId": "mintcat.library/downloads", "order": 30, "icon": "downloads", "placement": "sidebar" }
+  ],
+  "commands": [],
+  "settings": [],
+  "games": []
+}
