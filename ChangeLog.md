@@ -1,5 +1,18 @@
 ## 模块化重构（工作区）
 
+### 2026-10-25：新增完整 macOS app 打包脚本
+
+- 新增 `scripts/build-app.mjs` 和 `pnpm package:app`：构建前端及 Desktop、CLI、daemon、模块验证器，生成二进制 digest、immutable stage 和 assembly plan，复用现有验证器与 assembler，仅输出本地 ad-hoc 签名 `.app`，并检查最终签名和内嵌入口。
+- 默认读取已有完整 `MintCat.app` 的签名基线，也支持通过 `--baseline` 指定 stage 或 Resources；保留模块版本、信任根和来源配置，不读取签名私钥、不清空数据、不隐式激活新 scope。业务模块变更须显式提供新签名基线。
+- 输出默认使用时间戳目录；`--output` 只接受新目录，拒绝覆盖已有产物或写入输入 app／基线。缺少基线会在构建前报错，避免再次交付仅有桌面主程序的包。
+- 验证：新命令完整构建 `target/app-script-smoke/assembled/bundles/macos/MintCat.app`；实际原生 WebKit 在独立测试目录加载已签名 Library 页面且未进入恢复模式，后台诊断 `healthy: true`。已验证帮助、缺失基线、已有输出和基线内部输出的错误边界；使用说明已加入 README。
+
+### 2026-10-25：补齐本地 app 运行时并验证启动
+
+- 修正本次构建交付中仅封装桌面主程序的不完整 `.app`：实际启动在创建窗口前报 `Packaged signed baseline runtime configuration is missing`。没有移除或绕过签名基线检查。
+- 补编 CLI、daemon 和模块验证器，从现有本地缓存恢复 13 个已签名模块，保留信任根、模块版本和已确认 scope 内容；通过完整 immutable stage 与标准 assembler 打包运行时配置、模块基线、信任资源及配套可执行文件。未清空或迁移本地数据，未修改应用版本或生产更新清单。
+- 已替换 `target/release/bundle/macos/MintCat.app`，完整组装产物位于 `target/mac-app-startup-fixed/assembled/bundles`。验证实际原生窗口启动、WebKit 中已签名在线模组页挂载和后台连接、`modules.list` 及 `doctor` 的 `healthy: true`，并保存原生 UI 快照；不是仅凭 CodeSign 或内嵌资源自检判断可运行。本地包采用 ad-hoc 签名，未进行 Apple 公证。
+
 ### 2026-10-01：毛玻璃遮挡修正
 
 - 用户整屏截图显示前一版仍像实色灰白面板。检查实际窗口确认 NSWindow / WKWebView 已透明、`drawsBackground=false`、降低透明度未启用，但 Light 根染色 58% 与页面面板 28% 叠成约 70% 遮罩；仅检查材质 API 状态不足以验收真实透色。

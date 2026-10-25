@@ -21,7 +21,7 @@ function requireEnvironment(names) {
   const absent = names.filter(name => !process.env[name]?.trim());
   if (absent.length) throw new Error(`Production signing prerequisite missing: ${absent.join(', ')}. Select an explicit development assembly for unsigned OS development smoke; the signed module baseline is always required.`);
 }
-function outputLocation(path) {
+export function outputLocation(path) {
   let ancestor = path;
   const missing = [];
   while (!existsSync(ancestor)) { missing.unshift(basename(ancestor)); ancestor = dirname(ancestor); }
@@ -83,7 +83,7 @@ function copyReleaseTree(source, destination, verbatimSymlinks = false) {
   }
   restoreModes(source, destination);
 }
-export function packageRelease(variant, args = process.argv.slice(2)) {
+export function packageRelease(variant, args = process.argv.slice(2), bundleTargets = []) {
   if (args.length !== 2 || args[0] !== '--manifest' || !args[1]) throw new Error('Usage: --manifest <assembly.json>; first create a signed immutable stage with mintcat-module stage --manifest <release-input.json>');
   const manifestPath = resolve(args[1]); realFile(manifestPath);
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')); object(manifest, 'Assembly plan');
@@ -141,9 +141,14 @@ export function packageRelease(variant, args = process.argv.slice(2)) {
   const config = {
     // Keep the name compiled into Tauri's Linux resource resolver unchanged.
     productName: 'MintCat',
-    identifier: manifest.mode === 'development' ? 'com.mint.cat.vnext.dev' : 'com.mint.cat',
+    identifier: manifest.mode === 'development' ? 'com.mint.cat.vnext.local' : 'com.mint.cat',
     bundle: { active: true, externalBin: ['mintcat', 'mintcatd', 'mintcat-module'].map(name => join(native, name)), resources },
   };
+  if (platform.os === 'macos' && manifest.mode === 'development') {
+    // Tauri's implicit local signature can cover only the executable. Pin an
+    // explicit ad-hoc bundle identity so Contents/Resources is sealed too.
+    config.bundle.macOS = { signingIdentity: '-' };
+  }
   if (platform.os === 'windows') {
     config.bundle.windows = {};
     if (manifest.mode === 'production') config.bundle.windows.signCommand = process.env.MINTCAT_WINDOWS_SIGN_COMMAND;
@@ -151,7 +156,9 @@ export function packageRelease(variant, args = process.argv.slice(2)) {
     else config.bundle.windows.webviewInstallMode = { type: 'embedBootstrapper', silent: true };
   }
   const configPath = join(output, 'native-bundle.json'); writeFileSync(configPath, JSON.stringify(config, null, 2));
-  run('pnpm', ['exec', 'tauri', 'bundle', '--target', manifest.target, '--config', configPath], join(root, 'apps/desktop'), { ...process.env, CARGO_TARGET_DIR: cargoTargetDir });
+  const bundleArgs = ['exec', 'tauri', 'bundle', '--target', manifest.target, '--config', configPath];
+  if (bundleTargets.length) bundleArgs.push('--bundles', ...bundleTargets);
+  run('pnpm', bundleArgs, join(root, 'apps/desktop'), { ...process.env, CARGO_TARGET_DIR: cargoTargetDir });
   // Tauri reports the genuine platform names; preserve them rather than pretending every target is a ZIP/EXE.
   const bundleDir = join(releaseDir, 'bundle');
   if (!existsSync(bundleDir) || !statSync(bundleDir).isDirectory()) throw new Error('Tauri produced no native bundle directory');

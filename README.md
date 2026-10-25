@@ -284,6 +284,23 @@ The local workflow was exercised through `new/dev/check/pack/compose/verify/publ
 
 # Packaging and runtime data
 
+### Local macOS app build
+
+```shell
+pnpm package:app
+# Explicit signed baseline and fresh output directory:
+pnpm package:app --baseline /path/to/MintCat.app --output target/my-app-build
+pnpm package:app --help
+```
+
+Requires macOS, the installed JavaScript/Rust build toolchains, and a signed baseline for the host architecture. By default, the script reuses `target/release/bundle/macos/MintCat.app`; `--baseline` also accepts a complete immutable stage or an app's `Contents/Resources` directory. A missing/incomplete baseline fails before building rather than producing a desktop-only bundle.
+
+`scripts/build-app.mjs` rebuilds the frontend and all four native executables, hashes the binaries, creates and verifies an immutable stage, and invokes the existing assembler for the `.app` target only. It verifies the final bundle signature and embedded UI. Output defaults to a fresh `target/app-builds/<timestamp>-<pid>/assembled/bundles/macos/MintCat.app`; existing outputs and the input baseline are never overwritten.
+
+This is a local ad-hoc-signed build, not a production release. It reuses signed module versions, trust and source configuration without reading a signing seed, resetting databases, advancing active scopes or launching the GUI. Changes to business modules require a newly signed baseline supplied with `--baseline`; the script does not silently ship unsigned replacements. Actual native GUI startup remains an acceptance check separate from packaging.
+
+### Verified release assembly
+
 All release flavors use one verified immutable stage and assembler:
 
 ```shell
@@ -301,6 +318,10 @@ target/debug/mintcat-desktop-vnext --verify-embedded-ui
 ```
 
 The assembler invokes that native self-check for GUI flavors and rejects a dev-only desktop before creating an output. This checks embedded assets, not native UI visual acceptance.
+
+The embedded-UI self-check does not validate a runnable application. Do not distribute a bare `tauri bundle` of the desktop executable: release-mode startup also requires `runtime.json`, the immutable release manifest, the authenticated module baseline/trust resources, and sibling `mintcat`, `mintcatd`, and `mintcat-module` executables. Build a complete stage and use the assembler above, including for an ad-hoc-signed local `.app`. Verify the actual native launch, signed Workbench page admission, `modules.list`, and daemon diagnostics—not just CodeSign and embedded assets.
+
+The repaired local application is `target/release/bundle/macos/MintCat.app`; its verified assembly inputs and complete bundle are under `target/mac-app-startup-fixed`. This rebuild reuses the retained 13-module signed baseline, existing trust root and confirmed scope releases without clearing or migrating the local data directory.
 
 Inputs must pin the exact target, binaries, signed worker/resource/UI closure, scope locks and stage-manifest SHA-256. Portable and fixed WebView2 are Windows MSVC-only; fixed WebView2 verifies native files and forbids system-runtime fallback. Production signing/notarization requires explicit credentials. No release assembler silently builds its verifier or uses a developer's Cargo at runtime.
 

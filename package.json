@@ -19,6 +19,7 @@
     "module": "cargo run -p mintcat-module --",
     "build:cli": "cargo build -p mintcat-cli --release",
     "package": "./scripts/build-release.sh",
+    "package:app": "node scripts/build-app.mjs",
     "package:standard": "./scripts/build-release.sh",
     "package:cli": "node scripts/package-cli.mjs",
     "package:portable": "node scripts/build-portable.mjs",
