@@ -12,23 +12,45 @@ pub(super) async fn desktop_window_surface(
     // and does not clear macOS effects. Report completion from the main thread.
     let (sender, mut receiver) = tauri::async_runtime::channel(1);
     let target = window.clone();
-    window.run_on_main_thread(move || {
-        #[cfg(target_os = "macos")]
-        macos_observer::synchronize(&target, observe);
-        #[cfg(not(target_os = "macos"))]
-        let _ = observe;
-        let result = synchronize(&target, dark, reduce_transparency);
-        let _ = sender.try_send(result);
-    }).map_err(|error| error.to_string())?;
-    receiver.recv().await.ok_or_else(|| "Window surface callback was released".to_owned())?
+    window
+        .run_on_main_thread(move || {
+            #[cfg(target_os = "macos")]
+            macos_observer::synchronize(&target, observe);
+            #[cfg(not(target_os = "macos"))]
+            let _ = observe;
+            let result = synchronize(&target, dark, reduce_transparency);
+            let _ = sender.try_send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    receiver
+        .recv()
+        .await
+        .ok_or_else(|| "Window surface callback was released".to_owned())?
 }
 
-fn synchronize(window: &WebviewWindow, dark: bool, reduce_transparency: bool) -> Result<Value, String> {
-    let solid = if dark { Color(31, 37, 49, 255) } else { Color(245, 243, 245, 255) };
-    window.set_theme(Some(if dark { Theme::Dark } else { Theme::Light }))
+fn synchronize(
+    window: &WebviewWindow,
+    dark: bool,
+    reduce_transparency: bool,
+) -> Result<Value, String> {
+    let solid = if dark {
+        Color(31, 37, 49, 255)
+    } else {
+        Color(245, 243, 245, 255)
+    };
+    window
+        .set_theme(Some(if dark { Theme::Dark } else { Theme::Light }))
         .map_err(|error| error.to_string())?;
-    window.set_background_color(Some(solid)).map_err(|error| error.to_string())?;
-    let platform = if cfg!(target_os = "macos") { "macos" } else if cfg!(windows) { "windows" } else { "linux" };
+    window
+        .set_background_color(Some(solid))
+        .map_err(|error| error.to_string())?;
+    let platform = if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(windows) {
+        "windows"
+    } else {
+        "linux"
+    };
     let glass = match platform_surface(window, reduce_transparency) {
         Ok(glass) => glass,
         Err(error) => {
@@ -48,10 +70,11 @@ fn synchronize(window: &WebviewWindow, dark: bool, reduce_transparency: bool) ->
 
 #[cfg(target_os = "macos")]
 fn platform_surface(window: &WebviewWindow, reduce_transparency: bool) -> Result<bool, String> {
+    use objc2::msg_send;
     use objc2_app_kit::{
-        NSAutoresizingMaskOptions, NSUserInterfaceItemIdentification, NSVisualEffectBlendingMode,
-        NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow,
-        NSWindowOrderingMode, NSWorkspace,
+        NSAutoresizingMaskOptions, NSUserInterfaceItemIdentification, NSView,
+        NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState,
+        NSVisualEffectView, NSWindow, NSWindowOrderingMode, NSWorkspace,
     };
     use objc2_foundation::{ns_string, MainThreadMarker};
 
@@ -59,12 +82,21 @@ fn platform_surface(window: &WebviewWindow, reduce_transparency: bool) -> Result
     let pointer = window.ns_window().map_err(|error| error.to_string())?;
     // Tauri owns this NSWindow; borrow it only for this main-thread callback.
     let native = unsafe { (pointer as *const NSWindow).as_ref() }.ok_or("Missing native window")?;
-    let content = native.contentView().ok_or("Missing native content view")?;
+    // The window owns its content view throughout this synchronous callback.
+    // Borrow the +0 getter result; do not transfer it into an owning wrapper.
+    let content: *mut NSView = unsafe { msg_send![native, contentView] };
+    let content = unsafe { content.as_ref() }.ok_or("Missing native content view")?;
     let identifier = ns_string!("com.mint.cat.window-material");
-    let reduced = reduce_transparency || NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceTransparency();
-    let existing = content.subviews().into_iter().find(|view| view.identifier().as_deref() == Some(identifier));
+    let reduced = reduce_transparency
+        || NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceTransparency();
+    let existing = content
+        .subviews()
+        .into_iter()
+        .find(|view| view.identifier().as_deref() == Some(identifier));
     if reduced {
-        if let Some(view) = existing { view.removeFromSuperview(); }
+        if let Some(view) = existing {
+            view.removeFromSuperview();
+        }
         return Ok(false);
     }
     if existing.is_none() {
@@ -75,7 +107,10 @@ fn platform_surface(window: &WebviewWindow, reduce_transparency: bool) -> Result
         effect.setMaterial(NSVisualEffectMaterial::UnderWindowBackground);
         effect.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
         effect.setState(NSVisualEffectState::Active);
-        effect.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable);
+        effect.setAutoresizingMask(
+            NSAutoresizingMaskOptions::ViewWidthSizable
+                | NSAutoresizingMaskOptions::ViewHeightSizable,
+        );
         content.addSubview_positioned_relativeTo(&effect, NSWindowOrderingMode::Below, None);
     }
     Ok(true)
@@ -91,14 +126,24 @@ fn platform_surface(window: &WebviewWindow, reduce_transparency: bool) -> Result
     // Public system-backdrop Acrylic (Windows 11 22H2+). Older Windows rejects
     // this attribute and remains solid, avoiding legacy Acrylic drag/resize lag.
     unsafe {
-        if !DwmIsCompositionEnabled().map_err(|error| error.to_string())?.as_bool() {
+        if !DwmIsCompositionEnabled()
+            .map_err(|error| error.to_string())?
+            .as_bool()
+        {
             return Ok(false);
         }
-        let backdrop = if reduce_transparency { DWMSBT_NONE } else { DWMSBT_TRANSIENTWINDOW };
-        DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE,
+        let backdrop = if reduce_transparency {
+            DWMSBT_NONE
+        } else {
+            DWMSBT_TRANSIENTWINDOW
+        };
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_SYSTEMBACKDROP_TYPE,
             &backdrop as *const _ as *const std::ffi::c_void,
             std::mem::size_of_val(&backdrop) as u32,
-        ).map_err(|error| error.to_string())?;
+        )
+        .map_err(|error| error.to_string())?;
     }
     Ok(!reduce_transparency)
 }
@@ -110,11 +155,11 @@ fn platform_surface(_window: &WebviewWindow, _reduce_transparency: bool) -> Resu
 
 #[cfg(target_os = "macos")]
 mod macos_observer {
-    use std::{cell::RefCell, collections::HashMap};
     use block2::RcBlock;
     use objc2::{rc::Retained, runtime::ProtocolObject};
     use objc2_app_kit::{NSWorkspace, NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification};
     use objc2_foundation::{NSNotificationCenter, NSObjectProtocol};
+    use std::{cell::RefCell, collections::HashMap};
     use tauri::{Emitter, WebviewWindow};
 
     struct Observer {
@@ -125,7 +170,9 @@ mod macos_observer {
     impl Drop for Observer {
         fn drop(&mut self) {
             // Tokens are created, removed and dropped only on the AppKit thread.
-            unsafe { self.center.removeObserver((&*self.token).as_ref()); }
+            unsafe {
+                self.center.removeObserver((&*self.token).as_ref());
+            }
         }
     }
 
@@ -140,7 +187,9 @@ mod macos_observer {
         }
         OBSERVERS.with(|observers| {
             let mut observers = observers.borrow_mut();
-            if observers.contains_key(window.label()) { return; }
+            if observers.contains_key(window.label()) {
+                return;
+            }
             let target = window.clone();
             // The callback only captures a Send+Sync Tauri handle; NSWorkspace
             // may post from any thread. Frontend synchronization returns to main.
@@ -151,7 +200,9 @@ mod macos_observer {
             let token = unsafe {
                 center.addObserverForName_object_queue_usingBlock(
                     Some(NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification),
-                    None, None, &block,
+                    None,
+                    None,
+                    &block,
                 )
             };
             observers.insert(window.label().to_owned(), Observer { center, token });
@@ -159,11 +210,29 @@ mod macos_observer {
     }
 
     pub(super) fn release(label: &str) {
-        OBSERVERS.with(|observers| { observers.borrow_mut().remove(label); });
+        let observer = OBSERVERS.with(|observers| observers.borrow_mut().remove(label));
+        drop(observer);
+    }
+
+    pub(super) fn release_all() {
+        let observers = OBSERVERS.with(|tracked| {
+            tracked
+                .borrow_mut()
+                .drain()
+                .map(|(_, observer)| observer)
+                .collect::<Vec<_>>()
+        });
+        drop(observers);
     }
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn release_observer(label: &str) {
+pub(super) fn prepare_for_destruction(label: &str) {
     macos_observer::release(label);
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn prepare_for_termination() {
+    // Application-level quit may skip per-window events.
+    macos_observer::release_all();
 }

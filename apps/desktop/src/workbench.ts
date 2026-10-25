@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { COMMAND_SPECS } from '@mintcat/sdk-ts';
 import type { CommandName, CommandParams, CommandResult } from '@mintcat/sdk-ts';
-import { Disposables, QueryCache, SessionStore, getSharedRuntime, kit, mountGameSettings, mountReactView, validateUiManifest } from '@mintcat/sdk-ui';
+import { Disposables, QueryCache, SessionStore, getSharedRuntime, kit, mountGameSettings, mountReactView, presentUiError, renderUiError, validateUiManifest } from '@mintcat/sdk-ui';
 import type { Disposable, PageMount, UiContext, UiManifest, UiModule, UiNavigationIcon } from '@mintcat/sdk-ui';
 import { requestApplication, requestUiApplication } from './daemon';
 
@@ -31,7 +31,7 @@ export class Workbench implements Disposable {
   private sidebarView?: Disposable;
   private settingsView?: Disposable;
   private readonly modulesPanel = kit.element('details');
-  private readonly notice = kit.element('p');
+  private readonly notice = kit.element('div');
   private generation?: Generation;
   private preparing?: Generation;
   private mounted?: MountedPage;
@@ -52,7 +52,7 @@ export class Workbench implements Disposable {
     const { root, error } = (event as CustomEvent<{ root: HTMLElement; error: Error }>).detail;
     if (this.closed) return;
     if (this.mounted && this.content.contains(root)) this.pageError(error);
-    else if (this.auxiliary && this.auxiliaryRoot.contains(root)) { this.unmountAuxiliary(); this.showNotice(`面板渲染失败：${message(error)}`); }
+    else if (this.auxiliary && this.auxiliaryRoot.contains(root)) { this.unmountAuxiliary(); this.showFailure(error); }
   };
   private readonly navigationHandler = (event: Event): void => {
     const icon = (event as CustomEvent<UiNavigationIcon>).detail;
@@ -190,7 +190,7 @@ export class Workbench implements Disposable {
           this.renderSlots(); await this.navigate(this.route, true);
         }
       }
-      this.notice.textContent = `Module activation refused: ${message(error)}`;
+      this.showFailure(error);
       if (!this.generation) this.rescue(error);
     } finally {
       this.preparing = undefined; this.switching = false;
@@ -269,7 +269,7 @@ export class Workbench implements Disposable {
         await this.rebuildWebView();
       } else await this.refresh(true);
     } catch (error) {
-      if (!this.closed) this.notice.textContent = `UI update barrier unavailable: ${message(error)}`;
+      if (!this.closed) this.showFailure(error);
     } finally { this.barrierPolling = false; }
   }
   private context(owner: Omit<LoadedModule, 'context'>, signal: AbortSignal, lifetime: Disposables): UiContext {
@@ -303,13 +303,13 @@ export class Workbench implements Disposable {
         if (!owner.files.includes(path) || !path.startsWith('ui/') || path.includes('..')) throw new Error('Resource is not in module signed file list');
         return `${convertFileSrc(owner.sourceToken, 'mintcat-ui')}/${owner.manifest.moduleId}/${owner.digest.slice(7)}/${path}`;
       },
-      guard: action => (...args) => { if (active()) Promise.resolve().then(() => { if (active()) return action(...args); }).catch(error => { if (active()) this.showNotice(`${owner.manifest.moduleId}: ${message(error)}`); }); },
+      guard: action => (...args) => { if (active()) Promise.resolve().then(() => { if (active()) return action(...args); }).catch(error => { if (active()) this.showFailure(error); }); },
       own: disposable => lifetime.add(disposable),
       onGenerationChanged: listener => {
         const handler = (event: Event): void => {
           if (!active() || !this.generation?.modules.includes(owner as LoadedModule)) return;
           Promise.resolve().then(() => { if (active() && this.generation?.modules.includes(owner as LoadedModule)) return listener((event as CustomEvent<string>).detail); }).catch(error => {
-            if (active()) this.notice.textContent = `${owner.manifest.moduleId}: ${message(error)}`;
+            if (active()) this.showFailure(error);
           });
         };
         this.generationEvents.addEventListener('generation', handler);
@@ -320,7 +320,7 @@ export class Workbench implements Disposable {
         const timer = window.setInterval(() => {
           if (pending || !active()) return;
           pending = true;
-          Promise.resolve().then(() => { if (active()) return action(); }).catch(error => { if (active()) this.notice.textContent = message(error); }).finally(() => { pending = false; });
+          Promise.resolve().then(() => { if (active()) return action(); }).catch(error => { if (active()) this.showFailure(error); }).finally(() => { pending = false; });
         }, milliseconds);
         return lifetime.add({ dispose: () => clearInterval(timer) });
       },
@@ -342,7 +342,7 @@ export class Workbench implements Disposable {
           try {
             await requestApplication(this.dataDir, 'modules.setEnabled', { moduleId: module.moduleId, enabled: module.enabled === false, expectedGenerationId: list.generationId }, crypto.randomUUID());
             await this.refresh(true);
-          } catch (error) { if (!this.closed) this.notice.textContent = message(error); }
+          } catch (error) { if (!this.closed) this.showFailure(error); }
           finally { if (!this.closed) button.disabled = false; }
         })();
       });
@@ -352,6 +352,11 @@ export class Workbench implements Disposable {
   private showNotice(text: string): void {
     this.notice.textContent = text;
     window.dispatchEvent(new CustomEvent('mintcat-ui-notice', { detail: text }));
+  }
+  private showFailure(cause: unknown): void {
+    const error = presentUiError(cause);
+    renderUiError(this.notice, error);
+    window.dispatchEvent(new CustomEvent('mintcat-ui-notice', { detail: `${error.title}：${error.description}` }));
   }
   private settingsRoutes(): Array<{ title: string; route: string }> {
     const routes: Array<{ title: string; route: string }> = [];
@@ -405,14 +410,14 @@ export class Workbench implements Disposable {
       if (!disposable || typeof disposable.dispose !== 'function') throw new Error('Signed UI panel mount must return a Disposable');
       if (this.auxiliary !== mounted || controller.signal.aborted) disposable.dispose(); else mounted.disposable = disposable;
     } catch (error) {
-      if (!controller.signal.aborted) { this.unmountAuxiliary(); this.showNotice(`Agent 面板加载失败：${message(error)}`); }
+      if (!controller.signal.aborted) { this.unmountAuxiliary(); this.showFailure(error); }
     }
   }
   private unmountAuxiliary(): void {
     const mounted = this.auxiliary; this.auxiliary = undefined;
     if (!mounted) return;
     mounted.controller.abort();
-    try { mounted.disposable?.dispose(); } catch (error) { this.showNotice(`Panel cleanup failed: ${message(error)}`); }
+    try { mounted.disposable?.dispose(); } catch (error) { this.showFailure(error); }
     mounted.lifetime.dispose(); this.auxiliaryRoot.replaceChildren();
   }
   async navigate(route: string, force = false): Promise<void> {
@@ -452,7 +457,9 @@ export class Workbench implements Disposable {
   private pageError(error: unknown): void {
     this.pageFailed = true;
     this.unmountPage();
-    this.content.replaceChildren(kit.element('h2', 'This module page failed'), kit.element('p', message(error)), kit.button('Retry page', () => { void this.navigate(this.route, true); }));
+    const failure = kit.element('div');
+    renderUiError(failure, presentUiError(error));
+    this.content.replaceChildren(kit.element('h2', '模块页面加载失败'), failure, kit.button('重新加载页面', () => { void this.navigate(this.route, true); }));
   }
   private unmountPage(): void {
     this.unmountAuxiliary();
@@ -460,7 +467,7 @@ export class Workbench implements Disposable {
     if (!mounted) return;
     mounted.controller.abort();
     this.queries.releasePending(`${mounted.owner.manifest.moduleId}/`);
-    try { mounted.disposable?.dispose(); } catch (error) { this.notice.textContent = `Page cleanup failed: ${message(error)}`; }
+    try { mounted.disposable?.dispose(); } catch (error) { this.showFailure(error); }
     mounted.lifetime.dispose();
   }
   private async loadStyles(module: LoadedModule, active: boolean): Promise<void> {
@@ -525,4 +532,7 @@ export class Workbench implements Disposable {
     this.root.replaceChildren();
   }
 }
-function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+function message(error: unknown): string {
+  const presentation = presentUiError(error);
+  return `${presentation.title}：${presentation.description}`;
+}

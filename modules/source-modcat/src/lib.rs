@@ -488,7 +488,7 @@ fn map_list_mod(game: &SourceGameBinding, item: ApiListMod) -> Result<SourceMod,
         profile_url: Some(format!(
             "https://modcat.top/#/modDetail?ModId={remote_mod_id}"
         )),
-        logo_url: item.picture_url,
+        logo_url: item.picture_url.filter(|url| !url.trim().is_empty()),
         tags,
         maturity_flags: 0,
         review_status: ReviewStatus::Accepted,
@@ -533,7 +533,7 @@ fn map_detail(game: &SourceGameBinding, detail: ApiMod) -> Result<SourceMod, Sou
         profile_url: Some(format!(
             "https://modcat.top/#/modDetail?ModId={remote_mod_id}"
         )),
-        logo_url: detail.picture_url,
+        logo_url: detail.picture_url.filter(|url| !url.trim().is_empty()),
         tags,
         maturity_flags: 0,
         review_status: ReviewStatus::Accepted,

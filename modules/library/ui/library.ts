@@ -136,13 +136,19 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     const generation = ++profileGeneration, session = epoch, gameId = state.gameId;
     if (!gameId) { await selectProfile(''); return; }
     const games = await context.call('games.list', { gameId, pageSize: 100 });
+    if (!alive() || session !== epoch || generation !== profileGeneration || gameId !== state.gameId) return;
+    const game = games.items.find(item => item.gameId === gameId);
     const profiles: ProfileSummary[] = []; let cursor: string | undefined;
-    do {
-      const page = await context.call('profiles.list', { gameId, pageSize: 100, ...(cursor ? { cursor } : {}) });
-      if (!alive() || session !== epoch || generation !== profileGeneration || gameId !== state.gameId) return;
-      profiles.push(...page.items); cursor = page.nextCursor;
-    } while (cursor);
-    const installations = games.items.find(game => game.gameId === gameId)?.installations ?? [];
+    // Signed game support can exist before the user enrolls an installation.
+    // profiles.list requires an enrolled game; an absent game is an empty setup state.
+    if (game) {
+      do {
+        const page = await context.call('profiles.list', { gameId, pageSize: 100, ...(cursor ? { cursor } : {}) });
+        if (!alive() || session !== epoch || generation !== profileGeneration || gameId !== state.gameId) return;
+        profiles.push(...page.items); cursor = page.nextCursor;
+      } while (cursor);
+    }
+    const installations = game?.installations ?? [];
     update({ profiles, installations, installationId: installations.some(item => item.installationId === state.installationId)
       ? state.installationId : installations[0]?.installationId ?? '' });
     const profile = profiles.find(item => item.profileId === desiredProfileId) ?? profiles.find(item => item.active) ?? profiles[0];

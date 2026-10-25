@@ -155,6 +155,36 @@ pub enum SourceError {
     Network(#[from] BrokerError),
 }
 
+impl SourceError {
+    /// Stable application category shared by native workers and host RPC.
+    pub fn app_code(&self) -> &'static str {
+        match self {
+            Self::InvalidArgument(_) => "INVALID_ARGUMENT",
+            Self::Unauthorized => "SOURCE_UNAUTHORIZED",
+            Self::NotFound(_) => "SOURCE_NOT_FOUND",
+            Self::RateLimited => "SOURCE_RATE_LIMITED",
+            Self::InvalidResponse(_) => "SOURCE_INVALID_RESPONSE",
+            Self::InteractionRequired { .. } => "SOURCE_INTERACTION_REQUIRED",
+            Self::Unavailable(_) | Self::Network(_) => "SOURCE_UNAVAILABLE",
+        }
+    }
+
+    /// Safe diagnostics never include provider response text, URLs or credentials.
+    pub fn diagnostic_reason(&self) -> &'static str {
+        match self {
+            Self::InvalidArgument(_) => "source_configuration",
+            Self::Unauthorized => "credential_missing_or_invalid",
+            Self::NotFound(_) => "source_not_found",
+            Self::RateLimited => "source_rate_limited",
+            Self::InvalidResponse(_) => "source_response",
+            Self::InteractionRequired { .. } => "source_interaction_required",
+            Self::Unavailable(reason) if reason == "source_network" => "source_network",
+            Self::Unavailable(_) => "source_unavailable",
+            Self::Network(_) => "source_network",
+        }
+    }
+}
+
 #[async_trait]
 pub trait SourceProvider: Send + Sync {
     fn source_id(&self) -> &'static str;

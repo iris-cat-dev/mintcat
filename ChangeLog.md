@@ -13,6 +13,41 @@
 - 补编 CLI、daemon 和模块验证器，从现有本地缓存恢复 13 个已签名模块，保留信任根、模块版本和已确认 scope 内容；通过完整 immutable stage 与标准 assembler 打包运行时配置、模块基线、信任资源及配套可执行文件。未清空或迁移本地数据，未修改应用版本或生产更新清单。
 - 已替换 `target/release/bundle/macos/MintCat.app`，完整组装产物位于 `target/mac-app-startup-fixed/assembled/bundles`。验证实际原生窗口启动、WebKit 中已签名在线模组页挂载和后台连接、`modules.list` 及 `doctor` 的 `healthy: true`，并保存原生 UI 快照；不是仅凭 CodeSign 或内嵌资源自检判断可运行。本地包采用 ad-hoc 签名，未进行 Apple 公证。
 
+### 2026-10-10：来源初始化与用户报错提示修正
+
+- 定位仍报错的真实本地运行状态：活跃 platform 仍为第一包，搜索页和来源 worker 没有随应用替换而切换；mod.io / Nexus 构造器又把下载域名白名单误当成浏览前提。只读搜索、详情和版本查询不再要求配置下载域名，解析和宿主验证仍拒绝所有未获准的二进制下载。
+- 原生 worker 保留错误类别和安全原因，`INVALID_ARGUMENT` 不再被包装成来源不可用；鉴权、限流、配置、返回数据及网络错误分开处理。worker / daemon 的诊断使用静态原因，不反射来源响应、凭据或 URL；保留请求关联。
+- 新增共享 UI 错误呈现，搜索页和宿主复用中文原因及操作提示。技术错误码、消息键与请求标识默认折叠，错误不再与“没有找到模组”混用；配置读取失败结束加载，过期请求不覆盖用户手动切换后的状态。仅提供已启用、已绑定来源的显式切换，不自动回退。
+- 当前本地包未配置 mod.io / Nexus 凭据。真实 mod.io 请求返回 `SOURCE_UNAUTHORIZED / credential_missing_or_invalid`；界面说明需要有效凭据，并允许手动切换 ModCat。没有虚构密钥、绕过鉴权或把授权失败伪装成成功。
+- 重签搜索 UI `0.1.2`、mod.io / Nexus `1.0.1`、ModCat `1.0.2`；应用版本保留 `0.1.0`，最终 platform 序号 4、元数据版本 6，游戏 scope 及其余 9 个模块保留。旧界面留下的 7 个过期会话导致首次升级准备受阻：先正常回滚准备、释放维护锁，再关闭已退出会话并发布新的签名候选；没有伪造 UI 快照、清空库或清除发布隔离记录。用户本地目录已实际确认最终候选并选中四个新模块。
+- 验证：共享 UI / Desktop 类型检查、17 项前端回归、source / daemon / supervisor 31 项库回归、3 项真实 worker 集成、ModCat 5 项及显式 `--features fixtures` IPC lifecycle 4 项通过。最终 `.app` 签名、嵌入资源与 DMG 校验通过；最终 DMG 内原生 WebKit 验证手动切换 ModCat 展示 50 条真实结果，Nexus 缺少凭据显示授权提示。隔离旧库的 Profile ID、revision、contentRevision 不变，原生跨未登记游戏切换恢复原配置且继续展示 50 条结果。升级入口在屏障阻塞时正常回滚并保留配置，重复已确认升级不新增操作；证据保存在 `target/mac-source-errors-fixed/smoke-evidence`。本地包为 ad-hoc 签名、未公证，生产更新清单未修改。
+
+### 2026-10-10：在线模组修复的 macOS 本地重打包
+
+- 重建 Apple Silicon 原生桌面、ModCat worker 与 daemon；应用版本保留 `0.1.0`，搜索 UI 签发为 `0.1.1`，ModCat 签发为 `1.0.1`，platform 发布序号提升到 2、元数据版本到 4，两款游戏 scope 与其余 11 个模块保持不变。复用包外 `0600` 本地签名私钥和现有信任根，继续使用 `com.mint.cat.vnext.local` 隔离数据身份。
+- 保留数据的真实签名升级另复现：`updates.activate` 已持久化 probation，却因刷新来源路由重新申请 Service admission 而失败，错误为 `maintenance lock held`。platform probation 期间保留上一套已确认的原生路由，待 `updates.confirm` 完成健康检查、打开 owner 写入并释放迁移锁后再发布新路由；未提前释放锁、跳过确认或放宽 UI 屏障。
+- 本地包提供显式 `activate-local-platform.mjs --yes` 升级入口：检查声明数据目录的 daemon 锁和可执行文件，必要时正常重启旧后台，再执行已签名 platform 的 stage/prepare/activate/confirm；不清空 Library、不伪造 UI 快照或销毁确认。仅覆盖 `.app` 不会自动替换已登记的活跃 scope。
+- 最终 `.app` 的 deep/strict CodeSign、离线嵌入入口、DMG 校验和签名 stage 均通过；daemon 5 项库测试通过。最终 DMG 内实际原生 WebKit 验证未登记游戏无初始化错误，并通过真正的已签名 worker/daemon 展示 50 条 ModCat 结果；无图片模组保持在结果中。隔离旧库副本通过交付升级入口正常切换，已有 Profile 的 ID、revision 与 contentRevision 完全保留；原生界面跨未登记游戏切换后恢复配置，继续展示 50 条结果。重复升级入口不产生额外升级；本轮未修改用户原库或生产更新清单，macOS 本地包采用 ad-hoc 签名、未公证。
+
+### 2026-10-09：在线模组初始化与搜索结果修正
+
+- 修复在线模组页首次启动和选择未登记游戏时的 `mintcat.ui.search: library.not_found`：先通过 `games.list` 查询 Library 登记，仅对已登记游戏调用 `profiles.list`。已签名游戏支持与 Library 登记不再混为一谈；已有配置的选择、分页和跨游戏切换仍保留。
+- 未登记游戏仍可浏览已签名来源；在注册真实安装目录并创建配置前，禁用目标配置和添加操作，显示不会被搜索结果状态覆盖的引导。配置加载失败结束加载状态，过期游戏查询的成功或失败不会覆盖当前选择。
+- Application API 失败由搜索页就地展示原因、错误码和请求 ID，不再把整段 AppError JSON 当作提示，也不重复上抛到宿主显示未翻译的错误键；失败时不误显示“没有找到模组”。
+- 真实 ModCat 首屏另复现 `INVALID_RESULT / $.result.items[10].logoUrl`：来源返回空图片地址导致整页违反非空契约。搜索和详情解析将缺省、null、空字符串及纯空白图片规范化为 `None`，canonical 搜索结果省略缺失的 `logoUrl`；不删除模组、不缩小分页、不放宽契约。
+- 验证 shared SDK / Desktop TypeScript 检查与 ModCat 5 项回归；新增缺失图片回归修复前失败、修复后通过。Chromium 中当前构建的搜索 UI 使用真实 daemon 验证未登记、已有配置及跨游戏切换；新版 provider 的只读直连冒烟完整返回并展示 50 条真实结果，其中 6 条没有图片。受控异步查询验证加载失败、过期查询成功/失败及登记变化后的 generation 刷新；本轮未重签或重打包原生应用，未注册游戏或修改原库。
+
+### 2026-10-09：macOS 本地应用打包
+
+- 修正桌面原生图标配置：移除指向已删除旧目录的 `icons/icon.ico` 软链接，改用当前 `apps/desktop/src/assets/icon.ico`，避免 Tauri 因缺失图标中止 `.app` / DMG 生成。
+- development macOS assembly 显式使用 ad-hoc bundle identity，确保 `Contents/Resources` 与 sidecar 一起写入 CodeResources；不再生成“可执行文件有签名、应用资源未封装”的无效本地包。生产签名与公证仍要求 Apple Developer 身份和凭据。
+- 用户提供的新包 UUID 与红色关闭按钮崩溃报告推翻了此前的关闭验收结论：`NSWindow.performClose:` 调试调用不能替代真实 `mouseDown` / `mouseUp`。原生鼠标事件配合 NSZombie 追踪确认失效对象为 `WryWebViewParent`，不是旧包或仅调试清理时的问题。
+- 修正 macOS 材质同步的 content view 所有权：在主线程同步回调内借用 `contentView` 的 +0 返回值，不生成会在回调结束时释放该视图的 owning wrapper。修复前追踪到两次材质同步对应的额外 release，窗口关闭时在 autorelease pool 中触发 `SIGSEGV`；修复后重复切换材质保持窗口内容视图的引用平衡。
+- 删除此前用于绕过崩溃的原生 `NSWindow` 保留表、手动清空 content view 和解挂 WebView 操作，将窗口层级的销毁交还 Tauri / Wry / AppKit。`CloseRequested` 与应用级 `RunEvent::Exit` 仅释放辅助功能监听器。
+- 修复首次启动和切换未注册游戏时的 `mintcat.library: library.not_found`：先查询 Library 中的游戏登记，仅对已登记游戏加载配置；未登记游戏进入真实安装目录注册引导，不再把它误报为数据库丢失。游戏切换或模块 generation 变化后的旧查询结果不会覆盖当前选择。
+- 按用户选择重新签发本地模块基线并隔离数据：development 应用标识改为 `com.mint.cat.vnext.local`，macOS release 默认使用 `~/Library/Application Support/com.mint.cat.vnext.local/vnext`，不读取或修改旧 `com.mint.cat.vnext.dev` 与正式版数据。新的模块签名私钥以 `0600` 权限保存在包外，后续更新复用，不能再当构建临时文件删除。
+- 已验证 TypeScript 检查与 8 项 Library 模型测试；最终原生包中两款未注册游戏均显示安装引导，隔离测试库中的已有配置可加载并在跨游戏切换后恢复；36 次材质切换后分别通过真实红色按钮鼠标事件和菜单 Quit 正常退出。
+
 ### 2026-10-01：毛玻璃遮挡修正
 
 - 用户整屏截图显示前一版仍像实色灰白面板。检查实际窗口确认 NSWindow / WKWebView 已透明、`drawsBackground=false`、降低透明度未启用，但 Light 根染色 58% 与页面面板 28% 叠成约 70% 遮罩；仅检查材质 API 状态不足以验收真实透色。

@@ -185,6 +185,11 @@ pub(super) async fn resume_after_backup_recovery(state: &Arc<DaemonState>) -> Re
 pub(super) async fn refresh(state: &Arc<DaemonState>) -> Result<()> {
     let updates = state.updates.as_ref().ok_or("signed update coordinator unavailable")?;
     let environment = updates.environment().map_err(message)?;
+    // Platform probation retains the owners' exclusive migration gate.
+    // Publish native routing only after confirmation has reopened owner writes.
+    if environment.scopes.get("platform").is_some_and(|generation| !generation.confirmed) {
+        return Ok(());
+    }
     let current = state.sources.read().map_err(message)?.as_ref().is_some_and(|generation| {
         generation.environment_generation == environment.generation_id
             && generation.scope_confirmations.iter().copied().eq(environment.scopes.values().map(|scope| scope.confirmed))

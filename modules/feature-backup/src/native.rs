@@ -41,7 +41,7 @@ impl NativeBackupCodec {
                     let params=serde_json::to_value(CodecRequest {input_grant:work.input.descriptor.grant_id.clone(),modules:work.modules})?;
                     let grants=[work.input];
                     let response=transport.invoke(Invocation {scope_id:&scope_id,contract_id:BACKUP_CONTRACT_ID,contract_version:BACKUP_CONTRACT_VERSION,method:work.method,params,grants:&grants,deadline:Duration::from_secs(120)}).await.map_err(|e|match e {
-                        mintcat_runtime_supervisor::SupervisorError::WorkerApplication {code,message_key} if code=="BACKUP_INVALID"=>BackupError::Invalid(message_key),
+                        mintcat_runtime_supervisor::SupervisorError::WorkerApplication {code,message_key,..} if code=="BACKUP_INVALID"=>BackupError::Invalid(message_key),
                         other=>BackupError::Module(other.to_string()),
                     })?;
                     let response:CodecResponse=serde_json::from_value(response)?;

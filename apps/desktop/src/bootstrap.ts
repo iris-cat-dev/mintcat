@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import './ui-runtime';
+import { presentUiError, renderUiError } from '@mintcat/sdk-ui';
 import { mountChrome } from './chrome';
 import { hasNativeDaemonConnector, readDaemonStatus, requestApplication, runDaemonDoctor } from './daemon';
 import type { Workbench, ModuleList } from './workbench';
@@ -21,7 +22,7 @@ const rescue = document.createElement('details'); rescue.className = 'rescue';
 const summary = document.createElement('summary'); summary.textContent = '后台状态与恢复';
 const description = document.createElement('p'); description.className = 'rescue-directory';
 description.textContent = `Isolated vNext data: ${configuredDataDir || 'Not configured'}. No legacy desktop database is opened.`;
-const status = document.createElement('p'); status.role = 'status';
+const status = document.createElement('div'); status.role = 'status';
 const output = document.createElement('pre'); output.className = 'rescue-output';
 const controls = document.createElement('div'); controls.className = 'controls';
 const modules = document.createElement('div');
@@ -40,7 +41,7 @@ if (native && !configuredDataDir) {
     configuredDataDir = environment.dataDir;
     description.textContent = `Isolated vNext data: ${configuredDataDir}. No legacy desktop database is opened.`;
   } catch (error) {
-    status.textContent = `Native environment unavailable: ${error instanceof Error ? error.message : String(error)}`;
+    renderUiError(status, presentUiError(error));
     rescue.open = true;
     return;
   }
@@ -51,7 +52,12 @@ if (!native || !configuredDataDir) {
   window.dispatchEvent(new CustomEvent('mintcat-ui-notice', { detail: status.textContent }));
 } else {
   const dataDir = configuredDataDir;
-  const showError = (error: unknown): void => { rescue.open = true; status.textContent = error instanceof Error ? error.message : String(error); window.dispatchEvent(new CustomEvent('mintcat-ui-notice', { detail: status.textContent })); };
+  const showError = (cause: unknown): void => {
+    rescue.open = true;
+    const error = presentUiError(cause);
+    renderUiError(status, error);
+    window.dispatchEvent(new CustomEvent('mintcat-ui-notice', { detail: `${error.title}：${error.description}` }));
+  };
   const button = (label: string, action: () => Promise<unknown>): HTMLButtonElement => {
     const element = document.createElement('button'); element.type = 'button'; element.textContent = label;
     element.addEventListener('click', () => {

@@ -245,6 +245,45 @@ fn graphql_node(id: u64, name: &str) -> Value {
 }
 
 #[tokio::test]
+async fn empty_download_scope_allows_read_operations_but_never_authorizes_binary_downloads() {
+    let mut server = spawn_server(|request| {
+        if request.contains("/v2/graphql") {
+            (200, json!({"data":{"mods":{"nodes":[graphql_node(7,"Available")],"totalCount":1,"nodesCount":1}}}))
+        } else if request.contains("/files.json") {
+            (200, files_response())
+        } else if request.contains("/download_link.json") {
+            (200, json!([{"URI":"https://downloads.example/file.zip"}]))
+        } else {
+            (200, json!({
+                "mod_id":7,"name":"Available","summary":"summary","description":"description",
+                "mod_downloads":55,"endorsement_count":4,"version":"2.0","author":"Author",
+                "updated_time":200,"created_time":100,"domain_name":"deeprockgalactic"
+            }))
+        }
+    }).await;
+    let fixture = fixture(&server.origin, Vec::new(), true);
+    let cancellation = CancellationToken::default();
+    let page = fixture.provider.search(&game(), &SearchRequest {
+        query:String::new(),cursor:None,page_size:20,sort_field:None,sort_direction:None,
+    }, &cancellation).await.unwrap();
+    assert_eq!(page.items[0].mod_ref.remote_mod_id,"7");
+    let detail = fixture.provider.get_mod(&game(), &mod_ref(None), &cancellation).await.unwrap();
+    assert_eq!(detail.mod_ref.remote_mod_id,"7");
+    let versions = fixture.provider.list_versions(&game(), &mod_ref(None), &cancellation).await.unwrap();
+    assert_eq!(versions.len(),2);
+    assert!(matches!(
+        fixture.provider.resolve_download(&game(), &mod_ref(Some("10")), &cancellation).await,
+        Err(SourceError::InvalidResponse(message))
+            if message == "Nexus returned a download URL outside the configured origins"
+    ));
+    for _ in 0..6 {
+        let captured = server.requests.recv().await.unwrap();
+        assert!(!captured.starts_with("GET /file.zip "));
+    }
+    assert!(server.requests.try_recv().is_err());
+}
+
+#[tokio::test]
 async fn search_is_game_bound_live_paginated_and_reports_partial_graphql_failures() {
     let mut server = spawn_server(|request| {
         let second = request.contains("\"offset\":1");
@@ -732,7 +771,7 @@ async fn api_key_is_required_and_never_replaced_by_a_frontend_secret() {
     let server = spawn_server(|_| (200, files_response())).await;
     let fixture = fixture(
         &server.origin,
-        vec![Origin::parse("http://127.0.0.1:9").unwrap()],
+        Vec::new(),
         false,
     );
     assert!(matches!(

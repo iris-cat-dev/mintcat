@@ -46,15 +46,21 @@ fn source_error(id: &str, error: mintcat_source_service::SourceApplicationError)
     match error {
         SourceApplicationError::Library(error) => Box::new(library_error(id,error)),
         SourceApplicationError::Job(error) => Box::new(job_error(id,error)),
+        SourceApplicationError::Source(error) => {
+            failure(id,error.app_code(),"source.operation",json!({"reason":error.diagnostic_reason()}))
+        }
         error => {
             let code = match &error {
-                SourceApplicationError::Source(mintcat_source_api::SourceError::Unauthorized) => "SOURCE_UNAUTHORIZED",
-                SourceApplicationError::Source(mintcat_source_api::SourceError::NotFound(_)) => "NOT_FOUND",
                 SourceApplicationError::Invalid(_) => "INVALID_ARGUMENT",
                 SourceApplicationError::Maintenance(_) => "RESOURCE_BUSY",
                 _ => "SOURCE_UNAVAILABLE",
             };
-            failure(id,code,"source.operation",json!({"message":error.to_string()}))
+            let reason = match error {
+                SourceApplicationError::Invalid(_) => "source_configuration",
+                SourceApplicationError::Maintenance(_) => "resource_busy",
+                _ => "source_unavailable",
+            };
+            failure(id,code,"source.operation",json!({"reason":reason}))
         }
     }
 }
@@ -359,4 +365,32 @@ async fn update_command(state:Arc<DaemonState>,request:&ValidatedRequest, ui_adm
         }));
     }
     value(&id,job.job)
+}
+
+#[cfg(test)]
+mod source_error_tests {
+    use super::*;
+    use mintcat_source_api::SourceError;
+    use mintcat_source_service::SourceApplicationError;
+
+    #[test]
+    fn source_rpc_preserves_category_safe_reason_and_request_id() {
+        for (error,code,reason) in [
+            (SourceError::Unauthorized,"SOURCE_UNAUTHORIZED","credential_missing_or_invalid"),
+            (SourceError::InvalidArgument("private configuration".into()),"INVALID_ARGUMENT","source_configuration"),
+            (SourceError::RateLimited,"SOURCE_RATE_LIMITED","source_rate_limited"),
+            (SourceError::InvalidResponse("private response".into()),"SOURCE_INVALID_RESPONSE","source_response"),
+            (SourceError::Network(mintcat_runtime_broker::BrokerError::Transport {
+                request_id:"private-network-request".into(),
+                endpoint:"https://example.invalid/?token=private-value".into(),
+            }),"SOURCE_UNAVAILABLE","source_network"),
+        ] {
+            let error = source_error("request-source-test",SourceApplicationError::Source(error));
+            assert_eq!(error.code,code);
+            assert_eq!(error.message_key,"source.operation");
+            assert_eq!(error.request_id,"request-source-test");
+            assert_eq!(error.details,json!({"reason":reason}));
+            assert!(error.job_id.is_none());
+        }
+    }
 }

@@ -36,12 +36,8 @@ pub struct ModioProvider {
 
 impl ModioProvider {
     pub fn new(broker: impl Into<SourceNetworkClient>, config: ModioConfig) -> Result<Self, SourceError> {
-        let api_origin = Origin::from_url(&config.api_base)?;
-        if config.download_origins.is_empty() {
-            return Err(SourceError::InvalidArgument(
-                "mod.io download origin scope cannot be empty".to_owned(),
-            ));
-        }
+        let api_origin = Origin::from_url(&config.api_base)
+            .map_err(|_| SourceError::InvalidArgument("invalid mod.io API origin configuration".into()))?;
         Ok(Self {
             broker: broker.into(),
             config,

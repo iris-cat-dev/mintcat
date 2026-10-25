@@ -18,8 +18,8 @@ pub struct SourceWorkerConfig {
     #[serde(default)] pub application_version: Option<String>,
 }
 impl SourceWorkerConfig {
-    pub fn download_origins(&self)->Result<Vec<Origin>,SourceError> { self.download_origins.iter().map(|origin|Origin::parse(origin).map_err(Into::into)).collect() }
-    pub fn navigation_origins(&self)->Result<Vec<Origin>,SourceError> { self.navigation_origins.iter().map(|origin|Origin::parse(origin).map_err(Into::into)).collect() }
+    pub fn download_origins(&self)->Result<Vec<Origin>,SourceError> { self.download_origins.iter().map(|origin|Origin::parse(origin).map_err(|_|SourceError::InvalidArgument("invalid download origin configuration".into()))).collect() }
+    pub fn navigation_origins(&self)->Result<Vec<Origin>,SourceError> { self.navigation_origins.iter().map(|origin|Origin::parse(origin).map_err(|_|SourceError::InvalidArgument("invalid navigation origin configuration".into()))).collect() }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
@@ -83,8 +83,7 @@ fn wire_download(descriptor:crate::DownloadDescriptor)->NativeDownload {
 fn decode<T:serde::de::DeserializeOwned>(input:&Value)->Result<T,SourceError> { T::deserialize(input).map_err(|error|SourceError::InvalidArgument(error.to_string())) }
 fn reference(input:&Value)->Result<ModRef,SourceError> { decode(input) }
 pub fn source_worker_error(request:&WorkerRequest,error:SourceError)->Box<mintcat_sdk::AppError> {
-    let code=match error {SourceError::Unauthorized=>"SOURCE_UNAUTHORIZED",SourceError::NotFound(_)=>"SOURCE_NOT_FOUND",SourceError::RateLimited=>"SOURCE_RATE_LIMITED",SourceError::InvalidArgument(_)=>"INVALID_ARGUMENT",SourceError::InvalidResponse(_)=>"SOURCE_INVALID_RESPONSE",SourceError::InteractionRequired {..}=>"SOURCE_INTERACTION_REQUIRED",_=>"SOURCE_UNAVAILABLE"};
-    worker_app_error(&request.id,code,"source.worker.failed",json!({"message":error.to_string()}))
+    worker_app_error(&request.id,error.app_code(),"source.worker.failed",json!({"reason":error.diagnostic_reason()}))
 }
 pub fn source_module_manifest(source_id:&str,target:&str,host_api:&str,worker:ModuleFile)->ModuleManifest {
     ModuleManifest {
@@ -110,6 +109,47 @@ mod tests {
     use super::*;
     use mintcat_runtime_broker::{CredentialBinding, CredentialPlacement};
     use std::collections::BTreeMap;
+
+    #[test]
+    fn worker_errors_keep_safe_categories_reasons_and_request_correlation() {
+        let request = WorkerRequest {
+            id:"request-source-test".into(),
+            kind:mintcat_sdk::WorkerRequestKind::Invoke,
+            contract_id:Some("source.modio".into()),contract_version:Some(1),
+            method:Some("search".into()),params:json!({}),grants:vec![],
+        };
+        for (error,code,reason) in [
+            (SourceError::Unauthorized,"SOURCE_UNAUTHORIZED","credential_missing_or_invalid"),
+            (SourceError::InvalidArgument("private provider validation text".into()),"INVALID_ARGUMENT","source_configuration"),
+            (SourceError::InvalidResponse("private response text".into()),"SOURCE_INVALID_RESPONSE","source_response"),
+            (SourceError::RateLimited,"SOURCE_RATE_LIMITED","source_rate_limited"),
+            (SourceError::Network(mintcat_runtime_broker::BrokerError::Transport {
+                request_id:"private-network-id".into(),
+                endpoint:"https://example.invalid/?token=private-value".into(),
+            }),"SOURCE_UNAVAILABLE","source_network"),
+        ] {
+            let error = source_worker_error(&request,error);
+            assert_eq!(error.code,code);
+            assert_eq!(error.request_id,request.id);
+            assert_eq!(error.message_key,"source.worker.failed");
+            assert_eq!(error.details,json!({"reason":reason}));
+        }
+    }
+
+    #[test]
+    fn invalid_origin_configuration_is_not_a_network_failure() {
+        let mut config = SourceWorkerConfig {
+            api_base:Url::parse("https://api.example/v1/").unwrap(),
+            website_base:None,credential_ref:None,download_origins:vec![],
+            navigation_origins:vec![],download_request_origin:None,
+            application_name:None,application_version:None,
+        };
+        assert!(config.download_origins().unwrap().is_empty());
+        config.download_origins.push("not an origin".into());
+        assert!(matches!(config.download_origins(),Err(SourceError::InvalidArgument(_))));
+        config.navigation_origins.push("not an origin".into());
+        assert!(matches!(config.navigation_origins(),Err(SourceError::InvalidArgument(_))));
+    }
 
     #[test]
     fn native_download_cannot_transport_worker_selected_authority() {

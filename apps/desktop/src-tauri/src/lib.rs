@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use mintcat_runtime_ipc::{connect_or_start, IpcClient};
 use mintcat_runtime_kernel::{RuntimeEnvironment, RuntimePaths};
 use mintcat_sdk::{JsonRpcId, JsonRpcRequest, JsonRpcResponse};
-use tauri::Manager;
 use serde_json::{json, Value};
+use tauri::Manager;
 use uuid::Uuid;
 
 // Signed baseline admission and inventory authenticate native package bytes.
@@ -111,47 +111,95 @@ async fn daemon_call(
 }
 
 fn desktop_runtime_environment() -> RuntimeEnvironment {
-    if cfg!(debug_assertions) { RuntimeEnvironment::Development } else { RuntimeEnvironment::Production }
+    if cfg!(debug_assertions) {
+        RuntimeEnvironment::Development
+    } else {
+        RuntimeEnvironment::Production
+    }
 }
 
-struct PackagedRuntime { portable_data_dir: Option<PathBuf> }
+struct PackagedRuntime {
+    portable_data_dir: Option<PathBuf>,
+}
 
 fn configure_packaged_runtime(app: &tauri::AppHandle) -> Result<PackagedRuntime, String> {
     let executable = std::env::current_exe().map_err(|error| error.to_string())?;
-    let sibling = executable.parent().ok_or("desktop executable has no parent")?;
-    let resources = app.path().resource_dir().map_err(|error| error.to_string())?;
-    let base = if sibling.join("runtime.json").is_file() { sibling.to_path_buf() } else { resources };
+    let sibling = executable
+        .parent()
+        .ok_or("desktop executable has no parent")?;
+    let resources = app
+        .path()
+        .resource_dir()
+        .map_err(|error| error.to_string())?;
+    let base = if sibling.join("runtime.json").is_file() {
+        sibling.to_path_buf()
+    } else {
+        resources
+    };
     let configuration = base.join("runtime.json");
     if std::env::var_os("MINTCAT_RUNTIME_CONFIG").is_none() {
-        if configuration.is_file() { std::env::set_var("MINTCAT_RUNTIME_CONFIG", &configuration); }
-        else if !cfg!(debug_assertions) { return Err("Packaged signed baseline runtime configuration is missing".into()); }
+        if configuration.is_file() {
+            std::env::set_var("MINTCAT_RUNTIME_CONFIG", &configuration);
+        } else if !cfg!(debug_assertions) {
+            return Err("Packaged signed baseline runtime configuration is missing".into());
+        }
     }
     let manifest = base.join("release-manifest.json");
     if !manifest.is_file() {
-        if cfg!(debug_assertions) { return Ok(PackagedRuntime { portable_data_dir: None }); }
+        if cfg!(debug_assertions) {
+            return Ok(PackagedRuntime {
+                portable_data_dir: None,
+            });
+        }
         return Err("Packaged immutable release manifest is missing".into());
     }
-    let manifest: Value = mintcat_runtime_release::read_json(&manifest).map_err(|error| error.to_string())?;
-    if manifest["schemaVersion"] != 1 || manifest["target"].as_str() != Some(env!("MINTCAT_TARGET")) {
-        return Err("Packaged runtime manifest differs from this desktop's exact compiled target".into());
+    let manifest: Value =
+        mintcat_runtime_release::read_json(&manifest).map_err(|error| error.to_string())?;
+    if manifest["schemaVersion"] != 1 || manifest["target"].as_str() != Some(env!("MINTCAT_TARGET"))
+    {
+        return Err(
+            "Packaged runtime manifest differs from this desktop's exact compiled target".into(),
+        );
     }
-    let variant = manifest["variant"].as_str().ok_or("Packaged release variant is missing")?;
-    if !["standard", "portable", "fixed-webview2"].contains(&variant) { return Err("Invalid packaged desktop release variant".into()); }
+    let variant = manifest["variant"]
+        .as_str()
+        .ok_or("Packaged release variant is missing")?;
+    if !["standard", "portable", "fixed-webview2"].contains(&variant) {
+        return Err("Invalid packaged desktop release variant".into());
+    }
     if variant == "fixed-webview2" {
-        if !cfg!(windows) { return Err("Fixed WebView2 is a Windows-only release".into()); }
+        if !cfg!(windows) {
+            return Err("Fixed WebView2 is a Windows-only release".into());
+        }
         let runtime = base.join("webview2");
-        if !runtime.join("msedgewebview2.exe").is_file() { return Err("Authenticated fixed WebView2 runtime is missing; system runtime fallback is forbidden".into()); }
+        if !runtime.join("msedgewebview2.exe").is_file() {
+            return Err("Authenticated fixed WebView2 runtime is missing; system runtime fallback is forbidden".into());
+        }
         // This executes before any configured window is created.
         std::env::set_var("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", runtime);
     }
     let portable_data_dir = if variant == "portable" {
-        if !cfg!(windows) || manifest["dataDirectory"]["mode"] != "portable" { return Err("Invalid portable data directory declaration".into()); }
-        let path = PathBuf::from(manifest["dataDirectory"]["path"].as_str().ok_or("Portable release lacks its declared data directory")?);
-        if path.as_os_str().is_empty() || path.components().any(|part| !matches!(part, std::path::Component::Normal(_))) {
-            return Err("Portable data directory must be a relative child without traversal".into());
+        if !cfg!(windows) || manifest["dataDirectory"]["mode"] != "portable" {
+            return Err("Invalid portable data directory declaration".into());
+        }
+        let path = PathBuf::from(
+            manifest["dataDirectory"]["path"]
+                .as_str()
+                .ok_or("Portable release lacks its declared data directory")?,
+        );
+        if path.as_os_str().is_empty()
+            || path
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        {
+            return Err(
+                "Portable data directory must be a relative child without traversal".into(),
+            );
         }
         Some(sibling.join(path))
-    } else { None };
+    } else {
+        None
+    };
     Ok(PackagedRuntime { portable_data_dir })
 }
 
@@ -160,23 +208,43 @@ fn explicit_data_directory() -> Result<Option<PathBuf>, String> {
     let mut explicit = None;
     while let Some(argument) = arguments.next() {
         if argument == "--data-dir" {
-            explicit = Some(PathBuf::from(arguments.next().ok_or("--data-dir requires a directory")?));
-        } else if let Some(path) = argument.to_str().and_then(|argument| argument.strip_prefix("--data-dir=")) {
+            explicit = Some(PathBuf::from(
+                arguments.next().ok_or("--data-dir requires a directory")?,
+            ));
+        } else if let Some(path) = argument
+            .to_str()
+            .and_then(|argument| argument.strip_prefix("--data-dir="))
+        {
             explicit = Some(PathBuf::from(path));
         }
     }
-    let directory = explicit.or_else(|| std::env::var_os(mintcat_runtime_kernel::DATA_DIR_ENV).map(PathBuf::from));
-    if directory.as_ref().is_some_and(|path| path.as_os_str().is_empty()) { return Err("Explicit data directory must not be empty".into()); }
+    let directory = explicit
+        .or_else(|| std::env::var_os(mintcat_runtime_kernel::DATA_DIR_ENV).map(PathBuf::from));
+    if directory
+        .as_ref()
+        .is_some_and(|path| path.as_os_str().is_empty())
+    {
+        return Err("Explicit data directory must not be empty".into());
+    }
     Ok(directory)
 }
 
 #[tauri::command]
 fn desktop_environment(app: tauri::AppHandle) -> Result<Value, String> {
-    let data_dir = if let Some(explicit) = explicit_data_directory()? { explicit }
-    else if let Some(directory) = app.state::<PackagedRuntime>().portable_data_dir.as_ref() { directory.clone() }
-    else {
-        let base = app.path().app_data_dir().map_err(|error| error.to_string())?;
-        if cfg!(debug_assertions) { base.join("isolated-vnext-development") } else { base.join("vnext") }
+    let data_dir = if let Some(explicit) = explicit_data_directory()? {
+        explicit
+    } else if let Some(directory) = app.state::<PackagedRuntime>().portable_data_dir.as_ref() {
+        directory.clone()
+    } else {
+        let base = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| error.to_string())?;
+        if cfg!(debug_assertions) {
+            base.join("isolated-vnext-development")
+        } else {
+            base.join("vnext")
+        }
     };
     Ok(json!({"dataDir":data_dir,"environment":desktop_runtime_environment()}))
 }
@@ -184,47 +252,62 @@ fn desktop_environment(app: tauri::AppHandle) -> Result<Value, String> {
 #[tauri::command]
 fn rescue_log(data_dir: String) -> Result<Value, String> {
     use std::io::{Read, Seek, SeekFrom};
-    let path = RuntimePaths::new(data_dir).map_err(|error| error.to_string())?.layout().runtime_dir.join("daemon.log");
+    let path = RuntimePaths::new(data_dir)
+        .map_err(|error| error.to_string())?
+        .layout()
+        .runtime_dir
+        .join("daemon.log");
     let metadata = std::fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() { return Err("Daemon log is not a regular file".into()); }
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err("Daemon log is not a regular file".into());
+    }
     let mut file = std::fs::File::open(path).map_err(|error| error.to_string())?;
     let length = file.metadata().map_err(|error| error.to_string())?.len();
     let count = length.min(64 * 1024);
-    file.seek(SeekFrom::Start(length - count)).map_err(|error| error.to_string())?;
+    file.seek(SeekFrom::Start(length - count))
+        .map_err(|error| error.to_string())?;
     let mut bytes = Vec::with_capacity(count as usize);
-    file.take(count).read_to_end(&mut bytes).map_err(|error| error.to_string())?;
+    file.take(count)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
     Ok(json!({"text":String::from_utf8_lossy(&bytes),"truncated":length > count}))
 }
 
 pub fn run() {
     let context = tauri::generate_context!();
     if std::env::args_os().any(|argument| argument == "--verify-embedded-ui") {
-        if context.assets().get(&tauri_utils::assets::AssetKey::from("index.html")).is_none() {
+        if context
+            .assets()
+            .get(&tauri_utils::assets::AssetKey::from("index.html"))
+            .is_none()
+        {
             eprintln!("OFFLINE_UI_NOT_EMBEDDED: build the desktop with --features custom-protocol");
             std::process::exit(2);
         }
         println!("{}", json!({"embeddedUi":true,"entry":"index.html"}));
         return;
     }
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .setup(|app| {
-            let runtime = configure_packaged_runtime(app.handle()).map_err(std::io::Error::other)?;
+            let runtime =
+                configure_packaged_runtime(app.handle()).map_err(std::io::Error::other)?;
             app.manage(runtime);
-            for window in app.config().app.windows.iter() {
+            for config in app.config().app.windows.iter() {
                 // A background workbench must keep its signed UI lease alive and
                 // acknowledge update barriers; WebKit's default suspends these timers.
-                tauri::WebviewWindowBuilder::from_config(app.handle(), window)?
+                tauri::WebviewWindowBuilder::from_config(app.handle(), config)?
                     .transparent(cfg!(any(target_os = "macos", windows)))
-                    .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
+                    .background_throttling(
+                        tauri::utils::config::BackgroundThrottlingPolicy::Disabled,
+                    )
                     .build()?;
             }
             Ok(())
         })
         .on_window_event(|window, event| {
             #[cfg(target_os = "macos")]
-            if matches!(event, tauri::WindowEvent::Destroyed) {
-                let label = window.label().to_owned();
-                let _ = window.run_on_main_thread(move || window_surface::release_observer(&label));
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                window_surface::prepare_for_destruction(window.label());
             }
             #[cfg(not(target_os = "macos"))]
             let _ = (window, event);
@@ -244,8 +327,16 @@ pub fn run() {
             ui_assets::ui_close_generation,
             ui_assets::ui_request_generation
         ])
-        .run(context)
+        .build(context)
         .expect("vNext desktop host failed");
+    app.run(|_app, event| {
+        #[cfg(target_os = "macos")]
+        if matches!(event, tauri::RunEvent::Exit) {
+            window_surface::prepare_for_termination();
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = event;
+    });
 }
 
 #[cfg(test)]

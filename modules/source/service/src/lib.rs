@@ -256,7 +256,12 @@ impl SourceApplication {
         Ok(())
     }
     fn fail(&self, job_id: &str, error: &SourceApplicationError) {
-        let app_error = AppError { code:match error { SourceApplicationError::Source(SourceError::Unauthorized)=>"SOURCE_UNAUTHORIZED",SourceApplicationError::Source(SourceError::Unavailable(_))=>"SOURCE_UNAVAILABLE",_=>"SOURCE_OPERATION_FAILED" }.into(),message_key:"source.operation.failed".into(),details:json!({"message":error.to_string()}),request_id:job_id.into(),job_id:Some(job_id.into()),retryable:false,recovery_actions:Vec::new() };
+        let (code,reason) = match error {
+            SourceApplicationError::Source(error) => (error.app_code(),error.diagnostic_reason()),
+            SourceApplicationError::Invalid(_) => ("INVALID_ARGUMENT","source_configuration"),
+            _ => ("SOURCE_OPERATION_FAILED","source_operation"),
+        };
+        let app_error = AppError { code:code.into(),message_key:"source.operation.failed".into(),details:json!({"reason":reason}),request_id:job_id.into(),job_id:Some(job_id.into()),retryable:false,recovery_actions:Vec::new() };
         if self.jobs.commit_state(self.authorization.owner_scope(),job_id).is_ok_and(|state| matches!(state,mintcat_runtime_jobs::CommitState::InProgress)) {
             if matches!(error, SourceApplicationError::Library(
                 LibraryError::PermissionDenied(_) | LibraryError::RevisionConflict { .. }

@@ -88,16 +88,13 @@ impl NexusProvider {
     }
 
     pub fn with_network_client(broker: SourceNetworkClient, config: NexusConfig) -> Result<Self, SourceError> {
-        let api_origin = Origin::from_url(&config.api_base)?;
-        let website_origin = Origin::from_url(&config.website_base)?;
+        let api_origin = Origin::from_url(&config.api_base)
+            .map_err(|_| SourceError::InvalidArgument("invalid Nexus API origin configuration".into()))?;
+        let website_origin = Origin::from_url(&config.website_base)
+            .map_err(|_| SourceError::InvalidArgument("invalid Nexus website origin configuration".into()))?;
         if !config.navigation_origins.contains(&website_origin) {
             return Err(SourceError::InvalidArgument(
                 "Nexus navigation origins must contain the website origin".to_owned(),
-            ));
-        }
-        if config.download_origins.is_empty() {
-            return Err(SourceError::InvalidArgument(
-                "Nexus download origins cannot be empty".to_owned(),
             ));
         }
         if config.application_name.trim().is_empty() || config.application_version.trim().is_empty()

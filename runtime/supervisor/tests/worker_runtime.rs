@@ -61,6 +61,23 @@ async fn executes_real_worker_computation_and_artifact_grants_across_versions() 
         .unwrap();
     assert_eq!(sum, json!({ "sum": 9.5 }));
 
+    // A valid signed worker's application errors retain structured diagnostics
+    // without being mistaken for protocol failure or crashing its instance.
+    let invalid = supervisor.invoke(Invocation {
+        scope_id:"scope-a",contract_id:CONTRACT,contract_version:1,
+        method:"math.sum",params:json!({}),grants:&[],
+        deadline:Duration::from_secs(5),
+    }).await.unwrap_err();
+    assert!(matches!(invalid,
+        SupervisorError::WorkerApplication {code,message_key,details}
+            if code == "INVALID_ARGUMENT"
+                && message_key == "worker.math.values_required"
+                && details == json!({"field":"values"})
+    ));
+    assert!(supervisor.snapshots().iter().any(|instance|
+        instance.instance_id == first_instance && instance.lifecycle == InstanceLifecycle::Active
+    ));
+
     let input_path = sandbox.path().join("large-input.bin");
     fs::write(&input_path, b"real artifact input").unwrap();
     let artifact = artifacts

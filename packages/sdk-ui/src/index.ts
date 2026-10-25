@@ -3,6 +3,8 @@ export { mountGameSettings } from './game-settings';
 export type { GameUiDescriptor, GameModuleList } from './game-settings';
 export { getUiTheme, mountReactView, navigateUi, publishUiSelection, setUiTheme } from './react-view';
 export type { UiNavigationIcon, UiSelection, UiThemeName } from './react-view';
+export { presentUiError, renderUiError } from './error-presentation';
+export type { UiErrorContext, UiErrorPresentation } from './error-presentation';
 import type { CommandName, CommandParams, CommandResult } from '@mintcat/sdk-ts';
 import type * as ReactRuntime from 'react';
 import type * as ReactDOMRuntime from 'react-dom/client';

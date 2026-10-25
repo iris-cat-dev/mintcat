@@ -76,7 +76,7 @@ pub enum SupervisorError {
     #[error("worker response id {actual} does not match request id {expected}")]
     ResponseMismatch { expected: String, actual: String },
     #[error("worker returned {code}: {message_key}")]
-    WorkerApplication { code: String, message_key: String },
+    WorkerApplication { code: String, message_key: String, details: Value },
     #[error("worker instance {instance_id} exited unexpectedly{status}")]
     WorkerExited { instance_id: String, status: String },
 }
@@ -913,14 +913,14 @@ async fn call_worker_broker(
             })
     } else {
         let AppError {
-            code, message_key, ..
+            code, message_key, details, ..
         } = response
             .error
             .ok_or_else(|| SupervisorError::HandshakeMismatch {
                 instance_id: instance_id.to_owned(),
                 message: "failed response omitted error".to_owned(),
             })?;
-        Err(SupervisorError::WorkerApplication { code, message_key })
+        Err(SupervisorError::WorkerApplication { code, message_key, details })
     }
 }
 

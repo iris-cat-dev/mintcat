@@ -144,6 +144,75 @@ fn provider(origin: &Url, download_origins: Vec<Origin>) -> ModioProvider {
 }
 
 #[tokio::test]
+async fn empty_download_scope_allows_read_operations_but_never_authorizes_binary_downloads() {
+    let mut server = spawn_server(|request| {
+        if request.contains("/files") {
+            (200, json!({"data": [api_file(7, 99, "2.0", "https://downloads.example/file.zip")]}))
+        } else if request.starts_with("GET /v1/games/2475/mods/7 ") {
+            (200, api_mod(7, "Available", 1))
+        } else {
+            (200, json!({"data": [api_mod(7, "Available", 1)], "result_total": 1}))
+        }
+    }).await;
+    let source = provider(&server.origin, Vec::new());
+    let cancellation = CancellationToken::default();
+    let page = source.search(&game(), &SearchRequest {
+        query: String::new(),
+        cursor: None,
+        page_size: 20,
+        sort_field: None,
+        sort_direction: None,
+    }, &cancellation).await.unwrap();
+    assert_eq!(page.items.len(), 1);
+    let reference = &page.items[0].mod_ref;
+    let details = source.get_mod(&game(), reference, &cancellation).await.unwrap();
+    assert_eq!(details.mod_ref.remote_mod_id, "7");
+    let versions = source.list_versions(&game(), reference, &cancellation).await.unwrap();
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0].remote_file_id, "99");
+    let version_reference = ModRef {
+        version_id: Some(versions[0].version_id.clone()),
+        remote_file_id: Some(versions[0].remote_file_id.clone()),
+        ..reference.clone()
+    };
+    let approved = provider(&server.origin, vec![Origin::parse("https://downloads.example").unwrap()]);
+    let descriptor = approved.resolve_download(&game(), &version_reference, &cancellation).await.unwrap();
+    assert_eq!(descriptor.mod_ref.remote_file_id.as_deref(), Some("99"));
+    let denied = source.resolve_download(&game(), &version_reference, &cancellation).await;
+    assert!(matches!(denied, Err(SourceError::InvalidResponse(_))), "{denied:?}");
+    for expected_path in [
+        "GET /v1/games/2475/mods?",
+        "GET /v1/games/2475/mods/7 ",
+        "GET /v1/games/2475/mods/7/files?",
+        "GET /v1/games/2475/mods/7/files?",
+        "GET /v1/games/2475/mods/7/files?",
+    ] {
+        let captured = server.requests.recv().await.unwrap();
+        assert!(captured.starts_with(expected_path), "{captured}");
+        assert!(!captured.to_ascii_lowercase().contains("authorization:"));
+    }
+    assert!(server.requests.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn missing_credentials_with_empty_download_scope_remain_unauthorized() {
+    let mut server = spawn_server(|_| (401, json!({"error": "authentication required"}))).await;
+    let source = provider(&server.origin, Vec::new());
+    assert!(matches!(
+        source.search(&game(), &SearchRequest {
+            query: String::new(),
+            cursor: None,
+            page_size: 20,
+            sort_field: None,
+            sort_direction: None,
+        }, &CancellationToken::default()).await,
+        Err(SourceError::Unauthorized)
+    ));
+    let captured = server.requests.recv().await.unwrap();
+    assert!(!captured.to_ascii_lowercase().contains("authorization:"));
+}
+
+#[tokio::test]
 async fn search_is_game_bound_paginated_sorted_and_normalized() {
     let mut server = spawn_server(|request| {
         if request.contains("_offset=1") {

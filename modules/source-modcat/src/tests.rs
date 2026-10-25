@@ -237,6 +237,53 @@ async fn search_keeps_drg_and_rogue_core_game_bindings_separate() {
 }
 
 #[tokio::test]
+async fn search_and_details_keep_missing_images_optional() {
+    for (picture, expected) in [
+        (None, None),
+        (Some(Value::Null), None),
+        (Some(json!("")), None),
+        (Some(json!(" \t")), None),
+        (
+            Some(json!("https://images.example/mod.png")),
+            Some("https://images.example/mod.png"),
+        ),
+    ] {
+        let mut list = list_mod("mod-main", "Main Mod");
+        let mut details = detail("drg");
+        for record in [&mut list, &mut details] {
+            if let Some(picture) = &picture {
+                record["PicUrl"] = picture.clone();
+            } else {
+                record.as_object_mut().unwrap().remove("PicUrl");
+            }
+        }
+        let server = spawn_server(move |request| {
+            let result = if request.starts_with("POST /api/Mod/ModListPage ") {
+                json!([list])
+            } else {
+                details.clone()
+            };
+            (200, json!({"ResultCode": 200, "ResultData": result}))
+        })
+        .await;
+        let vault = CredentialVault::new(Arc::new(MemoryCredentialStore::default()));
+        let source = provider(&server.origin, None, &vault);
+        let game = binding("game:drg", "drg", "drg");
+        let cancellation = CancellationToken::default();
+        let page = source
+            .search(&game, &search_request(None), &cancellation)
+            .await
+            .unwrap();
+        assert_eq!(page.items[0].logo_url.as_deref(), expected);
+        let details = source
+            .get_mod(&game, &page.items[0].mod_ref, &cancellation)
+            .await
+            .unwrap();
+        assert_eq!(details.logo_url.as_deref(), expected);
+    }
+}
+
+#[tokio::test]
 async fn version_file_identity_and_download_resolution_are_exact() {
     let server =
         spawn_server(|_| (200, json!({"ResultCode": 200, "ResultData": detail("drg")}))).await;

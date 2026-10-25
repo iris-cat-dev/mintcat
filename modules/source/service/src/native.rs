@@ -143,10 +143,25 @@ fn verify_download(source_id:&str, config:&SourceWorkerConfig, reference:&ModRef
 
 fn map_supervisor_error(error: SupervisorError) -> SourceError {
     match error {
-        SupervisorError::WorkerApplication { code, .. } if code == "SOURCE_UNAUTHORIZED" => SourceError::Unauthorized,
-        SupervisorError::WorkerApplication { code, .. } if code == "SOURCE_NOT_FOUND" => SourceError::NotFound("source resource".into()),
-        SupervisorError::WorkerApplication { code, .. } if code == "SOURCE_RATE_LIMITED" => SourceError::RateLimited,
-        SupervisorError::WorkerApplication { code, .. } if code == "SOURCE_INVALID_RESPONSE" => SourceError::InvalidResponse("native source response was invalid".into()),
+        SupervisorError::WorkerApplication { code, details, .. } => {
+            // Worker strings and URLs are not trusted diagnostics. Retain the
+            // source protocol's safe reason vocabulary, including older workers
+            // which supplied only a code/messageKey.
+            let reason = details.get("reason").and_then(serde_json::Value::as_str)
+                .filter(|reason| matches!(*reason,
+                    "credential_missing_or_invalid" | "source_configuration" |
+                    "source_not_found" | "source_rate_limited" | "source_response" |
+                    "source_interaction_required" | "source_unavailable" | "source_network"))
+                .map(str::to_owned);
+            match code.as_str() {
+                "SOURCE_UNAUTHORIZED" => SourceError::Unauthorized,
+                "SOURCE_NOT_FOUND" => SourceError::NotFound(reason.unwrap_or_else(||"source_not_found".into())),
+                "SOURCE_RATE_LIMITED" => SourceError::RateLimited,
+                "INVALID_ARGUMENT" => SourceError::InvalidArgument(reason.unwrap_or_else(||"source_configuration".into())),
+                "SOURCE_INVALID_RESPONSE" => SourceError::InvalidResponse(reason.unwrap_or_else(||"source_response".into())),
+                _ => SourceError::Unavailable(reason.unwrap_or_else(||"source_unavailable".into())),
+            }
+        },
         other => SourceError::Unavailable(other.to_string()),
     }
 }
@@ -156,6 +171,48 @@ mod tests {
     use super::*;
     use mintcat_runtime_broker::{CredentialVault, MemoryCredentialStore, NetworkBroker, NetworkRequest, SecretValue};
     use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpListener};
+
+    #[test]
+    fn native_worker_errors_preserve_categories_and_safe_reasons() {
+        for (code,reason) in [
+            ("INVALID_ARGUMENT","source_configuration"),
+            ("SOURCE_UNAUTHORIZED","credential_missing_or_invalid"),
+            ("SOURCE_NOT_FOUND","source_not_found"),
+            ("SOURCE_RATE_LIMITED","source_rate_limited"),
+            ("SOURCE_INVALID_RESPONSE","source_response"),
+            ("SOURCE_UNAVAILABLE","source_network"),
+        ] {
+            let error = map_supervisor_error(SupervisorError::WorkerApplication {
+                code:code.into(),message_key:"source.worker.failed".into(),
+                details:json!({"reason":reason,"message":"https://example.invalid/?token=private-value"}),
+            });
+            assert_eq!(error.app_code(),code);
+            assert_eq!(error.diagnostic_reason(),reason);
+            assert!(!error.to_string().contains("private-value"));
+        }
+        let legacy = map_supervisor_error(SupervisorError::WorkerApplication {
+            code:"INVALID_ARGUMENT".into(),message_key:"source.worker.failed".into(),
+            details:json!({"message":"legacy worker diagnostic"}),
+        });
+        assert!(matches!(legacy,SourceError::InvalidArgument(_)));
+        let untrusted = map_supervisor_error(SupervisorError::WorkerApplication {
+            code:"INVALID_ARGUMENT".into(),message_key:"source.worker.failed".into(),
+            details:json!({"reason":"https://example.invalid/?token=private-value"}),
+        });
+        assert_eq!(untrusted.diagnostic_reason(),"source_configuration");
+        assert!(!untrusted.to_string().contains("private-value"));
+    }
+
+    #[test]
+    fn host_rejects_every_binary_download_with_empty_origin_scope() {
+        for source in ["modio","nexusmods"] {
+            let mut config = config(Url::parse("https://api.example/v1/").unwrap());
+            config.download_origins.clear();
+            let requested = reference(source);
+            let result = download(requested.clone(),Url::parse("https://downloads.example/file.zip").unwrap());
+            assert!(matches!(verify_download(source,&config,&requested,result),Err(SourceError::InvalidResponse(_))));
+        }
+    }
 
     fn reference(source:&str)->ModRef {
         ModRef {source_id:source.into(),remote_game_key:"game".into(),remote_mod_id:"mod-1".into(),version_id:Some("version-1".into()),remote_file_id:Some("file-1".into())}
