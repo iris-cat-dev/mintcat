@@ -23,53 +23,117 @@ export async function mountGameSettings(root: HTMLElement, context: UiContext, g
   let editGeneration = 0;
   let pending = false;
   const controls = new Map<string, HTMLInputElement | HTMLSelectElement>();
-  const saveDraft = (): void => context.saveState(`settings/${binding.gameId}`, stateVersion, { values, revision, dirty });
+  const revisionBadge = context.kit.element('span');
+  revisionBadge.className = 'game-settings-badge';
+  const dirtyBadge = context.kit.element('span');
+  const syncBadges = (): void => {
+    revisionBadge.textContent = `修订 #${revision}`;
+    dirtyBadge.className = `game-settings-badge ${dirty ? 'game-settings-badge--dirty' : 'game-settings-badge--clean'}`;
+    dirtyBadge.textContent = dirty ? '未保存修改' : '已同步';
+  };
+  const saveDraft = (): void => {
+    syncBadges();
+    context.saveState(`settings/${binding.gameId}`, stateVersion, { values, revision, dirty });
+  };
   context.dirty(dirty);
+  syncBadges();
+  const card = context.kit.element('div');
+  card.className = 'game-settings-card';
+  const header = context.kit.element('div');
+  header.className = 'game-settings-header';
+  const heading = context.kit.element('div');
+  heading.className = 'game-settings-heading';
+  const title = context.kit.element('h2', `${binding.displayName} 游戏设置`);
+  title.className = 'game-settings-title';
+  const subtitle = context.kit.element('p', `配置当前游戏的启动参数与运行选项 · 作用域 ${binding.gameId}`);
+  subtitle.className = 'game-settings-subtitle';
+  heading.append(title, subtitle);
+  const badges = context.kit.element('div');
+  badges.className = 'game-settings-badges';
+  badges.append(revisionBadge, dirtyBadge);
+  header.append(heading, badges);
+
   const form = context.kit.element('form');
+  form.className = 'game-settings-form';
+  const fieldsContainer = context.kit.element('div');
+  fieldsContainer.className = 'game-settings-fields';
   root.classList.add('game-settings');
-  root.append(context.kit.element('h2', `${binding.displayName} settings`), context.kit.element('p', `Game scope: ${binding.gameId}`), form);
   const fields = Object.entries(descriptor.settingsSchema.properties);
   for (const [key, field] of fields) {
-    const label = context.kit.element('label', field.title ?? key);
+    const label = context.kit.element('label');
+    label.className = 'game-settings-field';
+    const meta = context.kit.element('span');
+    meta.className = 'game-settings-field-meta';
+    const fieldTitle = context.kit.element('span', field.title ?? key);
+    fieldTitle.className = 'game-settings-field-title';
+    const fieldKey = context.kit.element('span', key);
+    fieldKey.className = 'game-settings-field-key';
+    meta.append(fieldTitle, fieldKey);
+    label.append(meta);
     if (field.enum || field.type === 'boolean') {
-      const select = context.kit.element('select'); controls.set(key, select);
-      const unset = context.kit.element('option', `Choose ${field.title ?? key}`); unset.value = ''; unset.disabled = true; select.append(unset);
+      const select = context.kit.element('select');
+      select.className = 'game-settings-control';
+      controls.set(key, select);
+      const unset = context.kit.element('option', `请选择 ${field.title ?? key}`);
+      unset.value = ''; unset.disabled = true; select.append(unset);
       select.required = descriptor.settingsSchema.required?.includes(key) ?? false;
-      for (const value of field.enum ?? [true, false]) { const option = context.kit.element('option', String(value)); option.value = JSON.stringify(value); select.append(option); }
+      for (const value of field.enum ?? [true, false]) {
+        const display = field.type === 'boolean' && !field.enum
+          ? (value === true ? '启用 (true)' : '禁用 (false)')
+          : String(value);
+        const option = context.kit.element('option', display);
+        option.value = JSON.stringify(value);
+        select.append(option);
+      }
       select.value = values[key] === undefined ? '' : JSON.stringify(values[key]);
       select.addEventListener('change', () => { values[key] = JSON.parse(select.value) as Json; editGeneration++; dirty = true; context.dirty(true); saveDraft(); });
       label.append(select);
     } else {
-      const input = context.kit.element('input'); controls.set(key, input);
+      const input = context.kit.element('input');
+      input.className = 'game-settings-control';
+      controls.set(key, input);
       input.type = field.type === 'number' ? 'number' : 'text';
+      input.placeholder = field.type === 'number' ? '输入数值…' : '输入配置内容…';
       input.required = descriptor.settingsSchema.required?.includes(key) ?? false;
       input.value = String(values[key] ?? '');
       input.addEventListener('input', () => { if (field.type === 'number' && input.value === '') delete values[key]; else values[key] = field.type === 'number' ? Number(input.value) : input.value; editGeneration++; dirty = true; context.dirty(true); saveDraft(); });
       label.append(input);
     }
-    form.append(label);
+    fieldsContainer.append(label);
+  }
+  if (!fields.length) {
+    const empty = context.kit.element('p', '当前游戏插件未声明额外设置项。');
+    empty.className = 'game-settings-empty';
+    fieldsContainer.append(empty);
   }
   const replaceValues = (authoritative: Record<string, Json>): void => {
     for (const key of Object.keys(values)) delete values[key];
     Object.assign(values, authoritative);
     for (const [key, control] of controls) control.value = control instanceof HTMLSelectElement ? values[key] === undefined ? '' : JSON.stringify(values[key]) : String(values[key] ?? '');
   };
-  const save = context.kit.button('Save game settings', () => { form.requestSubmit(); });
-  const discard = context.kit.button('Discard draft and reload', context.guard(async () => {
-    if (dirty && !window.confirm('Discard unsaved game settings and reload the authoritative values?')) return;
+  const save = context.kit.button('保存设置', () => { form.requestSubmit(); });
+  save.className = 'game-settings-save';
+  const discard = context.kit.button('放弃草稿并重新加载', context.guard(async () => {
+    if (dirty && !window.confirm('放弃未保存的游戏设置修改，并重新读取当前生效值？')) return;
     if (pending) return;
     pending = true;
     const discardedGeneration = editGeneration;
     save.disabled = discard.disabled = true;
     try {
       const current = await context.request<{ values: Record<string, Json>; revision: number }>('settings.get', { scope, section: 'game' });
-      if (editGeneration !== discardedGeneration) { context.notify('Newer edits remain unsaved; reload was not applied'); return; }
+      if (editGeneration !== discardedGeneration) { context.notify('存在更新的未保存修改，未覆盖当前草稿'); return; }
       replaceValues(current.values); revision = current.revision; dirty = false; editGeneration++;
-      context.dirty(false); saveDraft(); context.notify('Game settings reloaded; unsaved draft discarded');
+      context.dirty(false); saveDraft(); context.notify('已重新加载游戏设置并丢弃草稿');
     } catch (error) { context.notify(error instanceof Error ? error.message : String(error)); }
     finally { pending = false; if (!context.signal.aborted) save.disabled = discard.disabled = false; }
   }));
-  form.append(save, discard);
+  discard.className = 'game-settings-discard';
+  const actionsBar = context.kit.element('div');
+  actionsBar.className = 'game-settings-actions';
+  actionsBar.append(save, discard);
+  form.append(fieldsContainer, actionsBar);
+  card.append(header, form);
+  root.append(card);
   form.addEventListener('submit', event => {
     event.preventDefault();
     context.guard(async () => {
@@ -88,7 +152,7 @@ export async function mountGameSettings(root: HTMLElement, context: UiContext, g
           dirty = editGeneration !== submittedGeneration;
           if (!dirty) replaceValues(updated.values);
           context.dirty(dirty); saveDraft();
-          context.notify(dirty ? 'Submitted settings saved; newer edits remain unsaved' : 'Game settings saved');
+          context.notify(dirty ? '已提交保存，较新的输入仍保留在草稿中' : '游戏设置已保存');
         }
       } catch (error) { context.notify(error instanceof Error ? error.message : String(error)); }
       finally { pending = false; if (!context.signal.aborted) save.disabled = discard.disabled = false; }

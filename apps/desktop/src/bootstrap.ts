@@ -22,13 +22,16 @@ const rescue = document.createElement('details'); rescue.className = 'rescue';
 const summary = document.createElement('summary'); summary.textContent = '后台状态与恢复';
 const description = document.createElement('p'); description.className = 'rescue-directory';
 description.textContent = `Isolated vNext data: ${configuredDataDir || 'Not configured'}. No legacy desktop database is opened.`;
-const status = document.createElement('div'); status.role = 'status';
+const status = document.createElement('div'); status.role = 'status'; status.className = 'rescue-status';
+const recoveryActions = document.createElement('div'); recoveryActions.className = 'rescue-recovery-actions';
 const output = document.createElement('pre'); output.className = 'rescue-output';
 const controls = document.createElement('div'); controls.className = 'controls';
-const modules = document.createElement('div');
-rescue.append(summary, description, status, controls, modules, output);
+const modules = document.createElement('div'); modules.className = 'rescue-modules';
+rescue.append(summary, description, status, controls, modules, recoveryActions, output);
 shell.append(sidebar, header, surface, footer, rescue); app.append(shell);
 const chrome = mountChrome(header, footer, brand, () => { rescue.open = !rescue.open; }, native);
+const openRescueHandler = (): void => { rescue.open = true; };
+window.addEventListener('mintcat-open-rescue', openRescueHandler);
 const placeholder = document.createElement('div'); placeholder.className = 'workbench-loading';
 placeholder.textContent = native ? '正在加载工作台…' : '浏览器预览只显示桌面框架；游戏、模组与任务需要原生后台。';
 surface.append(placeholder);
@@ -58,8 +61,9 @@ if (!native || !configuredDataDir) {
     renderUiError(status, error);
     window.dispatchEvent(new CustomEvent('mintcat-ui-notice', { detail: `${error.title}：${error.description}` }));
   };
-  const button = (label: string, action: () => Promise<unknown>): HTMLButtonElement => {
+  const button = (label: string, action: () => Promise<unknown>, variant?: 'primary' | 'warn'): HTMLButtonElement => {
     const element = document.createElement('button'); element.type = 'button'; element.textContent = label;
+    if (variant) element.className = `rescue-btn--${variant}`;
     element.addEventListener('click', () => {
       element.disabled = true;
       action().catch(showError).finally(() => { element.disabled = false; });
@@ -84,13 +88,15 @@ if (!native || !configuredDataDir) {
     starting = pending;
     return pending;
   };
-  button('Status', async () => { const result = await readDaemonStatus(dataDir); status.textContent = `Daemon ready · ${result.generationId}`; output.textContent = JSON.stringify(result, null, 2); });
-  button('Start and diagnose', async () => { const result = await runDaemonDoctor(dataDir); output.textContent = JSON.stringify(result, null, 2); status.textContent = result.healthy ? 'Daemon diagnostics passed' : 'Daemon needs recovery'; });
+  button('Status', async () => { recoveryActions.replaceChildren(); const result = await readDaemonStatus(dataDir); status.textContent = `Daemon ready · ${result.generationId}`; output.textContent = JSON.stringify(result, null, 2); });
+  button('Start and diagnose', async () => { recoveryActions.replaceChildren(); const result = await runDaemonDoctor(dataDir); output.textContent = JSON.stringify(result, null, 2); status.textContent = result.healthy ? 'Daemon diagnostics passed' : 'Daemon needs recovery'; });
   button('View daemon log', async () => {
+    recoveryActions.replaceChildren();
     const log = await invoke<{ text: string; truncated: boolean }>('rescue_log', { dataDir });
     output.textContent = `${log.truncated ? '[Last 64 KiB]\\n' : ''}${log.text}`;
   });
   button('Local confirmed recovery sets', async () => {
+    recoveryActions.replaceChildren();
     const result = await callDaemon(dataDir, 'updates.operations', {});
     output.replaceChildren(document.createTextNode(JSON.stringify(result, null, 2)));
     for (const operation of result.operations) {
@@ -101,6 +107,7 @@ if (!native || !configuredDataDir) {
       if (!previous.confirmed) continue;
       if (!('generationId' in previous) || typeof previous.generationId !== 'string') throw new Error('Missing confirmed recovery generation');
       const restore = document.createElement('button'); restore.type = 'button';
+      restore.className = 'rescue-restore-btn';
       restore.textContent = `Restore local confirmed ${scopeId}: ${previous.generationId}`;
       restore.addEventListener('click', () => {
         if (!window.confirm(`Restore the confirmed local set for ${scopeId}? Runtime revision and data rollback gates will be enforced.`)) return;
@@ -109,16 +116,17 @@ if (!native || !configuredDataDir) {
           .then(job => { status.textContent = `Recovery task ${job.jobId} started in daemon. Reload workbench after it completes.`; })
           .catch(showError).finally(() => { restore.disabled = false; });
       });
-      output.append(restore);
+      recoveryActions.append(restore);
     }
   });
-  button('Load workbench', startWorkbench);
-  button('Safe mode', async () => { shellGeneration++; starting = undefined; workbench?.dispose(); workbench = undefined; status.textContent = 'Safe mode: workbench closed. Persistent daemon jobs are unchanged.'; });
+  button('Load workbench', startWorkbench, 'primary');
+  button('Safe mode', async () => { shellGeneration++; starting = undefined; workbench?.dispose(); workbench = undefined; status.textContent = 'Safe mode: workbench closed. Persistent daemon jobs are unchanged.'; }, 'warn');
   button('Game plugin inventory', async () => {
+    recoveryActions.replaceChildren();
     const list = await requestApplication(dataDir, 'modules.list', {});
     output.replaceChildren(document.createTextNode(JSON.stringify(list, null, 2)));
   });
   void startWorkbench().catch(showError);
 }
-window.addEventListener('pagehide', () => { shellGeneration++; starting = undefined; workbench?.dispose(); chrome.dispose(); }, { once: true });
+window.addEventListener('pagehide', () => { window.removeEventListener('mintcat-open-rescue', openRescueHandler); shellGeneration++; starting = undefined; workbench?.dispose(); chrome.dispose(); }, { once: true });
 }

@@ -17,43 +17,107 @@ export function getUiTheme(): UiThemeName {
 export function setUiTheme(name: UiThemeName): void {
   if (!themes.includes(name)) throw new Error('Unknown UI theme');
   try { localStorage.setItem('theme', name); } catch { /* Theme remains usable without persistence. */ }
-  document.documentElement.dataset.uiTheme = name;
-  document.documentElement.style.colorScheme = name === 'Dark' ? 'dark' : 'light';
-  document.documentElement.classList.toggle('dark-theme', name === 'Dark');
+  const root = document.documentElement;
+  root.dataset.themeSwitching = 'true';
+  root.dataset.uiTheme = name;
+  root.style.colorScheme = name === 'Dark' ? 'dark' : 'light';
+  root.classList.toggle('dark-theme', name === 'Dark');
   document.body.classList.toggle('dark-theme', name === 'Dark');
   document.querySelector('#theme-style')?.remove();
   window.dispatchEvent(new CustomEvent('mintcat-ui-theme', { detail: name }));
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => { delete root.dataset.themeSwitching; });
+  } else {
+    delete root.dataset.themeSwitching;
+  }
 }
 function themeConfig(name: UiThemeName): ThemeConfig {
   const { Antd } = getSharedRuntime();
   const dark = name === 'Dark';
+  const accent = name === 'Blue' ? '#3b82f6' : name === 'Pink' ? '#e84393' : '#ec4899';
+  const accentSoft = name === 'Blue'
+    ? (dark ? 'rgba(59, 130, 246, .22)' : 'rgba(59, 130, 246, .11)')
+    : (dark ? 'rgba(236, 72, 153, .22)' : 'rgba(236, 72, 153, .11)');
+  const accentHover = name === 'Blue'
+    ? (dark ? 'rgba(59, 130, 246, .14)' : 'rgba(59, 130, 246, .075)')
+    : (dark ? 'rgba(236, 72, 153, .13)' : 'rgba(236, 72, 153, .075)');
   return {
     cssVar: { key: `mintcat-${name}` },
     ...(dark ? { algorithm: Antd.theme.darkAlgorithm } : {}),
     token: {
-      colorPrimary: '#ef4da0', colorInfo: '#60a5d7', colorSuccess: '#36c98a',
-      colorText: dark ? '#e8edf8' : '#30313b', colorTextSecondary: dark ? '#adb8cd' : '#676d7d',
-      colorBgContainer: dark ? 'rgba(34,47,70,.30)' : 'rgba(255,255,255,.38)',
-      colorBgElevated: dark ? '#263249' : '#f8f9ff', colorBgLayout: 'transparent',
-      colorBorder: dark ? 'rgba(177,194,224,.16)' : 'rgba(114,128,158,.19)',
-      colorBorderSecondary: dark ? 'rgba(177,194,224,.12)' : 'rgba(114,128,158,.12)',
-      borderRadius: 9, borderRadiusLG: 14, controlHeight: 34, controlHeightSM: 26, fontSize: 14,
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      colorPrimary: accent,
+      colorInfo: '#3b82f6',
+      colorSuccess: '#10b981',
+      colorWarning: '#f59e0b',
+      colorError: '#ef4444',
+      colorText: dark ? '#edf2fc' : '#1e2433',
+      colorTextSecondary: dark ? '#9aa8c2' : '#5b6478',
+      colorTextTertiary: dark ? '#73829e' : '#8590a6',
+      colorBgContainer: dark ? 'rgba(28, 39, 62, .62)' : 'rgba(255, 255, 255, .74)',
+      colorBgElevated: dark ? '#1f2b44' : '#ffffff',
+      colorBgLayout: 'transparent',
+      colorBorder: dark ? 'rgba(177, 196, 230, .16)' : 'rgba(100, 116, 148, .18)',
+      colorBorderSecondary: dark ? 'rgba(177, 196, 230, .11)' : 'rgba(100, 116, 148, .12)',
+      borderRadius: 10,
+      borderRadiusSM: 7,
+      borderRadiusLG: 14,
+      controlHeight: 36,
+      controlHeightSM: 28,
+      fontSize: 13,
+      fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif',
     },
     components: {
       Layout: { bodyBg: 'transparent', footerBg: 'transparent', headerBg: 'transparent', siderBg: 'transparent' },
-      Menu: { itemBg: 'transparent', itemSelectedBg: dark ? 'rgba(239,77,160,.24)' : 'rgba(239,77,160,.13)', itemSelectedColor: dark ? '#ffb3d8' : '#c42e7c' },
-      Table: {
-        colorBgContainer: 'transparent', headerBg: dark ? '#263249' : '#eef0f8',
-        headerColor: dark ? '#adb8cd' : '#676d7d', headerSplitColor: 'transparent',
-        rowHoverBg: dark ? 'rgba(239,77,160,.13)' : 'rgba(239,77,160,.085)',
-        rowSelectedBg: dark ? 'rgba(239,77,160,.28)' : 'rgba(239,77,160,.19)',
-        rowSelectedHoverBg: dark ? 'rgba(239,77,160,.34)' : 'rgba(239,77,160,.24)',
-        cellPaddingBlock: 5, cellPaddingInline: 12,
+      Menu: {
+        itemBg: 'transparent',
+        itemColor: dark ? '#9aa8c2' : '#5b6478',
+        itemHoverBg: dark ? 'rgba(148, 172, 214, .10)' : 'rgba(100, 116, 148, .08)',
+        itemHoverColor: dark ? '#edf2fc' : '#1e2433',
+        itemSelectedBg: accentSoft,
+        itemSelectedColor: dark ? '#ff9ed0' : (name === 'Blue' ? '#1d4ed8' : '#be185d'),
+        itemBorderRadius: 10,
       },
-      Button: { defaultBg: dark ? 'rgba(140,165,206,.10)' : 'rgba(255,255,255,.44)', primaryShadow: '0 3px 14px rgba(239,77,160,.28)' },
-      Select: { selectorBg: dark ? 'rgba(140,165,206,.10)' : 'rgba(255,255,255,.44)', optionSelectedBg: dark ? '#59324f' : '#fbe0ee' },
-      Input: { colorBgContainer: dark ? 'rgba(140,165,206,.10)' : 'rgba(255,255,255,.44)', activeShadow: '0 0 0 2px rgba(239,77,160,.12)' },
+      Table: {
+        colorBgContainer: 'transparent',
+        headerBg: dark ? 'rgba(30, 42, 66, .88)' : 'rgba(241, 244, 251, .92)',
+        headerColor: dark ? '#9aa8c2' : '#5b6478',
+        headerSplitColor: 'transparent',
+        rowHoverBg: accentHover,
+        rowSelectedBg: accentSoft,
+        rowSelectedHoverBg: dark ? 'rgba(236, 72, 153, .30)' : 'rgba(236, 72, 153, .17)',
+        cellPaddingBlock: 8,
+        cellPaddingInline: 12,
+      },
+      Card: {
+        colorBgContainer: dark ? 'rgba(26, 37, 58, .56)' : 'rgba(255, 255, 255, .72)',
+        headerBg: 'transparent',
+        paddingLG: 16,
+      },
+      Collapse: {
+        headerBg: dark ? 'rgba(32, 45, 70, .46)' : 'rgba(246, 248, 254, .72)',
+        contentBg: 'transparent',
+      },
+      Button: {
+        defaultBg: dark ? 'rgba(140, 165, 206, .12)' : 'rgba(255, 255, 255, .78)',
+        defaultBorderColor: dark ? 'rgba(177, 196, 230, .18)' : 'rgba(100, 116, 148, .20)',
+        primaryShadow: '0 4px 14px rgba(236, 72, 153, .28)',
+        fontWeight: 500,
+      },
+      Select: {
+        selectorBg: dark ? 'rgba(140, 165, 206, .12)' : 'rgba(255, 255, 255, .78)',
+        optionSelectedBg: accentSoft,
+      },
+      Input: {
+        colorBgContainer: dark ? 'rgba(140, 165, 206, .12)' : 'rgba(255, 255, 255, .78)',
+        activeShadow: '0 0 0 3px rgba(236, 72, 153, .14)',
+      },
+      Modal: {
+        contentBg: dark ? '#1d2840' : '#fcfdff',
+        headerBg: 'transparent',
+      },
+      Drawer: {
+        colorBgElevated: dark ? 'rgba(24, 34, 54, .92)' : 'rgba(250, 251, 255, .92)',
+      },
       Switch: { handleBg: '#fff' },
     },
   };

@@ -2,7 +2,7 @@ import type { ActionRequired, JobEvent, JobSnapshot } from '@mintcat/sdk-ts';
 import type { Json } from '@mintcat/sdk-ui';
 import { getSharedRuntime } from '@mintcat/sdk-ui';
 import type { TableColumnsType } from 'antd';
-import type { ReactElement, ReactNode } from 'react';
+import type { ReactElement } from 'react';
 
 type BackupMethod = 'backup.export' | 'backup.restore' | 'backup.recover' | 'backup.cloud.upload' | 'backup.cloud.download' | 'library.import-legacy' | 'library.config-import';
 export type TrackedTask = { jobId: string; actionId: string; targetPath: string };
@@ -68,12 +68,15 @@ function formatDate(value: string): string {
 export function BackupView({ model }: { model: BackupModel }) {
   const { React, Antd, Icons } = getSharedRuntime();
   const h = React.createElement;
-  const { Alert, Button, Card, Checkbox, Collapse, Divider, Flex, Form, Input, Select, Space, Table, Tag, Typography } = Antd;
+  const { Alert, Button, Card, Checkbox, Collapse, Flex, Input, Select, Space, Table, Tag, Typography } = Antd;
   React.useSyncExternalStore(model.subscribe, model.getRevision, model.getRevision);
-  const icon = (name: 'CloudUploadOutlined' | 'ReloadOutlined' | 'DownloadOutlined' | 'RollbackOutlined' | 'SafetyCertificateOutlined') => h(Icons[name]);
-  const actionButton = (name: string, label: string, action: () => Promise<void>, options: { primary?: boolean; icon?: ReactElement; text?: boolean } = {}) => h(Button, {
+  const [showCloudDetails, setShowCloudDetails] = React.useState(false);
+
+  const icon = (name: keyof typeof Icons) => h(Icons[name] as typeof Icons.CloudOutlined);
+  const actionButton = (name: string, label: string, action: () => Promise<void>, options: { primary?: boolean; icon?: ReactElement; text?: boolean; small?: boolean } = {}) => h(Button, {
     type: options.primary ? 'primary' : options.text ? 'text' : 'default',
-    size: options.text ? 'small' : 'middle',
+    size: options.text || options.small ? 'small' : 'middle',
+    className: options.primary ? 'glass-primary-action' : undefined,
     icon: options.icon,
     disabled: !!model.busy,
     loading: model.busy === name,
@@ -83,16 +86,17 @@ export function BackupView({ model }: { model: BackupModel }) {
     value: model.fields[key], 'aria-label': label, placeholder,
     onChange: (event: { target: { value: string } }) => model.updateField(key, event.target.value),
   });
-  const formItem = (label: string, child: ReactNode) => h(Form.Item, { label }, child);
   const code = (value: unknown) => h('pre', { className: 'mintcat-backup-json' }, JSON.stringify(value, null, 2));
   const error = (message: string) => message ? h(Alert, { type: 'error', showIcon: true, message, role: 'alert', className: 'mintcat-backup-feedback' }) : null;
+
   const columns: TableColumnsType<CloudBackupRecord> = [
-    { title: '时间', dataIndex: 'createdAt', key: 'createdAt', width: 180, render: (value: string) => formatDate(value) },
-    { title: '大小', dataIndex: 'size', key: 'size', width: 100, render: (value: number) => formatBytes(value) },
-    { title: '版本', dataIndex: 'appVersion', key: 'appVersion', width: 80, render: (value?: string) => value ? h(Tag, { color: 'purple' }, value) : '-' },
+    { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', width: 172, render: (value: string) => formatDate(value) },
+    { title: '体积', dataIndex: 'size', key: 'size', width: 92, render: (value: number) => formatBytes(value) },
+    { title: '版本', dataIndex: 'appVersion', key: 'appVersion', width: 84, render: (value?: string) => value ? h(Tag, { color: 'purple' }, value) : '-' },
     { title: '备注', dataIndex: 'note', key: 'note', ellipsis: true, render: (value?: string) => value || '-' },
-    { title: '操作', key: 'actions', width: 130, render: (_, record) => actionButton(`download:${record.id}`, '下载', () => model.download(record.id), { text: true, icon: icon('DownloadOutlined') }) },
+    { title: '操作', key: 'actions', width: 108, render: (_, record) => actionButton(`download:${record.id}`, '下载', () => model.download(record.id), { text: true, icon: icon('DownloadOutlined') }) },
   ];
+
   const jobItems = model.tasks.jobs.map(task => {
     const view = model.views.get(task.jobId);
     const snapshot = view?.snapshot;
@@ -124,61 +128,156 @@ export function BackupView({ model }: { model: BackupModel }) {
             actionButton(`restore:${task.jobId}`, '请求恢复已下载的归档', () => model.restoreDownload(task), { icon: icon('RollbackOutlined') })) : null),
     };
   });
+
+  const hasActiveOrPendingTasks = model.tasks.pending.length > 0 || jobItems.length > 0;
+  const cloudUnconfigured = model.historyError.includes('云备份未配置') && model.records.length === 0;
+
   return h('section', { className: 'mintcat-backup-page', 'aria-label': '备份设置' },
-    h(Card, { title: '云备份', className: 'mintcat-backup-card' },
-      h(Space.Compact, { className: 'mintcat-backup-cloud-controls' },
-        pathInput('note', '云备份备注', '可选备注'),
-        actionButton('upload', '立即备份', model.upload, { primary: true, icon: icon('CloudUploadOutlined') }),
-        actionButton('cloud-refresh', '刷新', model.refresh, { icon: icon('ReloadOutlined') })),
-      h(Typography.Text, { type: 'secondary' }, '上传当前 owner 的逻辑快照；后台任务完成后自动刷新历史。下载使用下方输出路径，下载完成后可在任务中发起恢复。'),
-      error(model.historyError),
-      h(Divider),
-      h(Flex, { vertical: true, gap: 12 },
-        h(Typography.Text, { strong: true }, '备份历史'),
-        h(Table<CloudBackupRecord>, {
-          columns, dataSource: model.records, rowKey: 'id', size: 'small', loading: model.historyLoading,
-          pagination: false, scroll: { x: 650 }, locale: { emptyText: '暂无云备份' },
-          expandable: { expandedRowRender: record => code(record) },
-        }))),
-    h(Card, { title: '离线便携归档', className: 'mintcat-backup-card' },
-      h(Form, { labelCol: { span: 5 }, wrapperCol: { span: 19 }, colon: false },
-        formItem('输出归档路径', pathInput('output', '输出归档路径', '新的 .json 文件完整路径（导出 / 云下载）')),
-        formItem('待恢复归档', pathInput('source', '待恢复归档路径', '便携归档完整路径')),
-        formItem('归档操作', h(Space, { wrap: true },
-          actionButton('export', '导出离线备份', model.exportArchive, { icon: icon('DownloadOutlined') }),
-          actionButton('restore', '请求导入当前空 owner', model.restoreArchive, { icon: icon('RollbackOutlined') })))),
-      h(Collapse, { size: 'small', items: [{ key: 'scope', label: '归档范围与恢复安全说明', children: h(Typography.Paragraph, null,
-        '便携归档包含 Library 配置、排序、版本与设置及 Agent 对话，各服务在共同维护准入下生成逻辑快照，并非跨数据库事务。恢复要求目标服务为空，并独立人工审阅冻结输入、schema 及写入栅栏。默认关闭实验 Proxy；存在历史 Proxy 数据或归档包含 Proxy 时，会明确拒绝导出或导入，需启用 experimental-proxy 后处理，绝不静默丢弃。启用时保留 Proxy 自定义规则及缓存配置。Vault 凭据、Proxy CA 私钥、系统 hosts 所有权、运行控制器、kernel 任务 / 操作 / 批准及安装回执均不包含；Agent 任务 ID 仅保留为非权威对话历史。恢复后需重新登录并重新批准本机操作。') }] })),
-    h(Card, { title: '旧版 Library 导入', className: 'mintcat-backup-card' },
-      h(Form, { labelCol: { span: 5 }, wrapperCol: { span: 19 }, colon: false },
-        formItem('旧版 SQLite', pathInput('legacySource', '旧版 SQLite 路径', '旧版数据库完整路径')),
-        formItem('导入操作', actionButton('legacy-import', '请求旧版 Library 导入', model.importLegacy))),
-      h(Typography.Text, { type: 'secondary' }, '提交后请审阅后台冻结操作。旧版凭据必须明确勾选，并经过独立确认才会导入。')),
-    h(Card, { title: '配置导入', className: 'mintcat-backup-card' },
-      h(Form, { labelCol: { span: 5 }, wrapperCol: { span: 19 }, colon: false },
-        formItem('配置快照', pathInput('configSource', '配置快照路径', '配置快照完整路径')),
-        formItem('输入格式', h(Select<string>, {
-          value: model.fields.configFormat, 'aria-label': '配置导入格式', className: 'mintcat-backup-format',
-          options: [{ value: 'backup', label: '便携备份' }, { value: 'legacy-sqlite', label: '旧版 SQLite' }],
-          onChange: (value: string) => model.updateField('configFormat', value),
-        })),
-        formItem('导入操作', actionButton('config-import', '请求配置导入', model.importConfig)))),
-    h(Card, { title: '维护恢复', className: 'mintcat-backup-card' },
-      h(Flex, { vertical: true, gap: 12 },
-        h(Typography.Text, { type: 'secondary' }, '明确检查未解决的维护状态。恢复不会在较新的 owner 写入之上重新应用导入。'),
-        actionButton('recover', '检查并恢复维护状态', model.recover))),
-    model.status ? h(Alert, { type: model.statusError ? 'error' : 'info', showIcon: true, message: model.status, role: model.statusError ? 'alert' : 'status', className: 'mintcat-backup-feedback' }) : null,
-    h(Card, { title: '持久后台任务', className: 'mintcat-backup-card' },
-      h(Space.Compact, { className: 'mintcat-backup-job-controls' },
-        h(Input, { value: model.existingJob, placeholder: '已有后台任务 ID', 'aria-label': '已有后台任务 ID', onChange: (event: { target: { value: string } }) => model.updateExistingJob(event.target.value) }),
-        actionButton('attach', '接入任务', model.attach),
-        actionButton('jobs-refresh', '刷新', model.poll, { icon: icon('ReloadOutlined') })),
-      h(Typography.Paragraph, { type: 'secondary' }, '每秒轮询持久状态与分页事件；关闭页面不会取消任务。重新打开可恢复已登记任务与尚未确定响应的请求。'),
-      ...model.tasks.pending.map(request => h(Card, { key: request.key, size: 'small', title: `${commandLabels[request.method]} · 响应尚未确定`, className: 'mintcat-backup-pending' },
-        h(Typography.Text, { code: true }, request.key), code(request.params),
-        actionButton(`pending:${request.key}`, '使用原幂等键恢复请求', () => model.resolvePending(request)))),
-      jobItems.length ? h(Collapse, {
-        items: jobItems, activeKey: [...model.expandedJobs],
-        onChange: (keys: string | string[]) => model.expandJobs(typeof keys === 'string' ? [keys] : keys),
-      }) : h(Typography.Text, { type: 'secondary' }, '暂无已登记的后台任务')));
+    h('div', { className: 'mintcat-backup-header' },
+      h('div', { className: 'mintcat-backup-heading' },
+        h('h2', { className: 'mintcat-backup-title' }, '备份与恢复'),
+        h('p', { className: 'mintcat-backup-subtitle' }, '导出或恢复本机便携备份文件，按需同步云端快照或从旧版迁移配置。'))),
+
+    model.status ? h(Alert, {
+      type: model.statusError ? 'error' : 'info',
+      showIcon: true,
+      closable: true,
+      message: model.status,
+      role: model.statusError ? 'alert' : 'status',
+      className: 'mintcat-backup-feedback',
+    }) : null,
+
+    hasActiveOrPendingTasks ? h('div', { className: 'mintcat-backup-group mintcat-backup-group--highlight' },
+      h('div', { className: 'mintcat-backup-group-header' },
+        h('div', { className: 'mintcat-backup-group-title-row' },
+          h('h3', { className: 'mintcat-backup-group-title' }, '当前备份与恢复任务'),
+          h(Tag, { color: 'processing' }, `${model.tasks.pending.length + jobItems.length} 项`)),
+        actionButton('jobs-refresh', '刷新状态', model.poll, { small: true, icon: icon('ReloadOutlined') })),
+      h('div', { className: 'mintcat-backup-group-body' },
+        ...model.tasks.pending.map(request => h('div', { key: request.key, className: 'mintcat-backup-pending' },
+          h('div', { className: 'mintcat-backup-pending-head' },
+            h('strong', null, `${commandLabels[request.method]} · 响应尚未确定`),
+            h(Typography.Text, { code: true }, request.key)),
+          code(request.params),
+          actionButton(`pending:${request.key}`, '使用原幂等键恢复请求', () => model.resolvePending(request), { primary: true }))),
+        jobItems.length ? h(Collapse, {
+          size: 'small',
+          items: jobItems,
+          activeKey: [...model.expandedJobs],
+          onChange: (keys: string | string[]) => model.expandJobs(typeof keys === 'string' ? [keys] : keys),
+        }) : null)) : null,
+
+    /* Group 1: Clean Flat Rows for Local Portable Archive */
+    h('div', { className: 'mintcat-backup-group' },
+      h('div', { className: 'mintcat-backup-group-header' },
+        h('div', { className: 'mintcat-backup-group-title-row' },
+          h('h3', { className: 'mintcat-backup-group-title' }, '离线便携归档'),
+          h(Tag, { color: 'success' }, '推荐 · 本机可用'))),
+      h('div', { className: 'mintcat-backup-rows' },
+        h('div', { className: 'mintcat-backup-row' },
+          h('div', { className: 'mintcat-backup-row-info' },
+            h('div', { className: 'mintcat-backup-row-title' }, '导出本机备份'),
+            h('div', { className: 'mintcat-backup-row-desc' }, '将模组配置、排序与对话记录保存为单个 .json 文件（亦作为云下载保存路径）。')),
+          h(Space.Compact, { className: 'mintcat-backup-row-control' },
+            pathInput('output', '输出归档路径', '/Users/name/Backups/mintcat-backup.json'),
+            actionButton('export', '导出离线备份', model.exportArchive, { primary: true, icon: icon('DownloadOutlined') }))),
+
+        h('div', { className: 'mintcat-backup-row' },
+          h('div', { className: 'mintcat-backup-row-info' },
+            h('div', { className: 'mintcat-backup-row-title' }, '从归档文件恢复'),
+            h('div', { className: 'mintcat-backup-row-desc' }, '将便携 .json 归档恢复至当前空模组库，提交后经人工核对确认生效。')),
+          h(Space.Compact, { className: 'mintcat-backup-row-control' },
+            pathInput('source', '待恢复归档路径', '输入待恢复的 .json 归档完整路径'),
+            actionButton('restore', '恢复归档', model.restoreArchive, { icon: icon('RollbackOutlined') }))))),
+
+    /* Group 2: Cloud Backup */
+    h('div', { className: 'mintcat-backup-group' },
+      h('div', { className: 'mintcat-backup-group-header' },
+        h('div', { className: 'mintcat-backup-group-title-row' },
+          h('h3', { className: 'mintcat-backup-group-title' }, '云端快照同步'),
+          cloudUnconfigured ? h(Tag, null, '未启用') : null),
+        (!cloudUnconfigured || showCloudDetails) ? actionButton('cloud-refresh', '刷新', model.refresh, { small: true, icon: icon('ReloadOutlined') }) : null),
+      cloudUnconfigured && !showCloudDetails
+        ? h('div', { className: 'mintcat-backup-rows' },
+          h('div', { className: 'mintcat-backup-row' },
+            h('div', { className: 'mintcat-backup-row-info' },
+              h('div', { className: 'mintcat-backup-row-title' }, '当前环境未配置远程云备份服务'),
+              h('div', { className: 'mintcat-backup-row-desc' }, '日常备份与换机迁移直接使用上方「离线便携归档」即可完整保存所有配置。')),
+            h(Button, { size: 'small', onClick: () => setShowCloudDetails(true) }, '展开云端选项')))
+        : h('div', { className: 'mintcat-backup-group-body' },
+          h(Space.Compact, { className: 'mintcat-backup-cloud-controls' },
+            pathInput('note', '云备份备注', '可选快照备注（例如：第五赛季更新前）'),
+            actionButton('upload', '立即备份至云端', model.upload, { primary: true, icon: icon('CloudUploadOutlined') })),
+          cloudUnconfigured
+            ? h(Alert, { type: 'info', showIcon: true, message: model.historyError })
+            : error(model.historyError),
+          h(Table<CloudBackupRecord>, {
+            columns,
+            dataSource: model.records,
+            rowKey: 'id',
+            size: 'small',
+            loading: model.historyLoading,
+            pagination: false,
+            scroll: { x: 600 },
+            locale: { emptyText: '暂无云端备份记录' },
+            expandable: { expandedRowRender: record => code(record) },
+          }))),
+
+    /* Group 3: Folded Advanced Migration & Recovery Tools */
+    h(Collapse, {
+      className: 'mintcat-backup-advanced',
+      items: [{
+        key: 'advanced',
+        label: h('div', { className: 'mintcat-backup-advanced-label' },
+          h('span', { className: 'mintcat-backup-advanced-title' }, '高级数据迁移与维护工具'),
+          h('span', { className: 'mintcat-backup-advanced-sub' }, '旧版 SQLite 数据库迁移 · 配置快照导入 · 维护状态自检 · 关联任务 ID')),
+        children: h('div', { className: 'mintcat-backup-rows mintcat-backup-rows--flush' },
+          h('div', { className: 'mintcat-backup-row' },
+            h('div', { className: 'mintcat-backup-row-info' },
+              h('div', { className: 'mintcat-backup-row-title' }, '旧版数据库迁移 (SQLite)'),
+              h('div', { className: 'mintcat-backup-row-desc' }, '从旧版 MintCat 数据库导入模组列表与配置，账号凭据需在批准时单独勾选。')),
+            h(Space.Compact, { className: 'mintcat-backup-row-control' },
+              pathInput('legacySource', '旧版 SQLite 路径', '旧版 SQLite 数据库完整路径'),
+              actionButton('legacy-import', '迁移旧版数据', model.importLegacy))),
+
+          h('div', { className: 'mintcat-backup-row' },
+            h('div', { className: 'mintcat-backup-row-info' },
+              h('div', { className: 'mintcat-backup-row-title' }, '导入配置快照'),
+              h('div', { className: 'mintcat-backup-row-desc' }, '从便携备份或旧版 SQLite 文件单独导入配置结构。')),
+            h(Space.Compact, { className: 'mintcat-backup-row-control' },
+              h(Select<string>, {
+                value: model.fields.configFormat,
+                'aria-label': '配置导入格式',
+                style: { width: 126 },
+                options: [{ value: 'backup', label: '便携备份' }, { value: 'legacy-sqlite', label: '旧版 SQLite' }],
+                onChange: (value: string) => model.updateField('configFormat', value),
+              }),
+              pathInput('configSource', '配置快照路径', '配置快照完整路径'),
+              actionButton('config-import', '导入快照', model.importConfig))),
+
+          h('div', { className: 'mintcat-backup-row' },
+            h('div', { className: 'mintcat-backup-row-info' },
+              h('div', { className: 'mintcat-backup-row-title' }, '维护状态自检与恢复'),
+              h('div', { className: 'mintcat-backup-row-desc' }, '检查并清理异常中断遗留的维护锁定状态，绝不覆盖较新的写入数据。')),
+            actionButton('recover', '检查并恢复维护状态', model.recover)),
+
+          h('div', { className: 'mintcat-backup-row' },
+            h('div', { className: 'mintcat-backup-row-info' },
+              h('div', { className: 'mintcat-backup-row-title' }, '关联后台任务'),
+              h('div', { className: 'mintcat-backup-row-desc' }, '输入已知的守护进程备份或导入任务 ID 以订阅进度与批准动作。')),
+            h(Space.Compact, { className: 'mintcat-backup-row-control' },
+              h(Input, {
+                value: model.existingJob,
+                placeholder: '已有后台任务 ID',
+                'aria-label': '已有后台任务 ID',
+                onChange: (event: { target: { value: string } }) => model.updateExistingJob(event.target.value),
+              }),
+              actionButton('attach', '接入任务', model.attach))),
+
+          h('div', { className: 'mintcat-backup-row' },
+            h('div', { className: 'mintcat-backup-row-info' },
+              h('div', { className: 'mintcat-backup-row-desc' },
+                '安全说明：便携归档不包含登录凭据、代理 CA 私钥或系统级授权记录；恢复要求当前模组库为空并经人工独立审阅确认。')))),
+      }],
+    }));
 }

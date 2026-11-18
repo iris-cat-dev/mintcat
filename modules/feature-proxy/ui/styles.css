@@ -3,9 +3,9 @@
     min-height: 0;
     box-sizing: border-box;
     overflow: auto;
-    padding: 12px 16px 16px;
+    padding: 18px 20px 22px;
     color: var(--mc-text, var(--ant-color-text));
-    font-size: 12px;
+    font-size: 12.5px;
     background: var(--accelerator-page-bg);
 }
 
@@ -79,29 +79,26 @@
 .accelerator-page__button:not(:disabled):active { transform: scale(0.98); }
 .accelerator-page__button:focus-visible { outline: 3px solid var(--accelerator-primary-hover); outline-offset: 6px; }
 .accelerator-page__button--idle {
-    background: color-mix(in srgb, var(--accelerator-primary) 54%, #3f314d);
+    background: linear-gradient(145deg, color-mix(in srgb, var(--accelerator-primary) 82%, #7c3aed), var(--accelerator-primary));
     box-shadow:
-        0 14px 30px color-mix(in srgb, var(--accelerator-primary) 26%, rgba(0, 0, 0, 0.14)),
-        0 0 0 10px color-mix(in srgb, var(--accelerator-surface) 78%, transparent),
-        0 0 0 18px color-mix(in srgb, var(--accelerator-primary) 10%, transparent);
+        0 14px 32px color-mix(in srgb, var(--accelerator-primary) 28%, rgba(0, 0, 0, 0.10)),
+        0 0 0 10px color-mix(in srgb, var(--accelerator-primary) 10%, transparent);
 }
 .accelerator-page__button--running {
     background: linear-gradient(135deg,
-        color-mix(in srgb, var(--accelerator-primary-active) 78%, #1f1430) 0%,
-        var(--accelerator-primary) 56%,
-        color-mix(in srgb, var(--accelerator-primary-hover) 76%, #3f1654) 100%);
+        #10b981 0%,
+        color-mix(in srgb, var(--accelerator-primary) 72%, #6366f1) 100%);
     box-shadow:
-        0 14px 32px color-mix(in srgb, var(--accelerator-primary) 34%, rgba(0, 0, 0, 0.12)),
-        0 0 0 12px color-mix(in srgb, var(--accelerator-primary) 12%, transparent);
+        0 16px 36px color-mix(in srgb, var(--accelerator-primary) 34%, rgba(0, 0, 0, 0.14)),
+        0 0 0 12px color-mix(in srgb, var(--accelerator-primary) 14%, transparent);
 }
 .accelerator-page__button--disabled {
-    background: color-mix(in srgb, var(--accelerator-primary) 34%, #6d6278);
+    background: color-mix(in srgb, var(--accelerator-primary) 30%, #64748b);
     box-shadow:
-        0 12px 28px color-mix(in srgb, var(--accelerator-primary) 18%, rgba(0, 0, 0, 0.12)),
-        0 0 0 10px color-mix(in srgb, var(--accelerator-surface) 78%, transparent),
-        0 0 0 18px color-mix(in srgb, var(--accelerator-primary) 10%, transparent);
+        0 10px 24px rgba(0, 0, 0, 0.10),
+        0 0 0 8px color-mix(in srgb, var(--accelerator-primary) 8%, transparent);
     cursor: not-allowed;
-    filter: saturate(0.65);
+    filter: saturate(0.6);
 }
 .accelerator-page__button:disabled { cursor: not-allowed; }
 .accelerator-page__button-icon,

@@ -1,9 +1,17 @@
 import type { JobRef, JobSnapshot, ProfileSummary, ModSummary } from '@mintcat/sdk-ts';
-import { getSharedRuntime, mountReactView, publishUiSelection } from '@mintcat/sdk-ui';
+import { getSharedRuntime, mountReactView, presentUiError, publishUiSelection } from '@mintcat/sdk-ui';
 import type { Disposable, GameModuleList, GameUiDescriptor, Json, UiContext } from '@mintcat/sdk-ui';
 type TrackedTask = { jobId: string; actionId: string };
 interface InstallPlanResult { planId: string; planHash: string }
 type InputMetadata = { profileModId: string; format: string; audioOnlyHint: boolean };
+
+function formatCause(cause: unknown): string {
+  if (typeof cause === 'object' && cause !== null && 'appError' in cause) {
+    const failure = presentUiError(cause);
+    return `${failure.title}：${failure.description}`;
+  }
+  return cause instanceof Error ? cause.message : JSON.stringify(cause, null, 2) ?? String(cause);
+}
 
 export async function mountInstall(root: HTMLElement, context: UiContext): Promise<Disposable> {
   const { React, Antd, Icons } = getSharedRuntime(); const h = React.createElement;
@@ -24,7 +32,7 @@ export async function mountInstall(root: HTMLElement, context: UiContext): Promi
     if (busy || !active()) return;
     busy = true; error = ''; update();
     context.guard(async () => {
-      try { await action(); } catch (cause) { if (active()) { error = typeof cause === 'object' && cause !== null && 'appError' in cause ? JSON.stringify(cause.appError, null, 2) ?? String(cause) : cause instanceof Error ? cause.message : JSON.stringify(cause, null, 2) ?? String(cause); update(); } throw cause; }
+      try { await action(); } catch (cause) { if (active()) { error = formatCause(cause); update(); } throw cause; }
       finally { if (active()) { busy = false; update(); } }
     })();
   };
@@ -98,7 +106,7 @@ export async function mountInstall(root: HTMLElement, context: UiContext): Promi
             afterSeq = page.nextAfterSeq; page = await context.call('jobs.watch', { jobId: task.jobId, afterSeq, limit: 200 });
           }
           snapshots[task.jobId] = page.snapshot; taskErrors[task.jobId] = '';
-        } catch (cause) { if (active()) taskErrors[task.jobId] = typeof cause === 'object' && cause !== null && 'appError' in cause ? JSON.stringify(cause.appError, null, 2) ?? String(cause) : cause instanceof Error ? cause.message : JSON.stringify(cause, null, 2) ?? String(cause); }
+        } catch (cause) { if (active()) taskErrors[task.jobId] = formatCause(cause); }
       }
       if (active()) { persist(); update(); }
     } finally { pollPending = false; }
@@ -134,26 +142,37 @@ export async function mountInstall(root: HTMLElement, context: UiContext): Promi
     const descriptor = descriptors.find(item => item.gameId === gameId);
     const canPlan = Boolean(descriptor && profileId && installationId && variantId && metadataProfileId === profileId && !loading);
     return h('div', { className: 'mintcat-install-page' },
-      h('div', { className: 'mintcat-install-header' }, h(Antd.Typography.Title, { level: 5, style: { margin: 0 } }, h(Icons.DeploymentUnitOutlined), ' 安装与打包'), h(Antd.Button, { icon: h(Icons.ReloadOutlined), disabled: busy, onClick: () => run(async () => { await loadGame(); await poll(); }) }, '刷新')),
+      h('div', { className: 'mintcat-install-header' },
+        h('div', { className: 'mintcat-install-heading' },
+          h(Antd.Typography.Title, { level: 5, style: { margin: 0 } }, h(Icons.DeploymentUnitOutlined), ' 安装与打包'),
+          h('span', { className: 'mintcat-install-subtitle' }, '校验启用模组格式，生成不可变安装计划或独立打包产物')),
+        h(Antd.Button, { icon: h(Icons.ReloadOutlined), disabled: busy, onClick: () => run(async () => { await loadGame(); await poll(); }) }, '刷新')),
+      error ? h(Antd.Alert, { type: 'error', showIcon: true, title: error }) : null,
+      status ? h(Antd.Alert, { type: 'info', showIcon: true, role: 'status', title: status }) : h('span', { role: 'status', className: 'mintcat-install-sr-status' }),
       h(Antd.Card, { size: 'small', title: '当前安装目标' },
-        h('div', { className: 'mintcat-install-targets' },
-          h(Antd.Form.Item, { label: '游戏' }, h(Antd.Select<string>, { value: gameId || undefined, disabled: busy || loading, options: descriptors.map(item => ({ value: item.gameId, label: item.displayName })), placeholder: '没有游戏适配器', onChange: (value: string) => { gameId = value; run(loadGame); } })),
-          h(Antd.Form.Item, { label: '配置' }, h(Antd.Select<string>, { value: profileId || undefined, disabled: busy || loading || !profiles.length, options: profiles.map(item => ({ value: item.profileId, label: item.displayName })), placeholder: '请选择配置', onChange: (value: string) => { profileId = value; run(loadProfile); } })),
-          h(Antd.Form.Item, { label: '安装位置' }, h(Antd.Select<string>, { value: installationId || undefined, disabled: busy || loading || !installations.length, options: installations.map(item => ({ value: item.installationId, label: item.rootPath || item.installationId })), placeholder: '没有可用安装位置', onChange: (value: string) => { installationId = value; persist(); update(); } })),
-          h(Antd.Form.Item, { label: '游戏变体' }, h(Antd.Select<string>, { value: variantId || undefined, disabled: busy || loading || !descriptor, options: (descriptor?.variants ?? []).map(item => ({ value: item.variantId, label: item.displayName })), placeholder: '请选择已签名变体', onChange: (value: string) => { variantId = value; persist(); update(); } }))),
-        !canPlan && !loading ? h(Antd.Alert, { type: 'info', showIcon: true, title: '需要启用的已签名游戏模块、配置、安装位置与变体，才能创建计划。' }) : null,
+        h(Antd.Form, { layout: 'vertical' },
+          h('div', { className: 'mintcat-install-targets' },
+            h(Antd.Form.Item, { label: '游戏' }, h(Antd.Select<string>, { value: gameId || undefined, disabled: busy || loading, options: descriptors.map(item => ({ value: item.gameId, label: item.displayName })), placeholder: '没有游戏适配器', onChange: (value: string) => { gameId = value; run(loadGame); } })),
+            h(Antd.Form.Item, { label: '配置' }, h(Antd.Select<string>, { value: profileId || undefined, disabled: busy || loading || !profiles.length, options: profiles.map(item => ({ value: item.profileId, label: item.displayName })), placeholder: '请选择配置', onChange: (value: string) => { profileId = value; run(loadProfile); } })),
+            h(Antd.Form.Item, { label: '安装位置' }, h(Antd.Select<string>, { value: installationId || undefined, disabled: busy || loading || !installations.length, options: installations.map(item => ({ value: item.installationId, label: item.rootPath || item.installationId })), placeholder: '没有可用安装位置', onChange: (value: string) => { installationId = value; persist(); update(); } })),
+            h(Antd.Form.Item, { label: '游戏变体' }, h(Antd.Select<string>, { value: variantId || undefined, disabled: busy || loading || !descriptor, options: (descriptor?.variants ?? []).map(item => ({ value: item.variantId, label: item.displayName })), placeholder: '请选择已签名变体', onChange: (value: string) => { variantId = value; persist(); update(); } })))),
+            !canPlan && !loading && !status ? h(Antd.Alert, { type: 'info', showIcon: true, title: '需要启用的已签名游戏模块、配置、安装位置与变体，才能创建计划。' }) : null,
         h(Antd.Table<ModSummary>, { size: 'small', loading, rowKey: 'profileModId', dataSource: mods.filter(item => item.enabled), pagination: false, locale: { emptyText: '此配置没有启用的输入' }, columns: [
           { title: '启用的模组', dataIndex: 'displayName' },
-          { title: '准确输入格式', width: 210, render: (_: unknown, mod: ModSummary) => h(Antd.Select<string>, { style: { width: '100%' }, value: metadata[mod.profileModId]?.format || undefined, placeholder: '选择已验证格式', disabled: busy, options: [{ value: 'pak', label: 'PAK' }, { value: 'zip', label: 'ZIP' }, { value: 'directory-snapshot', label: '目录快照' }], onChange: (value: string) => { metadata[mod.profileModId].format = value; persist(); update(); } }) },
-          { title: '仅音频提示', width: 110, render: (_: unknown, mod: ModSummary) => h(Antd.Checkbox, { checked: metadata[mod.profileModId]?.audioOnlyHint, disabled: busy, onChange: (event: { target: { checked: boolean } }) => { metadata[mod.profileModId].audioOnlyHint = event.target.checked; persist(); update(); } }) },
+          { title: '准确输入格式', width: 220, render: (_: unknown, mod: ModSummary) => h(Antd.Select<string>, { style: { width: '100%' }, size: 'small', value: metadata[mod.profileModId]?.format || undefined, placeholder: '选择已验证格式', disabled: busy, options: [{ value: 'pak', label: 'PAK 归档 (.pak)' }, { value: 'zip', label: 'ZIP 压缩包 (.zip)' }, { value: 'directory-snapshot', label: '目录快照' }], onChange: (value: string) => { metadata[mod.profileModId].format = value; persist(); update(); } }) },
+          { title: '仅音频提示', width: 110, align: 'center' as const, render: (_: unknown, mod: ModSummary) => h(Antd.Checkbox, { checked: metadata[mod.profileModId]?.audioOnlyHint, disabled: busy, onChange: (event: { target: { checked: boolean } }) => { metadata[mod.profileModId].audioOnlyHint = event.target.checked; persist(); update(); } }) },
         ] }),
-        h(Antd.Space, { wrap: true, style: { marginTop: 12 } }, h(Antd.Button, { type: 'primary', icon: h(Icons.DeploymentUnitOutlined), disabled: busy || !canPlan, onClick: () => run(() => start('install.plan')) }, '生成不可变安装计划'), h(Antd.Button, { icon: h(Icons.InboxOutlined), disabled: busy || !canPlan, onClick: () => run(() => start('mods.pack')) }, '仅打包，不部署'))),
-      h(Antd.Card, { size: 'small', title: '凭安装收据卸载' }, h(Antd.Space, { wrap: true }, h(Antd.Input, { value: receiptId, placeholder: '已验证收据 ID', disabled: busy, onChange: (event: { target: { value: string } }) => { receiptId = event.target.value; update(); } }), h(Antd.Input, { value: receiptRevision, type: 'number', min: 0, placeholder: '收据绑定的配置版本', disabled: busy, onChange: (event: { target: { value: string } }) => { receiptRevision = event.target.value; update(); } }), h(Antd.Button, { danger: true, disabled: busy || !installationId || !receiptId.trim() || !receiptRevision.trim(), onClick: () => run(async () => {
-        if (!receiptId.trim() || !installationId || !receiptRevision.trim() || !Number.isSafeInteger(Number(receiptRevision)) || Number(receiptRevision) < 0) throw new Error('请选择安装位置、准确收据及其绑定的配置版本。');
-        track(await context.call('install.uninstall', { installationId, receiptId: receiptId.trim(), revision: Number(receiptRevision) }, crypto.randomUUID())); await poll();
-      }) }, '请求卸载'))),
-      error ? h(Antd.Alert, { type: 'error', showIcon: true, title: error }) : null,
-      h(Antd.Typography.Text, { role: 'status', type: 'secondary' }, status),
+        h(Antd.Space, { wrap: true, style: { marginTop: 14 } },
+          h(Antd.Button, { type: 'primary', className: 'glass-primary-action', icon: h(Icons.DeploymentUnitOutlined), disabled: busy || !canPlan, onClick: () => run(() => start('install.plan')) }, '生成不可变安装计划'),
+          h(Antd.Button, { icon: h(Icons.InboxOutlined), disabled: busy || !canPlan, onClick: () => run(() => start('mods.pack')) }, '仅打包，不部署'))),
+      h(Antd.Card, { size: 'small', title: '凭安装收据卸载' },
+        h('div', { className: 'mintcat-install-uninstall-row' },
+          h(Antd.Input, { value: receiptId, placeholder: '已验证收据 ID', 'aria-label': '已验证收据 ID', disabled: busy, className: 'mintcat-install-receipt-input', onChange: (event: { target: { value: string } }) => { receiptId = event.target.value; update(); } }),
+          h(Antd.Input, { value: receiptRevision, type: 'number', min: 0, placeholder: '绑定的配置版本', 'aria-label': '收据绑定的配置版本', disabled: busy, className: 'mintcat-install-revision-input', onChange: (event: { target: { value: string } }) => { receiptRevision = event.target.value; update(); } }),
+          h(Antd.Button, { danger: true, disabled: busy || !installationId || !receiptId.trim() || !receiptRevision.trim(), onClick: () => run(async () => {
+            if (!receiptId.trim() || !installationId || !receiptRevision.trim() || !Number.isSafeInteger(Number(receiptRevision)) || Number(receiptRevision) < 0) throw new Error('请选择安装位置、准确收据及其绑定的配置版本。');
+            track(await context.call('install.uninstall', { installationId, receiptId: receiptId.trim(), revision: Number(receiptRevision) }, crypto.randomUUID())); await poll();
+          }) }, '请求卸载'))),
       h(Antd.Card, { size: 'small', title: 'daemon 持久任务', extra: h(Antd.Button, { size: 'small', icon: h(Icons.ReloadOutlined), disabled: busy, onClick: () => run(poll) }, '刷新任务') },
         h(Antd.Space.Compact, { style: { width: '100%', marginBottom: 12 } }, h(Antd.Input, { value: existingJob, placeholder: '已有 daemon 任务 ID', disabled: busy, onChange: (event: { target: { value: string } }) => { existingJob = event.target.value; update(); } }), h(Antd.Button, { disabled: busy || !existingJob.trim(), onClick: () => run(async () => {
           const snapshot = await context.call('jobs.get', { jobId: existingJob.trim() });
@@ -161,13 +180,13 @@ export async function mountInstall(root: HTMLElement, context: UiContext): Promi
           if (!['install.plan', 'mods.pack', 'install.apply', 'install.uninstall'].includes(snapshot.command)) throw new Error('此任务不是安装或打包操作。');
           track(snapshot); await poll();
         }) }, '关联任务')),
-        h(Antd.Collapse, { size: 'small', items: tracked.map(task => {
+        tracked.length ? h(Antd.Collapse, { size: 'small', items: tracked.map(task => {
           const snapshot = snapshots[task.jobId];
-          return { key: task.jobId, label: h(Antd.Space, null, snapshot?.command ?? task.jobId, h(Antd.Tag, { color: snapshot?.state === 'awaiting-approval' ? 'warning' : snapshot?.state === 'succeeded' ? 'success' : undefined }, snapshot?.state ?? '正在读取')), children: h('div', null,
+          return { key: task.jobId, label: h(Antd.Space, null, h('strong', null, snapshot?.command ?? task.jobId), h(Antd.Tag, { color: snapshot?.state === 'awaiting-approval' ? 'warning' : snapshot?.state === 'succeeded' ? 'success' : snapshot?.state === 'failed' ? 'error' : 'processing' }, snapshot?.state ?? '正在读取')), children: h('div', null,
             h('pre', null, JSON.stringify(snapshot, null, 2)), taskErrors[task.jobId] ? h(Antd.Alert, { type: 'error', title: taskErrors[task.jobId] }) : null,
-            snapshot?.state === 'awaiting-approval' && task.actionId ? h(Antd.Button, { type: 'primary', disabled: busy, onClick: () => run(() => approve(task, snapshot)) }, '审核并批准不可变目标') : null,
+            snapshot?.state === 'awaiting-approval' && task.actionId ? h(Antd.Button, { type: 'primary', className: 'glass-primary-action', disabled: busy, onClick: () => run(() => approve(task, snapshot)) }, '审核并批准不可变目标') : null,
             snapshot && !['succeeded', 'cancelled', 'failed', 'recovery-required'].includes(snapshot.state) ? h(Antd.Button, { disabled: busy, style: { marginLeft: 8 }, onClick: () => run(async () => { await context.call('jobs.cancel', { jobId: task.jobId, expectedRevision: snapshot.lastSeq }, crypto.randomUUID()); await poll(); }) }, '请求取消') : null) };
-        }) })));
+        }) }) : h(Antd.Empty, { image: Antd.Empty.PRESENTED_IMAGE_SIMPLE, description: '暂无已关联的安装或打包任务' })));
   }
   const view = mountReactView(root, h(View));
   const refreshModules = async (): Promise<void> => {

@@ -118,19 +118,26 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
   const leaveDrop = (event: React.DragEvent<HTMLTableRowElement>): void => {
     if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropTarget(undefined);
   };
+  const sourceDisplayNames: Record<string, string> = {
+    modio: 'mod.io',
+    nexusmods: 'Nexus Mods',
+    modcat: 'ModCat',
+    local: '本地导入',
+  };
   const renderMod = (mod: ModSummary, order: number): ReactElement => {
     const overlay = overlays?.get(mod.profileModId);
     const pending = pendingVersionLabel(overlay);
     const details = state.versions[mod.profileModId];
     const version = mod.versionSelection.kind === 'pinned' ? `pinned:${mod.versionSelection.versionId}` : 'auto';
     const metadata = modMetadataLabels(mod.tags, mod.approvalStatus);
+    const categories = metadata.category === '—' ? [] : metadata.category.split(' / ').filter(Boolean);
     const options = [{ value: 'auto', label: mod.appliedVersionId ?? mod.currentVersionId ?? '—' }, ...(details?.versions ?? []).map(item => ({
       value: `pinned:${item.versionId}`, label: `${item.versionId === 'legacy-unversioned' ? '未标明版本' : item.versionId}${item.versionId === mod.appliedVersionId ? ' · 已应用' : item.current ? ' · 库中当前' : ''}`,
     }))];
     if (version !== 'auto' && !options.some(option => option.value === version)) options.push({ value: version, label: mod.versionSelection.versionId === 'legacy-unversioned' ? '未标明版本' : mod.versionSelection.versionId ?? '—' });
     return h(Antd.Dropdown, { key: mod.profileModId, trigger: ['contextMenu'], menu: modMenu(mod) },
       h('tr', {
-        className: `library-mod-row${order % 2 === 0 ? ' library-row-alt' : ''}${selected.includes(mod.profileModId) ? ' library-row-selected' : ''}${pendingIds.has(mod.profileModId) ? ' library-row-busy' : ''}`,
+        className: `library-mod-row${order % 2 === 0 ? ' library-row-alt' : ''}${!mod.enabled ? ' library-row-disabled' : ''}${selected.includes(mod.profileModId) ? ' library-row-selected' : ''}${pendingIds.has(mod.profileModId) ? ' library-row-busy' : ''}`,
         tabIndex: 0, 'data-mod-id': mod.profileModId, 'aria-selected': selected.includes(mod.profileModId),
         'data-drop-side': dropTarget?.key === `mod:${mod.profileModId}` ? dropTarget.side : undefined,
         onClick: (event: React.MouseEvent) => {
@@ -179,7 +186,7 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
         : h('span', { className: 'mod-order' }, order)),
       h('td', { className: 'library-name-cell' },
         h('div', { className: 'library-mod-name' },
-          h(Antd.Tooltip, { title: pending ?? `${mod.displayName} · ${mod.mod.sourceId}` }, h('span', { className: 'mod-name' }, mod.displayName)),
+          h(Antd.Tooltip, { title: pending ?? `${mod.displayName} · ${sourceDisplayNames[mod.mod.sourceId] ?? mod.mod.sourceId}` }, h('span', { className: 'mod-name' }, mod.displayName)),
           pending ? h(Antd.Tooltip, { title: pending }, h('span', { className: 'library-pending-dot', 'aria-label': pending })) : null,
           h('span', { className: 'mod-row-menu', onClick: (event: React.MouseEvent) => event.stopPropagation() },
             h(Antd.Dropdown, { menu: modMenu(mod), trigger: ['click'] }, h(Antd.Button, { size: 'small', type: 'text', icon: icon('MoreOutlined'), 'aria-label': `${mod.displayName} 操作` }))))),
@@ -191,14 +198,17 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
           title: mod.appliedVersionId ? `已应用 ${mod.appliedVersionId}` : mod.currentVersionId ? `库中版本 ${mod.currentVersionId}；尚未验证或应用` : '没有已知版本',
           popupRender: (menu: ReactNode) => h('div', null, h('div', { className: 'library-version-hint' }, '自动最新 / 固定版本'), menu),
           onChange: (value: string) => actions.run(() => actions.setVersion(mod, value)) })),
-      h('td', null, mod.mod.sourceId === 'local' ? h('span', { className: 'library-category library-category-local' }, '本地')
-        : metadata.category === '—' ? '—' : h('span', { className: 'library-category', 'data-category': metadata.category, title: mod.tags.join(' · ') }, metadata.category)),
-      h('td', { className: 'library-metadata', title: metadata.multiplayer }, metadata.multiplayer === '—' ? '—'
+      h('td', { className: 'library-category-cell' }, mod.mod.sourceId === 'local'
+        ? h('span', { className: 'library-category library-category-local', 'data-category': 'local' }, '本地')
+        : !categories.length ? h('span', { className: 'library-empty-dash' }, '—')
+        : h('div', { className: 'library-category-list', title: mod.tags.join(' · ') },
+          ...categories.slice(0, 2).map(cat => h('span', { key: cat, className: 'library-category', 'data-category': cat }, cat)),
+          categories.length > 2 ? h('span', { className: 'library-category library-category-more' }, `+${categories.length - 2}`) : null)),
+      h('td', { className: 'library-metadata', title: metadata.multiplayer }, metadata.multiplayer === '—' ? h('span', { className: 'library-empty-dash' }, '—')
         : h('span', { className: 'library-metadata-badge', 'data-requirement': metadata.multiplayer }, metadata.multiplayer)),
-      h('td', { className: 'library-metadata' }, '—'),
-      h('td', { className: 'library-metadata', title: mod.approvalStatus || undefined }, metadata.approval === '—' ? '—'
+      h('td', { className: 'library-metadata', title: mod.approvalStatus || undefined }, metadata.approval === '—' ? h('span', { className: 'library-empty-dash' }, '—')
         : h('span', { className: 'library-metadata-badge', 'data-approval': mod.approvalStatus }, metadata.approval)),
-      h('td', { onClick: (event: React.MouseEvent) => event.stopPropagation() },
+      h('td', { className: 'library-switch-cell', onClick: (event: React.MouseEvent) => event.stopPropagation() },
         h(Antd.Switch, { size: 'small', checked: mod.enabled, disabled: !writable, ...{ 'aria-label': `启用 ${mod.displayName}` },
           onChange: (enabled: boolean) => actions.run(() => actions.setEnabled(mod, enabled)) }))));
   };
@@ -260,7 +270,7 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
           if (mod) actions.run(() => actions.moveMod(mod, 0, group.groupId));
           else if (dragged && target) actions.run(() => actions.moveGroup(dragged, target.parentGroupId, target.position));
         },
-      }, h('td', { colSpan: 8 },
+      }, h('td', { colSpan: 7 },
         h('div', { className: 'library-group-heading', style: { paddingLeft: depth * 18 } },
           h('button', { type: 'button', className: 'library-group-toggle', 'aria-expanded': open, onClick: () => {
             setExpanded(current => open ? current.filter(id => id !== group.groupId) : [...current, group.groupId]);
@@ -293,18 +303,20 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
     const mods = sortedItems.filter(mod => mod.mod.sourceId === source);
     const count = items.filter(mod => mod.mod.sourceId === source).length;
     const collapsed = collapsedSources.includes(source);
-    return [h('tr', { key: `source:${source}`, className: 'library-group-row' }, h('td', { colSpan: 8 },
+    return [h('tr', { key: `source:${source}`, className: 'library-group-row' }, h('td', { colSpan: 7 },
       h('div', { className: 'library-group-heading' },
         h('button', { type: 'button', className: 'library-group-toggle', 'aria-expanded': !collapsed,
           onClick: () => setCollapsedSources(current => collapsed ? current.filter(id => id !== source) : [...current, source]) },
-        icon(collapsed ? 'RightOutlined' : 'DownOutlined'), h('span', { className: `library-source-dot library-source-${sourceOrder.includes(source) ? source : 'other'}` }), source),
+        icon(collapsed ? 'RightOutlined' : 'DownOutlined'),
+        h('span', { className: `library-source-dot library-source-${sourceOrder.includes(source) ? source : 'other'}` }),
+        sourceDisplayNames[source] ?? source),
         h('span', { className: 'mod-group-count' }, mods.length === count ? count : `${mods.length} / ${count}`)))),
       ...(collapsed ? [] : mods.map(mod => renderMod(mod, ++displayOrder)))];
   });
   const selectedIds = selected.filter(id => items.some(mod => mod.profileModId === id));
   const allSelected = visibleItems.length > 0 && visibleItems.every(mod => selectedIds.includes(mod.profileModId));
-  const batchButton = (label: string, name: keyof typeof Icons, action: () => void): ReactElement => h(Antd.Button,
-    { type: 'text', size: 'small', icon: icon(name), disabled: !writable || !selectedIds.length, onClick: action }, label);
+  const batchButton = (label: string, name: keyof typeof Icons, action: () => void, danger = false): ReactElement => h(Antd.Button,
+    { type: 'text', size: 'small', danger, icon: icon(name), disabled: !writable || !selectedIds.length, onClick: action }, label);
   const renderTask = (task: LibraryTask): ReactElement => h('div', { className: 'library-task', key: task.job.jobId },
     h(Antd.Space, { wrap: true }, h(Antd.Tag, { color: task.job.state === 'failed' ? 'error' : 'processing' }, task.job.state),
       h('span', null, `${task.job.command} · ${task.job.jobId}`), h('span', { className: 'library-task-profile' }, `配置 ${task.profileId}`),
@@ -339,43 +351,48 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
   ]);
   const importSupported = !!state.games.find(game => game.gameId === state.gameId)?.localRemoteGameKey;
   const toolbarNode = h('div', { className: 'library-toolbar' },
-    h('div', { className: 'library-game-control' }, h('span', { className: 'library-game-cover', 'aria-hidden': true }, icon('PictureOutlined')),
+    h('div', { className: 'library-game-control' }, h('span', { className: 'library-game-cover', 'aria-hidden': true }, icon('AppstoreOutlined')),
       h(Antd.Select<string>, { variant: 'borderless', className: 'library-game-select', 'aria-label': '游戏', value: state.gameId || undefined,
+        popupMatchSelectWidth: false,
         options: state.games.map(game => ({ value: game.gameId, label: game.displayName })), onChange: (id: string) => actions.run(() => actions.selectGame(id)), placeholder: '选择游戏' })),
     h('label', { className: 'library-search' }, icon('SearchOutlined'),
-      h('input', { ref: searchInput, type: 'search', 'aria-label': '搜索 Mod', placeholder: '搜索模组…', value: state.query,
+      h('input', { ref: searchInput, type: 'search', 'aria-label': '搜索 Mod', placeholder: '搜索当前配置模组…', value: state.query,
         onChange: (event: React.ChangeEvent<HTMLInputElement>) => actions.search(event.target.value) }),
-      h('kbd', { 'aria-hidden': true }, '⌘ / Ctrl K')),
-    h('div', { className: 'library-profile-control' }, h('span', null, 'Profile'),
+      h('kbd', { 'aria-hidden': true }, '⌘K')),
+    h('div', { className: 'library-profile-control' }, h('span', { className: 'library-profile-label' }, icon('ProfileOutlined'), '配置'),
       h(Antd.Select<string>, { variant: 'borderless', className: 'library-profile-select', 'aria-label': '配置', value: state.profileId || undefined,
+        popupMatchSelectWidth: false,
         options: state.profiles.map(item => ({ value: item.profileId, label: item.displayName })), onChange: (id: string) => actions.run(() => actions.selectProfile(id)), placeholder: '选择配置' })),
     h('div', { className: 'library-toolbar-actions' },
-      h(Antd.Dropdown, { menu: {
-        items: [{ key: 'file', label: '导入本地文件', disabled: !writable || !importSupported },
-          { key: 'directory', label: '导入本地目录', disabled: !writable || !importSupported },
-          { key: 'group', label: '添加配置分组', disabled: !writable },
-          { key: 'cleanup', label: '清理缺失的本地 Mod', disabled: !writable }],
-        onClick: ({ key }: { key: string }) => {
-          if (key === 'file' || key === 'directory') actions.run(() => actions.importLocal(key));
-          else if (key === 'group') { setGroupBy('profile'); ask('添加分组', '', value => actions.createGroup(value)); }
-          else if (key === 'cleanup') confirm('清理缺失的本地 Mod', '服务端将检查并清理当前配置中缺失的本地 Mod。', actions.cleanupMissing);
-        },
-      }, trigger: ['click'] }, button('添加 / 导入', 'PlusOutlined', undefined)),
-      button('刷新列表', 'SyncOutlined', () => actions.run(actions.refresh)),
-      h(Antd.Dropdown, { trigger: ['click'], disabled: !writable || !!state.query.trim(), menu: {
-        items: [{ key: 'asc', label: '名称 A → Z', icon: icon('SortAscendingOutlined') }, { key: 'desc', label: '名称 Z → A', icon: icon('SortDescendingOutlined') }],
-        onClick: ({ key }: { key: string }) => actions.run(() => actions.sortMods(key as 'asc' | 'desc')),
-      } }, button('排序', 'SortAscendingOutlined', undefined, !writable || !!state.query.trim())),
-      h(Antd.Button, { type: 'primary', className: 'library-install-button', icon: icon('SaveOutlined'), disabled: !profile || !state.variantId,
+      h('div', { className: 'library-toolbar-icon-group' },
+        h(Antd.Dropdown, { menu: {
+          items: [{ key: 'file', label: '导入本地文件', icon: icon('FileAddOutlined'), disabled: !writable || !importSupported },
+            { key: 'directory', label: '导入本地目录', icon: icon('FolderOpenOutlined'), disabled: !writable || !importSupported },
+            { type: 'divider' as const },
+            { key: 'group', label: '添加配置分组', icon: icon('FolderAddOutlined'), disabled: !writable },
+            { key: 'cleanup', label: '清理缺失的本地 Mod', icon: icon('ClearOutlined'), disabled: !writable }],
+          onClick: ({ key }: { key: string }) => {
+            if (key === 'file' || key === 'directory') actions.run(() => actions.importLocal(key));
+            else if (key === 'group') { setGroupBy('profile'); ask('添加分组', '', value => actions.createGroup(value)); }
+            else if (key === 'cleanup') confirm('清理缺失的本地 Mod', '服务端将检查并清理当前配置中缺失的本地 Mod。', actions.cleanupMissing);
+          },
+        }, trigger: ['click'] }, button('添加 / 导入', 'PlusOutlined', undefined)),
+        button('刷新列表', 'SyncOutlined', () => actions.run(actions.refresh)),
+        h(Antd.Dropdown, { trigger: ['click'], disabled: !writable || !!state.query.trim(), menu: {
+          items: [{ key: 'asc', label: '名称 A → Z', icon: icon('SortAscendingOutlined') }, { key: 'desc', label: '名称 Z → A', icon: icon('SortDescendingOutlined') }],
+          onClick: ({ key }: { key: string }) => actions.run(() => actions.sortMods(key as 'asc' | 'desc')),
+        } }, button('排序', 'SortAscendingOutlined', undefined, !writable || !!state.query.trim()))),
+      h(Antd.Button, { type: 'primary', className: 'library-install-button glass-primary-action', icon: icon('DeploymentUnitOutlined'), disabled: !profile || !state.variantId,
         onClick: () => navigateUi('install') }, '安装模组')));
+  const showBannerMessage = Boolean(state.message && (state.games.length > 0 && (page !== 'mods' || state.profileId || state.candidates.length > 0)));
   return h('div', { className: `mod-list-page-card library-page-${page}` },
     toolbar ? createPortal(toolbarNode, toolbar, `library-toolbar:${state.generation}`) : toolbarNode,
-    state.message ? h(Antd.Alert, { type: 'info', message: state.message, showIcon: true, closable: true, className: 'library-status' }) : null,
-    state.content && !canEditProfileContent(state.content) ? h(Antd.Alert, { type: 'warning', showIcon: true,
+    showBannerMessage ? h(Antd.Alert, { type: 'info', message: state.message, showIcon: true, closable: true, className: 'library-status' }) : null,
+    state.content && !canEditProfileContent(state.content) ? h(Antd.Alert, { type: 'warning', showIcon: true, className: 'library-status',
       message: state.content.recoveryRequired ? '配置需要恢复，内容修改已锁定' : `后台任务 ${state.content.busyOperationId ?? ''} 正在修改内容`,
       description: '搜索、切换配置和共享重命名仍然可用。' }) : null,
     page === 'mods' ? h(React.Fragment, null,
-      h('div', { className: 'library-view-bar' },
+      state.games.length ? h('div', { className: 'library-view-bar' },
         h('div', { className: 'library-filter-pills', role: 'group', 'aria-label': '模组筛选' },
           ...([{ value: 'all', label: '全部', count: items.length }, { value: 'enabled', label: '已启用', count: items.filter(mod => mod.enabled).length },
             { value: 'pending', label: '待处理', count: pendingIds.size }] as const).map(item =>
@@ -383,33 +400,62 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
               'aria-pressed': filter === item.value, onClick: () => setFilter(item.value) }, item.label, h('span', null, item.count)))),
         h('div', { className: 'library-view-controls' },
           h(Antd.Tooltip, { title: groupBy === 'source' ? '来源视图只排序同一来源、同一配置分组的模组；跨组移动请切换配置分组' : '拖动调整顺序；Shift 拖动分组可嵌套' },
-            h(Antd.Select<'source' | 'profile'>, { size: 'small', variant: 'borderless', 'aria-label': '分组方式', value: groupBy,
+            h(Antd.Select<'source' | 'profile'>, { size: 'small', variant: 'borderless', className: 'library-groupby-select', 'aria-label': '分组方式', value: groupBy,
               options: [{ value: 'source', label: '按来源分组' }, { value: 'profile', label: '配置分组' }], onChange: value => { finishDrag(); setGroupBy(value); } })),
+          h('span', { className: 'library-controls-divider', 'aria-hidden': true }),
           groupBy === 'profile' ? button('添加分组', 'FolderAddOutlined', () => ask('添加分组', '', value => actions.createGroup(value)), !writable) : null,
           button('管理配置', 'EditOutlined', () => setProfilesOpen(true)),
           button('游戏设置与安装目录', 'SettingOutlined', () => setSettingsOpen(true)),
-          button('下载管理', 'DownloadOutlined', () => navigateUi('downloads')))),
+          button('下载管理', 'CloudDownloadOutlined', () => navigateUi('downloads')))) : null,
       hasTasks ? h(Antd.Collapse, { size: 'small', className: 'library-downloads', items: [{ key: 'tasks',
         label: `后台任务 ${state.tasks.length} · 下载操作 ${operations.length}`, children: taskContent }] }) : null,
-      h('div', { className: 'library-table-area' },
+      h('div', { className: `library-table-area${!tableRows.length ? ' library-table-area--empty' : ''}` },
         state.loading ? h('div', { className: 'library-loading', role: 'status' }, h(Antd.Spin, { size: 'small' }), ' 加载中…') : null,
-        h('table', { className: 'library-mod-table', 'aria-label': '模组列表' },
-          h('colgroup', null, ...['order', 'name', 'version', 'category', 'multiplayer', 'game-version', 'approval', 'enabled'].map(name => h('col', { key: name, className: `library-col-${name}` }))),
-          h('thead', null, h('tr', null, ...['#', '名称', '版本', '类别', '多人游戏', '游戏版本', '认证', '启用'].map(label => h('th', { key: label, scope: 'col' }, label)))),
-          h('tbody', null, ...tableRows)),
-        !tableRows.length && !state.loading ? h(Antd.Empty, { image: Antd.Empty.PRESENTED_IMAGE_SIMPLE,
-          description: !state.games.length ? '尚未安装游戏支持插件；可先使用备份和 Agent。' : state.profileId ? (filter === 'all' ? '暂无匹配的模组' : '没有符合筛选的模组') : '请选择或创建配置' }) : null)) :
+        tableRows.length ? h('table', { className: 'library-mod-table', 'aria-label': '模组列表' },
+          h('colgroup', null, ...['order', 'name', 'version', 'category', 'multiplayer', 'approval', 'enabled'].map(name => h('col', { key: name, className: `library-col-${name}` }))),
+          h('thead', null, h('tr', null, ...['#', '名称', '版本', '类别', '多人联机', '认证', '启用'].map(label => h('th', { key: label, scope: 'col' }, label)))),
+          h('tbody', null, ...tableRows)) : null,
+        !tableRows.length && !state.loading ? h('div', { className: 'mc-empty-hero' },
+          h('div', { className: 'mc-empty-hero-card' },
+            h('div', { className: 'mc-empty-hero-orb', 'aria-hidden': true }, icon(!state.games.length ? 'AppstoreAddOutlined' : state.profileId ? 'InboxOutlined' : 'FolderOpenOutlined')),
+            h('h3', { className: 'mc-empty-hero-title' }, !state.games.length ? '尚未安装游戏支持插件' : state.profileId ? (filter === 'all' ? '当前配置暂无模组' : '没有符合筛选的模组') : '开始配置您的游戏目录'),
+            h('p', { className: 'mc-empty-hero-desc' }, !state.games.length
+              ? '尚未安装游戏支持插件。安装游戏支持后即可注册游戏目录并管理模组配置；备份和 Agent 仍可使用。'
+              : state.profileId
+                ? (filter === 'all' ? '您可以从在线模组来源一键添加，或直接导入本地模组归档文件。' : '当前筛选条件下没有匹配的模组，请切换筛选条件查看。')
+                : (state.installations.length ? '已注册游戏安装目录，请新建或选择一个配置开始管理模组。' : '请先在游戏设置中发现或注册真实游戏安装目录，再创建模组配置。')),
+            h('div', { className: 'mc-empty-hero-actions' },
+              !state.games.length ? h(React.Fragment, null,
+                h(Antd.Button, { type: 'primary', className: 'glass-primary-action', icon: icon('RobotOutlined'), onClick: () => navigateUi('robot') }, '打开 Agent 助手'),
+                h(Antd.Button, { icon: icon('CloudOutlined'), onClick: () => navigateUi('cloud') }, '备份与恢复')) : null,
+              state.games.length && state.profileId ? h(React.Fragment, null,
+                h(Antd.Button, { type: 'primary', className: 'glass-primary-action', icon: icon('CompassOutlined'), onClick: () => navigateUi('search') }, '浏览在线模组'),
+                importSupported ? h(Antd.Button, { icon: icon('ImportOutlined'), onClick: () => navigateUi('local') }, '本地导入') : null) : null,
+              state.games.length && !state.profileId ? h(React.Fragment, null,
+                h(Antd.Button, { type: 'primary', className: 'glass-primary-action', icon: icon('SettingOutlined'), onClick: () => setSettingsOpen(true) }, '配置游戏目录'),
+                h(Antd.Button, { icon: icon('EditOutlined'), onClick: () => setProfilesOpen(true) }, '管理配置')) : null),
+            !state.games.length ? h('div', { className: 'mc-empty-bento' },
+              h('div', { className: 'mc-empty-bento-item' },
+                h('div', { className: 'mc-empty-bento-head' }, icon('AppstoreOutlined'), '多配置隔离管理'),
+                h('span', { className: 'mc-empty-bento-text' }, '安装游戏插件后支持多套配置切换、拖拽排序与版本固定。')),
+              h('button', { type: 'button', className: 'mc-empty-bento-item', onClick: () => navigateUi('cloud') },
+                h('div', { className: 'mc-empty-bento-head' }, icon('CloudUploadOutlined'), '备份与旧版迁移'),
+                h('span', { className: 'mc-empty-bento-text' }, '可从旧版数据库或离线便携归档恢复已有模组清单。')),
+              h('button', { type: 'button', className: 'mc-empty-bento-item', onClick: () => navigateUi('robot') },
+                h('div', { className: 'mc-empty-bento-head' }, icon('RobotOutlined'), 'Agent 协同管理'),
+                h('span', { className: 'mc-empty-bento-text' }, '辅助整理模组方案，所有部署动作均由人工最终确认。'))) : null)) : null)) :
       h('div', { className: 'library-management-page' },
         h('div', { className: 'library-management-heading' },
           h('div', null, h('h2', null, page === 'local' ? '本地导入' : '下载管理'),
             h('p', null, page === 'local' ? '选择文件或目录，等待后台请求后明确授权本次导入。关闭页面不会取消已启动任务。' : '查看持久化后台任务、下载进度与待授权选择。')),
-          h('div', { className: 'library-view-controls' }, button('管理配置', 'EditOutlined', () => setProfilesOpen(true)),
-            button('游戏设置与安装目录', 'SettingOutlined', () => setSettingsOpen(true)))),
+          state.games.length ? h('div', { className: 'library-view-controls' }, button('管理配置', 'EditOutlined', () => setProfilesOpen(true)),
+            button('游戏设置与安装目录', 'SettingOutlined', () => setSettingsOpen(true))) : null),
         page === 'local' ? h('section', { className: 'library-import-panel' },
-          h('h3', null, '导入到当前 Profile'),
-          h('p', null, profile?.displayName ?? '请先选择或创建配置'),
-          h(Antd.Space, { wrap: true },
-            h(Antd.Button, { type: 'primary', icon: icon('FileAddOutlined'), disabled: !writable || !importSupported,
+          h('div', { className: 'library-panel-header' },
+            h('h3', null, '导入到当前 Profile'),
+            h('span', { className: 'library-profile-pill' }, profile?.displayName ?? (state.games.length ? '请先选择或创建配置' : '尚未安装游戏支持插件'))),
+          h(Antd.Space, { wrap: true, size: 10 },
+            h(Antd.Button, { type: 'primary', className: 'glass-primary-action', icon: icon('FileAddOutlined'), disabled: !writable || !importSupported,
               onClick: () => actions.run(() => actions.importLocal('file')) }, '选择文件'),
             h(Antd.Button, { icon: icon('FolderOpenOutlined'), disabled: !writable || !importSupported,
               onClick: () => actions.run(() => actions.importLocal('directory')) }, '选择目录'),
@@ -419,38 +465,42 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
         h('section', { className: 'library-jobs-panel' },
           h('h3', null, `后台任务 ${state.tasks.length} · 下载操作 ${operations.length}`),
           hasTasks ? taskContent : h(Antd.Empty, { image: Antd.Empty.PRESENTED_IMAGE_SIMPLE, description: '暂无已观察到的后台任务' }))),
-    h('div', { className: 'home-footer-bar' },
-      page === 'mods' ? h(Antd.Checkbox, { checked: multiSelect, onChange: (event: { target: { checked: boolean } }) => { setMultiSelect(event.target.checked); setSelected([]); } }, '批量选择') : null,
-      page === 'mods' && multiSelect ? h(Antd.Space, { size: 4 },
+    page === 'mods' && state.games.length ? h('div', { className: 'home-footer-bar' },
+      items.length ? h(Antd.Checkbox, { checked: multiSelect, onChange: (event: { target: { checked: boolean } }) => { setMultiSelect(event.target.checked); setSelected([]); } }, '批量选择') : null,
+      items.length && multiSelect ? h('div', { className: 'library-batch-actions' },
+        h('span', { className: 'library-batch-count' }, `已选 ${selectedIds.length} 项`),
         h(Antd.Button, { size: 'small', type: 'text', icon: icon(allSelected ? 'MinusSquareOutlined' : 'CheckSquareOutlined'),
           onClick: () => setSelected(allSelected ? [] : visibleItems.map(mod => mod.profileModId)) }, allSelected ? '取消全选' : '全选'),
-        batchButton('删除', 'CloseCircleOutlined', () => confirm('删除 Mod', `删除选中的 ${selectedIds.length} 个 Mod？`, () => actions.removeMods(selectedIds))),
         batchButton('启用', 'PlayCircleOutlined', () => actions.run(() => actions.setBatchEnabled(selectedIds, true))),
-        batchButton('禁用', 'PauseCircleOutlined', () => actions.run(() => actions.setBatchEnabled(selectedIds, false)))) : null,
+        batchButton('禁用', 'PauseCircleOutlined', () => actions.run(() => actions.setBatchEnabled(selectedIds, false))),
+        batchButton('删除', 'DeleteOutlined', () => confirm('删除 Mod', `删除选中的 ${selectedIds.length} 个 Mod？`, () => actions.removeMods(selectedIds)), true)) : null,
       h('span', { className: 'library-footer-spacer' }),
       h('span', { className: 'library-footer-status', role: 'status' },
         state.loading ? '正在加载' : state.pending ? '正在保存' : activeJobs.size ? `${activeJobs.size} 个后台任务进行中` : state.content?.recoveryRequired ? '配置需要恢复' : state.mods ? '配置已加载' : '等待选择配置'),
       h('span', { className: 'count-label' }, `${items.filter(mod => mod.enabled).length} 已启用 · ${state.mods?.total ?? 0} 个模组`,
-        state.query || filter !== 'all' ? ` · 显示 ${visibleItems.length}` : '')),
+        state.query || filter !== 'all' ? ` · 显示 ${visibleItems.length}` : '')) : null,
     h(Antd.Modal, { title: '游戏设置与安装目录', open: settingsOpen, footer: null, onCancel: () => setSettingsOpen(false), width: 640 },
       h(Antd.Space, { orientation: 'vertical', className: 'library-modal-fields' },
-        h(Antd.Typography.Text, null, '游戏版本'),
+        h(Antd.Typography.Text, { strong: true }, '游戏版本变体'),
         h(Antd.Select<string>, { value: state.variantId || undefined, options: state.games.find(game => game.gameId === state.gameId)?.variants.map(variant => ({ value: variant.variantId, label: variant.displayName })),
           onChange: actions.selectVariant, 'aria-label': '游戏版本' }),
+        h(Antd.Typography.Text, { strong: true }, '安装目录定位与注册'),
         h(Antd.Input, { value: rootPath, placeholder: '真实游戏安装目录（绝对路径）', 'aria-label': '安装目录', onChange: (event: React.ChangeEvent<HTMLInputElement>) => setRootPath(event.target.value) }),
         h(Antd.Space, null, h(Antd.Button, { disabled: !state.variantId, onClick: () => actions.run(() => actions.discover(rootPath)) }, '发现安装目录'),
-          h(Antd.Button, { type: 'primary', disabled: !rootPath.trim() || !state.variantId, onClick: () => actions.run(() => actions.register(rootPath)) }, '验证并注册')),
+          h(Antd.Button, { type: 'primary', className: 'glass-primary-action', disabled: !rootPath.trim() || !state.variantId, onClick: () => actions.run(() => actions.register(rootPath)) }, '验证并注册')),
         state.candidates.length ? h(Antd.Select<string>, { placeholder: '选择发现的安装目录', 'aria-label': '发现的安装目录',
           options: state.candidates.map(candidate => ({ value: `${candidate.variantId}\u0000${candidate.rootPath}`, label: `${candidate.rootPath} · ${candidate.variantId}` })),
           onChange: (value: string) => { const [variantId, path] = value.split('\u0000'); setRootPath(path); actions.selectVariant(variantId); } }) : null,
-        h(Antd.Typography.Text, null, '已注册安装目录'),
+        h(Antd.Typography.Text, { strong: true }, '已注册安装目录'),
         h(Antd.Select<string>, { value: state.installationId || undefined, 'aria-label': '已注册安装目录', options: state.installations.map(item => ({ value: item.installationId, label: item.rootPath ?? item.installationId })), onChange: actions.selectInstallation }),
         h(Antd.Typography.Text, { type: 'secondary' }, '安装页面会重新验证并明确选择配置、安装目录与游戏版本。'))),
     h(Antd.Modal, { title: '管理配置', open: profilesOpen, footer: null, onCancel: () => setProfilesOpen(false) },
-      h(Antd.List<ProfileSummary>, { dataSource: state.profiles, size: 'small', renderItem: (item: ProfileSummary) => h(Antd.List.Item, {
-        actions: [h(Antd.Button, { key: 'select', type: 'link', size: 'small', onClick: () => actions.run(() => actions.selectProfile(item.profileId)) }, item.profileId === state.profileId ? '当前配置' : '选择')],
+      h(Antd.List<ProfileSummary>, { dataSource: state.profiles, size: 'small', className: 'library-profile-list', renderItem: (item: ProfileSummary) => h(Antd.List.Item, {
+        actions: [item.profileId === state.profileId
+          ? h(Antd.Tag, { key: 'active', color: 'processing' }, '当前配置')
+          : h(Antd.Button, { key: 'select', type: 'link', size: 'small', onClick: () => actions.run(() => actions.selectProfile(item.profileId)) }, '切换')],
       }, h(Antd.List.Item.Meta, { title: item.displayName, description: item.description || undefined })) }),
-      h(Antd.Space, { wrap: true }, h(Antd.Button, { icon: icon('PlusOutlined'), disabled: !state.installationId,
+      h(Antd.Space, { wrap: true, style: { marginTop: 12 } }, h(Antd.Button, { type: 'primary', className: 'glass-primary-action', icon: icon('PlusOutlined'), disabled: !state.installationId,
         onClick: () => ask('新建配置', '', actions.createProfile) }, '新建配置'),
       h(Antd.Button, { icon: icon('EditOutlined'), disabled: !profile,
         onClick: () => ask('重命名配置', profile?.displayName ?? '', value => actions.editProfile(value, profile?.description ?? '')) }, '重命名'),

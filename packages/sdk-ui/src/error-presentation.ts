@@ -84,13 +84,24 @@ export function presentUiError(cause: unknown, context: UiErrorContext = 'host')
   return { title, description, retryable, diagnostics };
 }
 export function renderUiError(target: HTMLElement, error: UiErrorPresentation): void {
-  const title = document.createElement('strong'); title.textContent = error.title;
-  const description = document.createElement('p'); description.textContent = error.description;
+  target.classList.add('mc-error-box');
+  const title = document.createElement('strong');
+  title.className = 'mc-error-title';
+  title.textContent = error.title;
+  const description = document.createElement('p');
+  description.className = 'mc-error-description';
+  description.textContent = error.description;
   target.replaceChildren(title, description);
   if (error.diagnostics.length) {
     const details = document.createElement('details');
-    const summary = document.createElement('summary'); summary.textContent = '技术详情';
-    const text = document.createElement('pre'); text.textContent = error.diagnostics.join('\n');
-    details.append(summary, text); target.append(details);
+    details.className = 'mc-error-details';
+    const summary = document.createElement('summary');
+    summary.className = 'mc-error-summary';
+    summary.textContent = '技术详情';
+    const text = document.createElement('pre');
+    text.className = 'mc-error-pre';
+    text.textContent = error.diagnostics.join('\n');
+    details.append(summary, text);
+    target.append(details);
   }
 }
