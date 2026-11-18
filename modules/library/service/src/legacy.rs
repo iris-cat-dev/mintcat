@@ -565,9 +565,9 @@ fn stage_credentials(
                         message: "vault returned an empty reference".to_owned(),
                     });
                 }
-                Err(message) => {
+                Err(_) => {
                     cleanup_staged(vault, &staged)?;
-                    return Err(LibraryError::CredentialVault { provider, message });
+                    return Err(LibraryError::CredentialVault { provider, message: "credential vault rejected import".into() });
                 }
             }
         };
@@ -600,9 +600,9 @@ fn cleanup_credentials(
     for credential_ref in references.iter().rev() {
         vault
             .delete(credential_ref)
-            .map_err(|message| LibraryError::CredentialCleanup {
+            .map_err(|_| LibraryError::CredentialCleanup {
                 credential_ref: credential_ref.clone(),
-                message,
+                message: "credential vault rejected cleanup".into(),
             })?;
     }
     Ok(())

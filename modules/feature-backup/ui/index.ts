@@ -1,5 +1,5 @@
 import type { ActionRequired, JobRef, JobSnapshot } from '@mintcat/sdk-ts';
-import { getSharedRuntime, mountReactView } from '@mintcat/sdk-ui';
+import { getSharedRuntime, mountReactView, presentUiError } from '@mintcat/sdk-ui';
 import type { Disposable, Json, UiContext } from '@mintcat/sdk-ui';
 import { BackupView } from './view';
 import type { BackupModel, PendingRequest, TaskView, TrackedTask } from './view';
@@ -50,11 +50,13 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext): Pr
     context.dirty(fields.note.trim().length > 0);
   };
   const describeError = (error: unknown): string => {
-    const detail = typeof error === 'object' && error !== null && 'appError' in error
-      ? JSON.stringify(error.appError, null, 2) ?? String(error)
-      : error instanceof Error ? error.message : typeof error === 'string' ? error : JSON.stringify(error, null, 2) ?? String(error);
+    if (typeof error === 'object' && error !== null && 'appError' in error) {
+      const failure = presentUiError(error);
+      return `${failure.title}：${failure.description}`;
+    }
+    const detail = error instanceof Error ? error.message : typeof error === 'string' ? error : JSON.stringify(error, null, 2) ?? String(error);
     return /permission|forbidden|unauthorized|access.denied/i.test(detail)
-      ? `权限不足，请检查当前模块授权。\n${detail}` : `操作失败：${detail}`;
+      ? `权限不足，请检查当前请求的授权。\n${detail}` : `操作失败：${detail}`;
   };
   const required = (key: 'output' | 'source' | 'legacySource' | 'configSource'): string => {
     const labels = { output: '输出归档路径', source: '待恢复归档路径', legacySource: '旧版 SQLite 路径', configSource: '配置快照路径' };
@@ -221,7 +223,7 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext): Pr
   const mounted = mountReactView(root, React.createElement(BackupView, { model }));
   persistFields();
   const timer = context.interval(poll, 1_000);
-  const generationSubscription = context.onGenerationChanged(async () => {
+  const inventorySubscription = context.onInventoryChanged(async () => {
     if (!active()) return;
     ++pageGeneration;
     context.invalidate('cloud-history'); await Promise.all([refresh(), poll()]);
@@ -231,7 +233,7 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext): Pr
     dispose() {
       if (!alive) return;
       persistFields(); persistTasks(); alive = false; ++pageGeneration; ++refreshGeneration;
-      timer.dispose(); generationSubscription.dispose(); listeners.clear(); context.dirty(false); mounted.dispose();
+      timer.dispose(); inventorySubscription.dispose(); listeners.clear(); context.dirty(false); mounted.dispose();
     },
   };
 }

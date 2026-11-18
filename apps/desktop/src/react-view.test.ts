@@ -8,10 +8,10 @@ const { React, flushSync } = getSharedRuntime();
 let view: Disposable | undefined;
 afterEach(() => { view?.dispose(); view = undefined; document.body.replaceChildren(); setUiTheme('Light'); });
 
-describe('React module admission', () => {
-  it('rejects a failed initial render before the Workbench can acknowledge ready', () => {
+describe('React page lifecycle', () => {
+  it('reports a failed initial render before the Workbench presents the page', () => {
     const root = document.createElement('section'); document.body.append(root);
-    function BrokenModule(): never { throw new Error('Broken signed page'); }
+    function BrokenModule(): never { throw new Error('Broken page'); }
     expect(() => mountReactView(root, React.createElement(BrokenModule))).toThrow(Error);
     expect(root.childElementCount).toBe(0);
   });

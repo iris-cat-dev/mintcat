@@ -28,7 +28,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' mintcat-ui: http://mintcat-ui.localhost https://mintcat-ui.localhost; style-src 'self' 'unsafe-inline' mintcat-ui: http://mintcat-ui.localhost https://mintcat-ui.localhost; font-src 'self' mintcat-ui: http://mintcat-ui.localhost https://mintcat-ui.localhost; img-src 'self' https: data: blob: mintcat-ui: http://mintcat-ui.localhost https://mintcat-ui.localhost; worker-src mintcat-ui: http://mintcat-ui.localhost https://mintcat-ui.localhost; connect-src ipc: http://ipc.localhost mintcat-ui: http://mintcat-ui.localhost https://mintcat-ui.localhost"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' https: data: blob:; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {

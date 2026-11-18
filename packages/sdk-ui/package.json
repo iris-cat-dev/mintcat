@@ -3,8 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "exports": { ".": "./src/index.ts" },
-  "scripts": { "check": "tsc -p tsconfig.json" },
+  "scripts": { "check": "tsc -p tsconfig.json", "test": "vitest run src" },
   "dependencies": { "@mintcat/sdk-ts": "workspace:*", "antd": "^6.3.4", "@ant-design/icons": "^6.0.0", "react": "^19.1.1", "react-dom": "^19.1.1" },
-  "devDependencies": { "esbuild": "0.25.12", "@types/react": "^19.1.1", "@types/react-dom": "^19.1.1" },
-  "bin": { "mintcat-ui-build": "./scripts/build.mjs" }
+  "devDependencies": { "@types/react": "^19.1.1", "@types/react-dom": "^19.1.1" }
 }

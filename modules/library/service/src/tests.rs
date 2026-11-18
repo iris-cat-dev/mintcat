@@ -67,6 +67,27 @@ fn open_store(root: &Path) -> OwnerStore {
     OwnerStore::open(&layout).unwrap()
 }
 
+#[test]
+fn builtin_library_migrates_every_historical_schema_without_losing_settings() {
+    for version in 1usize..=4 {
+        let sandbox = tempdir().unwrap();
+        let layout = RuntimePaths::new(sandbox.path().join("data")).unwrap().initialize(RuntimeEnvironment::Test).unwrap();
+        let directory = layout.state_dir.join("mintcat.library");
+        fs::create_dir_all(&directory).unwrap();
+        let database = Connection::open(directory.join("library.sqlite")).unwrap();
+        database.execute_batch("CREATE TABLE library_schema(version INTEGER PRIMARY KEY,applied_at_ms INTEGER NOT NULL);").unwrap();
+        for (index, migration) in [crate::schema::MIGRATION_1, crate::schema::MIGRATION_2, crate::schema::MIGRATION_3, crate::schema::MIGRATION_4].iter().take(version).enumerate() {
+            database.execute_batch(migration).unwrap();
+            database.execute("INSERT INTO library_schema VALUES(?1,0)", [index + 1]).unwrap();
+        }
+        database.execute("INSERT INTO library_settings VALUES(?1,'retained','historical-value',1,1)", [GLOBAL_SETTING_SCOPE]).unwrap();
+        drop(database);
+        let library = crate::LibraryStore::open(&layout).unwrap();
+        assert_eq!(library.get_global_setting("retained").unwrap().as_deref(), Some("historical-value"));
+    }
+}
+
+
 fn copy_fixture(root: &Path, name: &str) -> PathBuf {
     let destination = root.join(name);
     fs::copy(fixture(), &destination).unwrap();

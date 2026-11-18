@@ -20,14 +20,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let source_layout = RuntimePaths::new(sandbox.path().join("source"))?.initialize(RuntimeEnvironment::Test)?;
     let source = LibraryStore::open(&source_layout)?;
     source.import_legacy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/baseline/legacy/mintcat-v0.6.sqlite"), &FixtureVault)?;
-    let before = source.snapshot()?;
+    let before = source.backup_snapshot()?;
     let backup = sandbox.path().join("offline-backup.json");
     BackupService::new(source_layout, source)?.export(ExportBackupRequest { target_path: backup.clone() }, state)?;
     let destination_layout = RuntimePaths::new(sandbox.path().join("restored"))?.initialize(RuntimeEnvironment::Test)?;
     let destination = LibraryStore::open(&destination_layout)?;
     let service = BackupService::new(destination_layout.clone(), destination.clone())?;
     service.restore(RestoreBackupRequest { source_path: backup.clone() }, state)?;
-    let restored = destination.snapshot()?;
+    let restored = destination.backup_snapshot()?;
     assert_eq!(restored, before);
     for membership in &restored.profile_mods {
         println!("profile={} mod={} order={} enabled={} usedVersion={:?} selectedVersion={:?}", membership.profile_id, membership.mod_id, membership.sort_order, membership.enabled, membership.used_version, membership.selected_version_id);

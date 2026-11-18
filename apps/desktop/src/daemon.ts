@@ -40,25 +40,12 @@ export async function callDaemon<M extends CommandName>(
 export async function requestApplication<Result>(
   dataDir: string,
   method: string,
-  params: Record<string, unknown>,
+  params: object,
   idempotencyKey?: string,
 ): Promise<Result> {
   return validateResponse<Result>(await invoke<unknown>('daemon_call', {
     dataDir, method, params, idempotencyKey,
   }), method);
-}
-
-export async function requestUiApplication<Result>(
-  token: string,
-  moduleId: string,
-  method: string,
-  params: object,
-  idempotencyKey?: string,
-): Promise<Result> {
-  // The native host derives the session, environment and digest from its verified
-  // registry; module code cannot supply a replacement root or generation.
-  const response = await invoke<unknown>('ui_request_generation', { token, moduleId, method, params, idempotencyKey });
-  return validateResponse<Result>(response, method);
 }
 
 async function invokeAndValidate<Result>(

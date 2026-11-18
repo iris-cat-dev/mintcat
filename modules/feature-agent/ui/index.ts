@@ -1,5 +1,5 @@
 import type { ActionRequired, JobSnapshot } from '@mintcat/sdk-ts';
-import { getSharedRuntime, mountReactView } from '@mintcat/sdk-ui';
+import { getSharedRuntime, mountReactView, presentUiError } from '@mintcat/sdk-ui';
 import type { Disposable, UiContext } from '@mintcat/sdk-ui';
 
 interface Configuration { baseUrl: string; model: string; credentialRef?: string }
@@ -68,12 +68,19 @@ export async function mountAgentPage(root: HTMLElement, context: UiContext): Pro
     status = `${next.sessionId} · 版本 ${next.revision} · ${next.state}${next.errorCode ? ` · ${next.errorCode}` : ''}`;
     update(); await renderBindings();
   };
+  const describeError = (cause: unknown): string => {
+    if (typeof cause === 'object' && cause !== null && 'appError' in cause) {
+      const failure = presentUiError(cause);
+      return `${failure.title}：${failure.description}`;
+    }
+    return cause instanceof Error ? cause.message : JSON.stringify(cause, null, 2) ?? String(cause);
+  };
   const run = (action: () => Promise<void>): void => {
     if (busy || !active()) return;
     ++loadGeneration; ++bindingsGeneration; busy = true; error = ''; update();
     context.guard(async () => {
       try { await action(); }
-      catch (cause) { if (active()) { error = typeof cause === 'object' && cause !== null && 'appError' in cause ? JSON.stringify(cause.appError, null, 2) ?? String(cause) : cause instanceof Error ? cause.message : JSON.stringify(cause, null, 2) ?? String(cause); update(); } throw cause; }
+      catch (cause) { if (active()) { error = describeError(cause); update(); } throw cause; }
       finally { if (active()) { busy = false; update(); } }
     })();
   };
@@ -172,7 +179,7 @@ export async function mountAgentPage(root: HTMLElement, context: UiContext): Pro
     try {
       const next = await context.request<Session>('agent.sessions.get', { sessionId: current });
       if (active() && generation === loadGeneration && session?.sessionId === current) await render(next);
-    } catch (cause) { if (active() && generation === loadGeneration) { error = typeof cause === 'object' && cause !== null && 'appError' in cause ? JSON.stringify(cause.appError, null, 2) ?? String(cause) : cause instanceof Error ? cause.message : JSON.stringify(cause, null, 2) ?? String(cause); update(); } }
+    } catch (cause) { if (active() && generation === loadGeneration) { error = describeError(cause); update(); } }
   }, 2000);
   return { dispose() { persistPrompt(); alive = false; ++loadGeneration; ++bindingsGeneration; poll.dispose(); context.dirty(false); view.dispose(); } };
 }

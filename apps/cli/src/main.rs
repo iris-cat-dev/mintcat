@@ -286,7 +286,7 @@ fn packaged_data_directory() -> Result<Option<PathBuf>> {
     };
     if !metadata.is_file() || metadata.file_type().is_symlink() { bail!("Packaged release manifest must be a regular file"); }
     let manifest: Value = serde_json::from_slice(&std::fs::read(&path)?).context("Packaged release manifest must contain valid JSON")?;
-    if manifest["schemaVersion"] != 1 || manifest["target"].as_str() != Some(env!("MINTCAT_TARGET")) {
+    if manifest["schemaVersion"] != 2 || manifest["target"].as_str() != Some(env!("MINTCAT_TARGET")) {
         bail!("Packaged runtime manifest differs from this CLI's exact compiled target");
     }
     let variant = manifest["variant"].as_str().ok_or_else(|| anyhow!("Packaged release variant is missing"))?;

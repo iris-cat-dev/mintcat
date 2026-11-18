@@ -148,7 +148,7 @@ export function BackupView({ model }: { model: BackupModel }) {
           actionButton('export', '导出离线备份', model.exportArchive, { icon: icon('DownloadOutlined') }),
           actionButton('restore', '请求导入当前空 owner', model.restoreArchive, { icon: icon('RollbackOutlined') })))),
       h(Collapse, { size: 'small', items: [{ key: 'scope', label: '归档范围与恢复安全说明', children: h(Typography.Paragraph, null,
-        '便携归档包含 Library 配置、排序、版本与设置、Agent 对话及 Proxy 自定义规则 / 缓存配置。各 owner 在共同维护准入下生成逻辑快照，并非跨数据库事务。恢复要求 owner 为空，并独立人工审阅冻结输入、schema、模块闭包及写入栅栏。Vault 凭据、Proxy CA 私钥、系统 hosts 所有权、运行控制器、kernel 任务 / 操作 / 批准及安装回执均不包含；Agent 任务 ID 仅保留为非权威对话历史。恢复后需重新登录并重新批准本机操作。') }] })),
+        '便携归档包含 Library 配置、排序、版本与设置及 Agent 对话，各服务在共同维护准入下生成逻辑快照，并非跨数据库事务。恢复要求目标服务为空，并独立人工审阅冻结输入、schema 及写入栅栏。默认关闭实验 Proxy；存在历史 Proxy 数据或归档包含 Proxy 时，会明确拒绝导出或导入，需启用 experimental-proxy 后处理，绝不静默丢弃。启用时保留 Proxy 自定义规则及缓存配置。Vault 凭据、Proxy CA 私钥、系统 hosts 所有权、运行控制器、kernel 任务 / 操作 / 批准及安装回执均不包含；Agent 任务 ID 仅保留为非权威对话历史。恢复后需重新登录并重新批准本机操作。') }] })),
     h(Card, { title: '旧版 Library 导入', className: 'mintcat-backup-card' },
       h(Form, { labelCol: { span: 5 }, wrapperCol: { span: 19 }, colon: false },
         formItem('旧版 SQLite', pathInput('legacySource', '旧版 SQLite 路径', '旧版数据库完整路径')),

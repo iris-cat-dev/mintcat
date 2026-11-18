@@ -462,7 +462,9 @@ mod unix {
                 "mode": "prepare-and-apply",
             }),
         ).await;
-        assert_eq!(refused.error.unwrap().code, "MODULE_UNAVAILABLE");
+        let submitted = successful_result(refused);
+        let failed = wait_for_job(&mut client, submitted["jobId"].as_str().unwrap(), "failed").await;
+        assert_eq!(failed["error"]["code"], "SOURCE_NOT_REGISTERED");
         let content_state = successful_result(
             request_with(
                 &mut client,
@@ -511,6 +513,64 @@ mod unix {
         drop(second_client);
         first.stop().await;
         second.stop().await;
+    }
+
+    #[tokio::test]
+    async fn builtin_services_and_approved_backup_work_without_signed_platform_in_all_environments() {
+        let sandbox = tempdir().unwrap();
+        for environment in [RuntimeEnvironment::Development, RuntimeEnvironment::Production, RuntimeEnvironment::Test] {
+            let source_paths = RuntimePaths::new(sandbox.path().join(format!("source-{environment:?}"))).unwrap();
+            let bound = BoundDaemon::bind(&source_paths, environment).unwrap();
+            let daemon = RunningDaemon::start_bound(source_paths, bound).await;
+            let mut client = IpcClient::connect(&daemon.paths).await.unwrap();
+            let inventory = successful_result(request(&mut client, "modules.list", "inventory").await);
+            assert!(inventory["modules"].as_array().unwrap().is_empty());
+            let sources = successful_result(request(&mut client, "sources.list", "sources").await);
+            assert!(sources["sources"].as_array().unwrap().is_empty());
+            let games = successful_result(request_with(&mut client, "games.list", "games", None, json!({"pageSize":10})).await);
+            assert!(games["items"].as_array().unwrap().is_empty());
+            let settings_params = json!({"scope":{"kind":"global"},"section":"appearance"});
+            let settings = successful_result(request_with(&mut client, "settings.get", "settings", None, settings_params.clone()).await);
+            let updated = successful_result(request_with(&mut client, "settings.update", "settings-update", Some("settings-update"), json!({"scope":{"kind":"global"},"section":"appearance","expectedRevision":settings["revision"],"values":{"theme":"dark"}})).await);
+            assert_eq!(updated["values"]["theme"], "dark");
+            let session = successful_result(request_with(&mut client, "agent.sessions.create", "agent-create", Some("agent-create"), json!({
+                "configuration":{"baseUrl":"http://127.0.0.1:1/v1","model":"configured"},
+                "target":{"gameId":"game:drg","profileId":"profile:future","profileRevision":1,"contentRevision":1,"installationId":"installation:future","installationRevision":1}
+            })).await);
+            let session_params = json!({"sessionId":session["sessionId"]});
+            assert_eq!(successful_result(request_with(&mut client, "agent.sessions.get", "agent-get", None, session_params.clone()).await)["sessionId"], session["sessionId"]);
+            let archive = sandbox.path().join(format!("backup-{environment:?}.json"));
+            let export = successful_result(request_with(&mut client, "backup.export", "backup-export", Some("backup-export"), json!({"targetPath":archive})).await);
+            wait_for_job(&mut client, export["jobId"].as_str().unwrap(), "succeeded").await;
+            let target_paths = RuntimePaths::new(sandbox.path().join(format!("target-{environment:?}"))).unwrap();
+            let target_bound = BoundDaemon::bind(&target_paths, environment).unwrap();
+            let jobs = target_bound.job_store().clone();
+            let target = RunningDaemon::start_bound(target_paths, target_bound).await;
+            let mut target_client = IpcClient::connect(&target.paths).await.unwrap();
+            let restore = successful_result(request_with(&mut target_client, "backup.restore", "backup-restore", Some("backup-restore"), json!({"sourcePath":archive})).await);
+            let job_id = restore["jobId"].as_str().unwrap();
+            wait_for_job(&mut target_client, job_id, "awaiting-approval").await;
+            let before = successful_result(request_with(&mut target_client, "settings.get", "before-approval", None, settings_params.clone()).await);
+            assert!(before["values"].as_object().unwrap().is_empty());
+            let action = jobs.get_job_action("local-user", job_id).unwrap().unwrap();
+            successful_result(request_with(&mut target_client, "actions.approve", "approve-backup", Some("approve-backup"), json!({"actionId":action.action_id,"expectedRevision":action.revision,"response":{"approved":true,"importCredentials":false}})).await);
+            wait_for_job(&mut target_client, job_id, "succeeded").await;
+            assert_eq!(successful_result(request_with(&mut target_client, "settings.get", "restored-settings", None, settings_params).await)["values"]["theme"], "dark");
+            assert_eq!(successful_result(request_with(&mut target_client, "agent.sessions.get", "restored-agent", None, session_params).await)["sessionId"], session["sessionId"]);
+            drop(client); drop(target_client); drop(jobs);
+            daemon.stop().await; target.stop().await;
+        }
+    }
+
+    async fn wait_for_job(client: &mut IpcClient, job_id: &str, expected: &str) -> Value {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let snapshot = successful_result(request_with(client, "jobs.get", "job-state", None, json!({"jobId":job_id})).await);
+            if snapshot["state"] == expected { return snapshot; }
+            assert!(!matches!(snapshot["state"].as_str(), Some("failed" | "cancelled" | "recovery-required")), "{snapshot}");
+            assert!(tokio::time::Instant::now() < deadline, "{snapshot}");
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
     }
 
     async fn request(client: &mut IpcClient, method: &str, id: &str) -> JsonRpcResponse {

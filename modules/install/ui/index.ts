@@ -58,7 +58,9 @@ export async function mountInstall(root: HTMLElement, context: UiContext): Promi
       variantId = descriptor.variants.find(item => item.variantId === desiredVariant)?.variantId ?? descriptor.variants[0]?.variantId ?? '';
       const games = await context.call('games.list', { gameId: current, pageSize: 100 });
       if (!active() || generation !== selectionGeneration || current !== gameId) return;
-      installations = games.items.find(item => item.gameId === current)?.installations ?? [];
+      const enrolled = games.items.find(item => item.gameId === current);
+      if (!enrolled) { status = '请先在模组管理中注册真实游戏安装目录，再创建配置。已有 daemon 任务仍可查看。'; persist(); selection(); return; }
+      installations = enrolled.installations;
       installationId = installations.find(item => item.installationId === desiredInstallation)?.installationId ?? installations[0]?.installationId ?? '';
       let cursor: string | undefined; const loaded: ProfileSummary[] = [];
       do {
@@ -177,7 +179,7 @@ export async function mountInstall(root: HTMLElement, context: UiContext): Promi
     if (previous !== JSON.stringify(descriptors.find(item => item.gameId === gameId)) || !profiles.length) await loadGame();
     update();
   };
-  const subscription = context.onGenerationChanged(refreshModules), timer = context.interval(poll, 1000);
+  const subscription = context.onInventoryChanged(refreshModules), timer = context.interval(poll, 1000);
   run(async () => { await refreshModules(); await poll(); });
   return { dispose() { persist(); alive = false; ++selectionGeneration; subscription.dispose(); timer.dispose(); view.dispose(); } };
 }

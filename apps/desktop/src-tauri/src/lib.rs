@@ -1,4 +1,3 @@
-mod ui_assets;
 mod window_surface;
 
 use std::path::{Path, PathBuf};
@@ -10,7 +9,6 @@ use serde_json::{json, Value};
 use tauri::Manager;
 use uuid::Uuid;
 
-// Signed baseline admission and inventory authenticate native package bytes.
 // Allow the same bounded cold-start budget exercised by the standalone CLI.
 const APPLICATION_REQUEST_DEADLINE_MS: u64 = 120_000;
 
@@ -25,18 +23,6 @@ pub async fn request_running_daemon(
     request(&mut client, method, json!({}), None).await
 }
 
-pub async fn request_running_daemon_command(
-    data_dir: impl Into<PathBuf>,
-    method: &str,
-    params: Value,
-    idempotency_key: Option<String>,
-) -> Result<JsonRpcResponse, String> {
-    let paths = RuntimePaths::new(data_dir).map_err(|error| error.to_string())?;
-    let mut client = IpcClient::connect(&paths)
-        .await
-        .map_err(|error| error.to_string())?;
-    request(&mut client, method, params, idempotency_key).await
-}
 
 pub async fn request_daemon_on_demand(
     data_dir: impl Into<PathBuf>,
@@ -137,12 +123,8 @@ fn configure_packaged_runtime(app: &tauri::AppHandle) -> Result<PackagedRuntime,
         resources
     };
     let configuration = base.join("runtime.json");
-    if std::env::var_os("MINTCAT_RUNTIME_CONFIG").is_none() {
-        if configuration.is_file() {
-            std::env::set_var("MINTCAT_RUNTIME_CONFIG", &configuration);
-        } else if !cfg!(debug_assertions) {
-            return Err("Packaged signed baseline runtime configuration is missing".into());
-        }
+    if std::env::var_os("MINTCAT_RUNTIME_CONFIG").is_none() && configuration.is_file() {
+        std::env::set_var("MINTCAT_RUNTIME_CONFIG", &configuration);
     }
     let manifest = base.join("release-manifest.json");
     if !manifest.is_file() {
@@ -155,7 +137,7 @@ fn configure_packaged_runtime(app: &tauri::AppHandle) -> Result<PackagedRuntime,
     }
     let manifest: Value =
         mintcat_runtime_release::read_json(&manifest).map_err(|error| error.to_string())?;
-    if manifest["schemaVersion"] != 1 || manifest["target"].as_str() != Some(env!("MINTCAT_TARGET"))
+    if manifest["schemaVersion"] != 2 || manifest["target"].as_str() != Some(env!("MINTCAT_TARGET"))
     {
         return Err(
             "Packaged runtime manifest differs from this desktop's exact compiled target".into(),
@@ -293,8 +275,7 @@ pub fn run() {
                 configure_packaged_runtime(app.handle()).map_err(std::io::Error::other)?;
             app.manage(runtime);
             for config in app.config().app.windows.iter() {
-                // A background workbench must keep its signed UI lease alive and
-                // acknowledge update barriers; WebKit's default suspends these timers.
+                // Keep task observations responsive while the workbench is in the background.
                 tauri::WebviewWindowBuilder::from_config(app.handle(), config)?
                     .transparent(cfg!(any(target_os = "macos", windows)))
                     .background_throttling(
@@ -312,20 +293,13 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let _ = (window, event);
         })
-        .manage(ui_assets::UiAssets::default())
-        .register_uri_scheme_protocol("mintcat-ui", |context, request| {
-            ui_assets::respond(context.app_handle(), request)
-        })
         .invoke_handler(tauri::generate_handler![
             daemon_status,
             daemon_doctor,
             daemon_call,
             desktop_environment,
             rescue_log,
-            window_surface::desktop_window_surface,
-            ui_assets::ui_open_generation,
-            ui_assets::ui_close_generation,
-            ui_assets::ui_request_generation
+            window_surface::desktop_window_surface
         ])
         .build(context)
         .expect("vNext desktop host failed");

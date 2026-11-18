@@ -1,13 +1,13 @@
 use std::{collections::BTreeMap, path::{Path, PathBuf}, sync::Arc};
 
-use mintcat_feature_backup::{BackupError, CloudBackupTransport, CloudCredentialProvider, NativeBackupCodec};
+use mintcat_feature_backup::{BackupError, CloudBackupTransport, CloudCredentialProvider};
 use mintcat_install::{ModuleClosure, ModuleClosureEntry};
 use mintcat_runtime_artifacts::{ArtifactStore, TrustStore};
 use mintcat_runtime_broker::{CredentialRef, Origin};
 use mintcat_runtime_kernel::{KernelDatabase, RuntimeLayout};
 use mintcat_runtime_release::{LocalRepository, RepositoryVerifier, VerificationPolicy};
-use mintcat_runtime_updates::{LibraryStateOwner, UpdatesCoordinator};
-use mintcat_source_api::SourceWorkerConfig;
+use mintcat_runtime_updates::{EnvironmentSnapshot, UpdatesCoordinator};
+use mintcat_source_api::SourceConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -27,11 +27,11 @@ pub(super) struct ScopePin {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct RuntimeConfiguration {
     schema_version: u64,
-    trust_root: PathBuf,
-    verification_policy: PathBuf,
-    pub repository_path: PathBuf,
-    scopes: BTreeMap<String, ScopePin>,
-    #[serde(default)] sources: BTreeMap<String, SourceWorkerConfig>,
+    #[serde(default)] trust_root: PathBuf,
+    #[serde(default)] verification_policy: PathBuf,
+    #[serde(default)] pub repository_path: PathBuf,
+    #[serde(default)] scopes: BTreeMap<String, ScopePin>,
+    #[serde(default)] sources: BTreeMap<String, SourceConfig>,
     #[serde(default)] cloud: Option<CloudConfiguration>,
 }
 #[derive(Clone, Deserialize)]
@@ -60,16 +60,24 @@ impl RuntimeConfiguration {
             },
         };
         let mut configuration: Self = mintcat_runtime_release::read_json(&path).map_err(message)?;
-        if configuration.schema_version != 1 || !configuration.scopes.contains_key("platform") {
-            return Err("runtime configuration requires schema1 and an exact platform baseline pin".into());
+        if !matches!(configuration.schema_version, 1 | 2) {
+            return Err("runtime configuration requires schema1 (historical) or schema2".into());
+        }
+        if configuration.schema_version == 2 && configuration.scopes.keys().any(|scope| !scope.starts_with("game:")) {
+            return Err("schema2 runtime configuration admits only independent game scopes".into());
+        }
+        if !configuration.scopes.is_empty() && [&configuration.trust_root, &configuration.verification_policy, &configuration.repository_path].iter().any(|path| path.as_os_str().is_empty()) {
+            return Err("configured game releases require trustRoot, verificationPolicy and repositoryPath".into());
         }
         let base = path.parent().unwrap_or(Path::new("."));
         for value in [&mut configuration.trust_root, &mut configuration.verification_policy, &mut configuration.repository_path] {
-            if value.is_relative() { *value = base.join(&*value); }
+            if !value.as_os_str().is_empty() && value.is_relative() { *value = base.join(&*value); }
         }
         Ok(Some(configuration))
     }
+    pub fn has_game_runtime(&self) -> bool { !self.trust_root.as_os_str().is_empty() }
     pub fn trust(&self) -> Result<TrustStore> {
+        if !self.has_game_runtime() { return Ok(TrustStore::default()); }
         mintcat_runtime_release::load_root_rotation_anchor(&self.trust_root).map_err(message)?.artifact_trust_store().map_err(message)
     }
     pub fn updates(&self, layout: &RuntimeLayout, database: KernelDatabase, artifacts: ArtifactStore) -> Result<UpdatesCoordinator> {
@@ -103,47 +111,37 @@ impl RuntimeConfiguration {
     }
 }
 
-pub(super) fn register_owners(state: &DaemonState) -> Result<()> {
-    if let Some(updates) = &state.updates {
-        updates.register_state_owner(Arc::new(LibraryStateOwner::new(state.library.clone(), &state.layout).map_err(message)?)).map_err(message)?;
-        updates.register_state_owner(state.features.agent_state_owner()).map_err(message)?;
-        updates.register_state_owner(state.features.proxy_state_owner()).map_err(message)?;
-        updates.register_host_service("source.network", 1, state.source_network.clone()).map_err(message)?;
-    }
-    Ok(())
-}
 
 pub(super) async fn bootstrap(state: &Arc<DaemonState>) -> Result<()> {
-    let updates = state.updates.as_ref().ok_or("no provisioned trust root/runtime configuration; signed baseline required")?;
-    updates.recover_startup_readonly().await.map_err(message)?;
-    refresh(state).await?;
+    if let Some(updates) = &state.updates { updates.recover_startup_readonly().await.map_err(message)?; }
     let cloned = state.clone();
     if let Err(error) = tokio::task::spawn_blocking(move || super::backup::startup_recover(&cloned)).await.map_err(message)? {
         state.backup_startup_blocked.store(error.code == "RECOVERY_REQUIRED", std::sync::atomic::Ordering::Release);
         return Err(format!("{}: {}", error.code, error.message_key));
     }
-    updates.finish_startup_recovery().await.map_err(message)?;
-    let configuration = state.configuration.as_ref().ok_or("runtime configuration unavailable")?;
-    let environment = updates.environment().map_err(message)?;
-    let mut scopes: Vec<_> = configuration.scopes.iter()
-        .filter(|(scope, _)| !environment.scopes.contains_key(*scope)).collect();
-    scopes.sort_by_key(|(scope, _)| (*scope != "platform", scope.as_str()));
-    if !scopes.is_empty() {
-        let repository = LocalRepository::open(&configuration.repository_path).map_err(message)?;
-        for (scope, pin) in scopes {
-            let now = super::unix_seconds().map_err(message)?;
-            updates.authorize_channel(scope, &pin.channel, 0).map_err(message)?;
-            let operation = updates.stage_local(&repository, scope, &pin.channel, 0, now).await.map_err(message)?;
-            if operation.generation.targets.signed.release.release_id != pin.release_id || operation.generation.targets.signed.release.sequence != pin.sequence {
-                return Err(format!("baseline scope {scope} differs from its provisioned exact release pin"));
+    state.library.resume_after_recovery().map_err(message)?;
+    if let (Some(updates), Some(configuration)) = (&state.updates, &state.configuration) {
+        updates.finish_startup_recovery().await.map_err(message)?;
+        let environment = updates.environment().map_err(message)?;
+        let scopes: Vec<_> = configuration.scopes.iter()
+            .filter(|(scope, _)| scope.starts_with("game:") && !environment.scopes.contains_key(*scope)).collect();
+        if !scopes.is_empty() {
+            let repository = LocalRepository::open(&configuration.repository_path).map_err(message)?;
+            for (scope, pin) in scopes {
+                let now = super::unix_seconds().map_err(message)?;
+                let revision = updates.scope_revision(scope).map_err(message)?;
+                updates.authorize_channel(scope, &pin.channel, revision).map_err(message)?;
+                let operation = updates.stage_local(&repository, scope, &pin.channel, revision, now).await.map_err(message)?;
+                if operation.generation.targets.signed.release.release_id != pin.release_id || operation.generation.targets.signed.release.sequence != pin.sequence {
+                    return Err(format!("game scope {scope} differs from its provisioned exact release pin"));
+                }
+                updates.prepare(&operation.operation_id, now).await.map_err(message)?;
+                updates.activate(&operation.operation_id, now).map_err(message)?;
+                updates.confirm(&operation.operation_id, now).await.map_err(message)?;
             }
-            updates.prepare(&operation.operation_id, now).await.map_err(message)?;
-            updates.activate(&operation.operation_id, now).map_err(message)?;
-            updates.confirm(&operation.operation_id, now).await.map_err(message)?;
         }
-        refresh(state).await?;
     }
-    if state.library.owner_digest().is_err() { return Err("confirmed scopes do not supply the native Library owner".into()); }
+    refresh(state).await?;
     let cloned = state.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
         cloned.library.recover_download_operations(&cloned.generation_id).map_err(message)?;
@@ -155,7 +153,7 @@ pub(super) async fn bootstrap(state: &Arc<DaemonState>) -> Result<()> {
     super::sources::restore(state).await?;
     super::sources::collect_obsolete(state).await?;
     state.features.recover(&state.recovered).map_err(|error| format!("{}: {}", error.code, error.message_key))?;
-    updates.finish_lease_reconciliation().map_err(message)?;
+    if let Some(updates) = &state.updates { updates.finish_lease_reconciliation().map_err(message)?; }
     Ok(())
 }
 
@@ -181,53 +179,47 @@ pub(super) async fn resume_after_backup_recovery(state: &Arc<DaemonState>) -> Re
     Ok(())
 }
 
-// Callers serialize refresh against admitted UI business requests and scope publication.
+// Callers serialize refresh against application requests and scope publication.
 pub(super) async fn refresh(state: &Arc<DaemonState>) -> Result<()> {
-    let updates = state.updates.as_ref().ok_or("signed update coordinator unavailable")?;
-    let environment = updates.environment().map_err(message)?;
-    // Platform probation retains the owners' exclusive migration gate.
-    // Publish native routing only after confirmation has reopened owner writes.
-    if environment.scopes.get("platform").is_some_and(|generation| !generation.confirmed) {
-        return Ok(());
-    }
+    let environment = match &state.updates {
+        Some(updates) => updates.environment().map_err(message)?,
+        None => EnvironmentSnapshot { generation_id: "builtin".into(), scopes: BTreeMap::new() },
+    };
     let current = state.sources.read().map_err(message)?.as_ref().is_some_and(|generation| {
         generation.environment_generation == environment.generation_id
             && generation.scope_confirmations.iter().copied().eq(environment.scopes.values().map(|scope| scope.confirmed))
     });
     if current { return Ok(()); }
     let mut descriptors = Vec::new();
+    let mut adapters = Vec::new();
+    let active_games: std::collections::BTreeSet<_> = state.updates.as_ref()
+        .map(|updates| updates.module_inventory().map(|inventory| inventory.modules.into_iter().map(|module| module.digest).collect()))
+        .transpose().map_err(message)?.unwrap_or_default();
     for (scope, generation) in &environment.scopes {
-        if !generation.confirmed { continue; }
+        if !scope.starts_with("game:") || !generation.confirmed { continue; }
+        let updates = state.updates.as_ref().ok_or("game scope has no update authority")?;
         let Some(supervisor) = updates.supervisor_for_generation(scope, &generation.generation_id).map_err(message)? else { continue; };
         let closure = ModuleClosure::new(generation.targets.signed.packages.values().map(|record| ModuleClosureEntry {
             module_id: record.manifest.id.clone(), version: record.manifest.version.clone(), package_digest: record.digest.clone(),
         }).collect()).map_err(message)?;
         for record in generation.targets.signed.packages.values() {
-            if record.manifest.provides.iter().any(|contract| contract.contract_id == mintcat_game_api::GAME_ADAPTER_CONTRACT_ID) {
+            if active_games.contains(&record.digest) && record.manifest.provides.iter().any(|contract| contract.contract_id == mintcat_game_api::GAME_ADAPTER_CONTRACT_ID) {
                 let games: Vec<mintcat_game_api::GameDescriptor> = serde_json::from_value(record.manifest.contributes["games"].clone()).map_err(message)?;
                 for descriptor in games {
                     let adapter = state.install.catalog().pin_using(supervisor.clone(), &descriptor.game_id, &record.digest, closure.clone()).await.map_err(message)?;
-                    state.install.catalog().publish(adapter);
+                    adapters.push(adapter);
                     descriptors.push(descriptor);
-                }
-            }
-            if record.manifest.id == "mintcat.feature.backup" {
-                let current = state.backup_codec.read().map_err(message)?.as_ref().map(|codec| codec.provider_digest().to_owned());
-                if current.as_deref() != Some(record.digest.as_str()) {
-                    let supervisor = supervisor.clone(); let scope = scope.clone(); let digest = record.digest.clone();
-                    let codec = tokio::task::spawn_blocking(move || NativeBackupCodec::new(supervisor, scope, digest)).await.map_err(message)?.map_err(message)?;
-                    *state.backup_codec.write().map_err(message)? = Some(Arc::new(codec));
                 }
             }
         }
     }
-    let configuration = state.configuration.as_ref().ok_or("runtime configuration unavailable")?;
-    super::sources::publish(state, environment, descriptors, configuration.sources.clone()).await?;
+    state.install.catalog().publish(adapters);
+    let configuration = state.configuration.as_ref().map(|configuration| configuration.sources.clone()).unwrap_or_default();
+    super::sources::publish(state, environment, descriptors, configuration).await?;
     Ok(())
 }
 
 async fn restore_install_closures(state: &Arc<DaemonState>) -> Result<()> {
-    let updates = state.updates.as_ref().ok_or("updates unavailable")?;
     let mut requests = state.install.service().active_receipt_build_requests().map_err(message)?;
     for record in &state.recovered {
         let target = state.jobs.get_job_target(LOCAL_OWNER_SCOPE, &record.snapshot.job_id).map_err(message)?;
@@ -241,19 +233,25 @@ async fn restore_install_closures(state: &Arc<DaemonState>) -> Result<()> {
             requests.push(state.install.service().recovery_build_request_for_receipt(receipt).map_err(message)?);
         }
     }
+    if requests.is_empty() { return Ok(()); }
+    let updates = state.updates.as_ref().ok_or("durable install recovery requires its original signed package authority; provision the historical trust configuration")?;
     for request in requests {
+        request.module_closure.verify().map_err(message)?;
+        let digests: Vec<_> = request.module_closure.entries.iter().map(|entry| entry.package_digest.clone()).collect();
+        let store = updates.artifact_store_for_digests(&digests).map_err(message)?;
         let mut game = None;
         for entry in &request.module_closure.entries {
-            let store = updates.artifact_store_for_digest(&entry.package_digest).map_err(message)?;
             let package = store.acquire_module(&entry.package_digest).map_err(message)?;
+            if package.module().manifest.id != entry.module_id || package.module().manifest.version != entry.version {
+                return Err("durable install closure identity differs from its exact signed bytes".into());
+            }
             if package.module().manifest.provides.iter().any(|contract| contract.contract_id == mintcat_game_api::GAME_ADAPTER_CONTRACT_ID) {
-                if game.replace((entry.package_digest.clone(), store)).is_some() { return Err("durable install closure has multiple game adapters".into()); }
+                if game.replace(entry.package_digest.clone()).is_some() { return Err("durable install closure has multiple game adapters".into()); }
             }
         }
-        let (digest, store) = game.ok_or("durable install closure has no game adapter")?;
+        let digest = game.ok_or("durable install closure has no game adapter")?;
         let supervisor = mintcat_runtime_supervisor::ModuleSupervisor::new(store, &state.generation_id, &state.layout.runtime_dir).map_err(message)?;
         state.install.catalog().pin_using(supervisor, &request.settings.game_id, &digest, request.module_closure.clone()).await.map_err(message)?;
-        updates.restore_artifact_lease(&request.module_closure.digest, mintcat_runtime_updates::LeaseKind::Task, &request.module_closure.entries.iter().map(|entry| entry.package_digest.clone()).collect::<Vec<_>>(), None, true).map_err(message)?;
     }
     Ok(())
 }
@@ -265,7 +263,6 @@ pub(super) fn resume_downloads(state: &Arc<DaemonState>) -> Result<()> {
         if matches!(job.state, mintcat_sdk::JobState::Succeeded | mintcat_sdk::JobState::Failed | mintcat_sdk::JobState::Cancelled) { continue; }
         let downloads = match super::sources::for_job(state, &job.job_id) {
             Ok(source) => source.downloads,
-            Err(_) if cfg!(feature="fixtures") && state.environment == mintcat_runtime_kernel::RuntimeEnvironment::Test && state.configuration.is_none() => state.downloads.clone(),
             Err(_) => continue,
         };
         let target = state.jobs.get_job_target(LOCAL_OWNER_SCOPE, &job.job_id).map_err(message)?;

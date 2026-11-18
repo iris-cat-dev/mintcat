@@ -15,6 +15,7 @@ use mintcat_sdk::{
 use mintcat_unreal_pak::PakAlgorithmError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use sha2::Digest as _;
 use zip::ZipArchive;
 
 pub use settings::Ue4ssSettings;
@@ -155,7 +156,8 @@ impl DeploymentManifest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ResourceFileBinding {
     pub package_path: String,
     pub target_relative_path: String,
@@ -168,6 +170,15 @@ pub struct ResourceDeploymentRequest<'a> {
     pub package: &'a ModuleLease,
     pub files: Vec<ResourceFileBinding>,
     pub settings: Ue4ssSettings,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BundledResource {
+    resource_id: String,
+    version: String,
+    #[serde(default)] archive_path: Option<String>,
+    #[serde(default)] deployment_bindings: Vec<ResourceFileBinding>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -236,15 +247,33 @@ impl Ue4ssLoader {
             ));
         }
         let package = request.package.module();
+        let bundled: Vec<BundledResource> = package.manifest.contributes.get("bundledResources")
+            .cloned().map(serde_json::from_value).transpose()
+            .map_err(|error| LoaderError::ResourceVerification(error.to_string()))?
+            .unwrap_or_default();
+        let mut resources = bundled.into_iter().filter(|resource| resource.resource_id == "resource.ue4ss");
+        let bundled = resources.next();
+        if resources.next().is_some() {
+            return Err(LoaderError::ResourceVerification("duplicate bundled UE4SS resource".into()));
+        }
+        if let Some(resource) = &bundled {
+            if resource.archive_path.is_some() || resource.deployment_bindings != request.files
+                || package.manifest.contributes.get("scopeId").and_then(serde_json::Value::as_str) != Some(request.game_id.as_str()) {
+                return Err(LoaderError::ResourceVerification("UE4SS deployment differs from the signed game resource bindings".into()));
+            }
+        } else if package.manifest.id != "resource.ue4ss" {
+            return Err(LoaderError::ResourceVerification("package has no signed UE4SS resource identity".into()));
+        }
         let lock = ResourceLock {
-            resource_id: package.manifest.id.clone(),
-            version: package.manifest.version.clone(),
+            resource_id: bundled.as_ref().map_or_else(|| package.manifest.id.clone(), |resource| resource.resource_id.clone()),
+            version: bundled.as_ref().map_or_else(|| package.manifest.version.clone(), |resource| resource.version.clone()),
             package_digest: package.digest.clone(),
             publisher: package.manifest.publisher.clone(),
             signing_key_id: package.signature.key_id.clone(),
         };
         let mut signed_files = BTreeMap::new();
         for file in &package.manifest.files {
+            if bundled.as_ref().is_some_and(|resource| !resource.deployment_bindings.iter().any(|binding| binding.package_path == file.path)) { continue; }
             let package_path = checked_relative_path(&file.path, self.limits.max_path_bytes)
                 .map_err(LoaderError::ResourceVerification)?;
             let key = package_path.to_lowercase();
@@ -308,6 +337,9 @@ impl Ue4ssLoader {
                     scope: "reading signed UE4SS settings".to_owned(),
                     source,
                 })?;
+                if format!("sha256:{:x}", sha2::Sha256::digest(&original)) != signed.sha256 || original.len() as u64 != signed.size {
+                    return Err(LoaderError::ResourceVerification(format!("signed resource {} changed after package verification", signed.path)));
+                }
                 let configured = request.settings.apply(&original)?;
                 let mut reader = Cursor::new(configured);
                 patched_settings = true;

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use mintcat_game_api::{
     GameContractError, GameDescriptor, GameInputFormat, WorkerGameBuildRequest, WorkerGameConflict,
-    WorkerGameDependency, WorkerGamePreparationResponse,
+    WorkerGamePreparationResponse,
 };
 use mintcat_loader_ue4ss::{
     JsDeploymentRequest, JsInputFormat, LoaderLimits, ResourceDeploymentRequest,
@@ -13,25 +13,8 @@ use mintcat_runtime_artifacts::{ArtifactGrant, ArtifactStore, ModuleLease};
 use mintcat_sdk::WorkerRequest;
 use serde::Deserialize;
 
-use crate::{
-    UnrealEngineBackend, UnrealInput, UnrealInputFormat, ENGINE_CONTRACT_ID,
-    ENGINE_CONTRACT_VERSION,
-};
+use crate::{UnrealEngineBackend, UnrealInput, UnrealInputFormat};
 
-pub fn selected_provider(dependencies: &[WorkerGameDependency]) -> Result<&str, GameContractError> {
-    dependencies
-        .iter()
-        .find(|dependency| {
-            dependency.contract_id == ENGINE_CONTRACT_ID
-                && dependency.contract_version == ENGINE_CONTRACT_VERSION
-        })
-        .map(|dependency| dependency.package_digest.as_str())
-        .ok_or_else(|| {
-            GameContractError::Invalid(
-                "game request omits its declared Unreal engine provider".to_owned(),
-            )
-        })
-}
 
 pub fn prepare<E: UnrealEngineBackend>(
     request: &WorkerRequest,
@@ -119,14 +102,12 @@ pub fn prepare<E: UnrealEngineBackend>(
             .resources
             .into_iter()
             .find(|package| {
-                descriptor.resources.iter().any(|requirement| {
-                    requirement.optional && requirement.resource_id == package.manifest.id
-                })
+                package.manifest.id == "resource.ue4ss" || mintcat_game_api::bundled_resources(&package.manifest)
+                    .is_ok_and(|resources| resources.iter().any(|resource| resource.resource_id == "resource.ue4ss"))
             })
             .ok_or_else(|| {
                 GameContractError::Invalid(
-                    "UE4SS is enabled but its signed resource is absent from the closure"
-                        .to_owned(),
+                    "UE4SS is enabled but its signed data is absent from the game bundle".to_owned(),
                 )
             })?;
         let package = ModuleLease::from_worker_grant(grant).map_err(|error| invalid(&error))?;
@@ -137,19 +118,17 @@ pub fn prepare<E: UnrealEngineBackend>(
             target_relative_path: String,
             media_type: Option<String>,
         }
-        let bindings: Vec<Binding> = serde_json::from_value(
-            package
-                .module()
-                .manifest
-                .contributes
-                .get("deploymentBindings")
-                .cloned()
-                .ok_or_else(|| {
-                    GameContractError::Invalid(
-                        "signed UE4SS resource omits exact deploymentBindings".to_owned(),
-                    )
-                })?,
-        )?;
+        let bundled = mintcat_game_api::bundled_resources(&package.module().manifest)?
+            .into_iter().find(|resource| resource.resource_id == "resource.ue4ss");
+        let bindings: Vec<Binding> = if let Some(resource) = bundled {
+            resource.deployment_bindings.into_iter().map(|binding| Binding {
+                package_path: binding.package_path, target_relative_path: binding.target_relative_path,
+                media_type: binding.media_type,
+            }).collect()
+        } else {
+            serde_json::from_value(package.module().manifest.contributes.get("deploymentBindings").cloned()
+                .ok_or_else(|| GameContractError::Invalid("signed historical UE4SS resource omits deploymentBindings".into()))?)?
+        };
         companion_manifests.insert(
             0,
             loader

@@ -1,9 +1,10 @@
 packages:
   - 'apps/*'
   - 'packages/*'
-  - 'modules/*'
-  - 'modules/*/ui'
-  - 'tools/*'
+  - 'modules/feature-agent'
+  - 'modules/library/ui'
+  - 'modules/ui-search/ui'
+  - 'modules/install/ui'
 
 allowBuilds:
   esbuild: true

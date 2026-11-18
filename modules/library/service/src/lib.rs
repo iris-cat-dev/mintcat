@@ -7,17 +7,13 @@ mod operation_gate;
 mod schema;
 mod store;
 mod client;
-mod native;
-mod manifest;
 mod source_add;
 mod import_outcome;
 mod digest;
 mod settings;
 pub use import_outcome::LegacyImportOutcome;
 pub use source_add::{SourceAddRequest, SourceAddTarget, SourceAddMetadata, SourceAddVersion, SourceAddResult};
-pub use client::{LibraryStore, NativeOwnerIdentity};
-pub use manifest::module_manifest;
-pub use native::{run_native_owner, LIBRARY_CONTRACT_ID, LIBRARY_CONTRACT_VERSION};
+pub use client::LibraryStore;
 pub use library_api::{GameEnrollmentRequest, GameEnrollmentResult};
 pub(crate) use store::OwnerStore;
 #[cfg(test)]
@@ -49,8 +45,6 @@ pub use operation_gate::{
 pub enum LibraryError {
     #[error("runtime layout is not initialized")]
     UninitializedLayout,
-    #[error("MODULE_UNAVAILABLE: Library signed owner unavailable: {0}")]
-    OwnerUnavailable(String),
     #[error("Library database failed: {0}")]
     Sqlite(#[from] rusqlite::Error),
     #[error("Library database mutex is poisoned")]

@@ -19,7 +19,7 @@ function realFile(path) { const metadata = lstatSync(path); if (!metadata.isFile
 function object(value, name) { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${name} must be an object`); }
 function requireEnvironment(names) {
   const absent = names.filter(name => !process.env[name]?.trim());
-  if (absent.length) throw new Error(`Production signing prerequisite missing: ${absent.join(', ')}. Select an explicit development assembly for unsigned OS development smoke; the signed module baseline is always required.`);
+  if (absent.length) throw new Error(`Production signing prerequisite missing: ${absent.join(', ')}. Select explicit development mode only for local OS assembly; configured games always require verified publisher signatures.`);
 }
 export function outputLocation(path) {
   let ancestor = path;
@@ -84,7 +84,11 @@ function copyReleaseTree(source, destination, verbatimSymlinks = false) {
   restoreModes(source, destination);
 }
 export function packageRelease(variant, args = process.argv.slice(2), bundleTargets = []) {
-  if (args.length !== 2 || args[0] !== '--manifest' || !args[1]) throw new Error('Usage: --manifest <assembly.json>; first create a signed immutable stage with mintcat-module stage --manifest <release-input.json>');
+  if (args.length === 1 && ['--help', '-h'].includes(args[0])) {
+    console.log(`Usage: pnpm package${variant === 'standard' ? '' : `:${variant}`} --manifest <assembly.json>\nCreate an immutable app stage first: pnpm game stage --manifest <release-input.json>.\nRelease input uses schemaVersion=2; builtin-only apps need no game signing inputs.\nAssembly plan uses schemaVersion=1 with target, variant, explicit production/development mode, stage, stageManifestSha256 and fresh output.\nProduction mode requires native signing (and Apple notarization where applicable).\nSet MINTCAT_MODULE_BIN to an already-built native package verifier.`);
+    return;
+  }
+  if (args.length !== 2 || args[0] !== '--manifest' || !args[1]) throw new Error('Usage: --manifest <assembly.json>; first create a verified immutable app stage with mintcat-module stage --manifest <release-input.json>');
   const manifestPath = resolve(args[1]); realFile(manifestPath);
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')); object(manifest, 'Assembly plan');
   const fields = new Set(['schemaVersion', 'target', 'variant', 'mode', 'stage', 'stageManifestSha256', 'output']);
@@ -107,7 +111,7 @@ export function packageRelease(variant, args = process.argv.slice(2), bundleTarg
   const names = ['mintcat', 'mintcatd', 'mintcat-module', ...(variant === 'cli' ? [] : ['mintcat-desktop-vnext'])];
   verifyCodeSignatures(stage, manifest, platform, names);
   // A native GUI compiled with devUrl/empty assets is not an offline product,
-  // even when its module baseline and OS image are otherwise valid.
+  // even when its game packages and OS image are otherwise valid.
   if (variant !== 'cli') run(join(stage, `mintcat-desktop-vnext${platform.extension}`), ['--verify-embedded-ui'], stage);
   if (manifest.mode === 'production' && platform.os === 'macos' && variant === 'cli') requireEnvironment(['APPLE_ID', 'APPLE_PASSWORD', 'APPLE_TEAM_ID']);
   if (manifest.mode === 'production' && ['standard', 'fixed-webview2'].includes(variant)) {
@@ -137,7 +141,8 @@ export function packageRelease(variant, args = process.argv.slice(2), bundleTarg
   const desktopBinary = join(releaseDir, `mintcat-desktop-vnext${platform.extension}`);
   copyFileSync(join(runtime, `mintcat-desktop-vnext${platform.extension}`), desktopBinary);
   if (digest(desktopBinary) !== staged.binaries['mintcat-desktop-vnext']) throw new Error('Compiled desktop digest differs from the verified stage');
-  const resources = Object.fromEntries(['baseline', 'trust', 'scope-locks.json', 'runtime.json', 'release-manifest.json', ...(variant === 'fixed-webview2' ? ['webview2'] : [])].map(name => [join(runtime, name), name]));
+  const resourceNames = ['scope-locks.json', 'runtime.json', 'release-manifest.json', ...(['baseline', 'trust'].filter(name => existsSync(join(runtime, name)))), ...(variant === 'fixed-webview2' ? ['webview2'] : [])];
+  const resources = Object.fromEntries(resourceNames.map(name => [join(runtime, name), name]));
   const config = {
     // Keep the name compiled into Tauri's Linux resource resolver unchanged.
     productName: 'MintCat',

@@ -1,9 +1,11 @@
 use std::{collections::HashMap, sync::{Arc, Mutex, RwLock, Weak}};
 
 use async_trait::async_trait;
-use mintcat_feature_agent::{AgentError, NativeAgentSessions, NativeAgentStateOwner, ApplicationGateway, CreateSession, SendMessage};
+use mintcat_feature_agent::{AgentError, AgentSessions, ApplicationGateway, CreateSession, SendMessage};
 use mintcat_feature_backup::{MaintenanceAdmission, MaintenanceGate};
-use mintcat_feature_proxy::{PrivilegeOperation, ProxyServiceManager, StartOptions, MODULE_ID};
+#[cfg(feature = "experimental-proxy")]
+use mintcat_feature_proxy::{PrivilegeOperation, ProxyServiceManager, StartOptions};
+const MODULE_ID: &str = "mintcat.feature.proxy";
 use mintcat_runtime_artifacts::ArtifactStore;
 use mintcat_runtime_broker::NetworkBroker;
 use mintcat_runtime_jobs::{request_hash, ConfirmationPolicy, EventUpdate, JobStore, RecoveryRecord, RegisterJob};
@@ -31,17 +33,17 @@ impl ApplicationGateway for AgentGateway {
     }
 }
 
-struct Worker { handle: JoinHandle<()>, agent_session: Option<String>, privilege_execution: bool }
+struct Worker { handle: JoinHandle<()>, agent_session: Option<String>, #[cfg(feature = "experimental-proxy")] privilege_execution: bool }
 pub(crate) struct FeatureRuntime {
     jobs: JobStore,
-    agent: Arc<NativeAgentSessions>,
+    agent: Arc<AgentSessions>,
     gateway: Arc<AgentGateway>,
+    #[cfg(feature = "experimental-proxy")]
     proxy: tokio::sync::Mutex<ProxyServiceManager>,
     workers: Mutex<HashMap<String, Worker>>,
     proxy_data: std::path::PathBuf,
+    #[cfg(feature = "experimental-proxy")]
     service_lease: Mutex<Option<(mintcat_runtime_updates::UpdatesCoordinator, String)>>,
-    agent_backups: std::path::PathBuf,
-    proxy_writes: std::sync::atomic::AtomicBool,
     recovered_actions: Mutex<Vec<(String, String)>>,
 }
 impl FeatureRuntime {
@@ -53,11 +55,20 @@ impl FeatureRuntime {
             std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o700)).map_err(|_| error("INTERNAL", "features.storage", "startup"))?;
         }
         let gateway = Arc::new(AgentGateway { state: RwLock::new(Weak::new()), executor: Mutex::new(None) });
-        let agent = Arc::new(NativeAgentSessions::unavailable(&data.join("agent.sqlite3"), broker, gateway.clone()));
+        let gate = MaintenanceGate::exclusive(layout, true).map_err(|failure| error("RECOVERY_REQUIRED", "features.maintenance", &failure.to_string()))?;
+        // Parsing/reporting a damaged marker belongs to startup recovery, not binding.
+        let preserving = match gate.read() { Ok(marker) => marker.is_some(), Err(_) => true };
+        let agent = Arc::new(if preserving {
+            AgentSessions::open_for_recovery(&data.join("agent.sqlite3"), broker, gateway.clone())
+        } else { AgentSessions::open(&data.join("agent.sqlite3"), broker, gateway.clone()) }.map_err(|e| agent_error(e, "startup"))?);
+        drop(gate);
         let proxy_data = data.join("proxy");
+        #[cfg(feature = "experimental-proxy")]
         let proxy = ProxyServiceManager::new_for_owner(artifacts, jobs.clone(), proxy_data.clone(), LOCAL_OWNER_SCOPE)
             .map_err(|_| error("INTERNAL", "proxy.storage", "startup"))?;
-        Ok(Self { jobs, agent, gateway, proxy: tokio::sync::Mutex::new(proxy), workers: Mutex::new(HashMap::new()), proxy_data, service_lease: Mutex::new(None), agent_backups: data.join("agent-backups"), proxy_writes: std::sync::atomic::AtomicBool::new(true), recovered_actions: Mutex::new(Vec::new()) })
+        #[cfg(not(feature = "experimental-proxy"))]
+        let _ = artifacts;
+        Ok(Self { jobs, agent, gateway, #[cfg(feature = "experimental-proxy")] proxy: tokio::sync::Mutex::new(proxy), workers: Mutex::new(HashMap::new()), proxy_data, #[cfg(feature = "experimental-proxy")] service_lease: Mutex::new(None), recovered_actions: Mutex::new(Vec::new()) })
     }
     pub(crate) fn bind_state(&self, state: &Arc<DaemonState>) -> Result<()> {
         let mut binding = self.gateway.state.write().map_err(|_| error("INTERNAL", "agent.gateway", "startup"))?;
@@ -72,30 +83,39 @@ impl FeatureRuntime {
         }
         Ok(())
     }
-    pub(crate) fn agent_state_owner(&self) -> Arc<dyn mintcat_runtime_updates::StateOwner> {
-        Arc::new(NativeAgentStateOwner::new(self.agent.clone(), self.agent_backups.clone()))
-    }
-    pub(crate) fn proxy_state_owner(self: &Arc<Self>) -> Arc<dyn mintcat_runtime_updates::StateOwner> {
-        Arc::new(ProxyStateOwner { runtime: Arc::downgrade(self), selected: Mutex::new(None), backups: self.proxy_data.join("owner-backups") })
-    }
     fn state(&self) -> Result<Arc<DaemonState>> {
         self.gateway.state.read().map_err(|_| error("INTERNAL", "agent.gateway", "features"))?.upgrade()
             .ok_or_else(|| error("MODULE_UNAVAILABLE", "agent.gateway", "features"))
     }
     pub(crate) fn portable_epochs(&self) -> Result<Value> {
-        let agent=if self.agent.has_native().map_err(|e|agent_error(e,"backup"))? {
-            self.agent.write_epoch().map_err(|e|agent_error(e,"backup"))?
-        } else if self.agent.is_pristine_absent().map_err(|e|agent_error(e,"backup"))? {0}
-        else {return Err(error("MODULE_UNAVAILABLE","backup.agent_owner","backup"));};
-        let proxy=self.proxy.try_lock().map_err(|_|error("RESOURCE_BUSY","backup.proxy_owner","backup"))?;
-        Ok(json!({"mintcat.feature.agent":agent,"mintcat.feature.proxy":proxy.write_epoch()}))
+        let agent = self.agent.write_epoch().map_err(|e| agent_error(e, "backup"))?;
+        #[cfg(feature = "experimental-proxy")]
+        let proxy = self.proxy.try_lock().map_err(|_|error("RESOURCE_BUSY","backup.proxy_owner","backup"))?.write_epoch();
+        #[cfg(not(feature = "experimental-proxy"))]
+        let proxy = {
+            self.ensure_proxy_absent().map_err(|_| error("MODULE_UNAVAILABLE", "backup.enable_experimental_proxy", "backup"))?;
+            0u64
+        };
+        Ok(json!({"mintcat.feature.agent":agent,"mintcat.feature.proxy":proxy}))
     }
-    fn proxy_portable_owner_available(&self) -> std::result::Result<bool, mintcat_feature_backup::BackupError> {
-        use mintcat_feature_backup::BackupError;
-        let state = self.state().map_err(|error| BackupError::Module(format!("{}: {}", error.code, error.message_key)))?;
-        let updates = state.updates.as_ref().ok_or_else(|| BackupError::Module("signed module closure unavailable".into()))?;
-        Ok(updates.environment().map_err(|error| BackupError::Module(error.to_string()))?.scopes.values()
-            .any(|scope| scope.targets.signed.packages.values().any(|package| package.manifest.id == MODULE_ID)))
+    pub(crate) fn proxy_data_present(&self) -> std::io::Result<bool> {
+        for name in ["ca.pem", "ca.key", "custom_rules.json", "accelerate_cache.json", "hosts-owner.json", "revoked-artifacts.json"] {
+            match std::fs::symlink_metadata(self.proxy_data.join(name)) {
+                Ok(_) => return Ok(true),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+                Err(error) => return Err(error),
+            }
+        }
+        match std::fs::read(self.proxy_data.join("write-epoch.json")) {
+            Ok(bytes) => Ok(serde_json::from_slice::<u64>(&bytes).map_err(std::io::Error::other)? != 0),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+    #[cfg(not(feature = "experimental-proxy"))]
+    fn ensure_proxy_absent(&self) -> std::result::Result<(), mintcat_feature_backup::BackupError> {
+        if self.proxy_data_present()? { return Err(mintcat_feature_backup::BackupError::Module("Existing Proxy data is retained. Enable experimental-proxy to back up or restore it; refusing to omit it.".into())); }
+        Ok(())
     }
     fn track(&self, job_id: String, worker: Worker) -> Result<()> {
         let mut workers = self.workers.lock().map_err(|_| error("INTERNAL", "features.workers", &job_id))?;
@@ -119,6 +139,9 @@ impl FeatureRuntime {
         self.release_rejected_privilege(job_id)?;
         Ok(true)
     }
+    #[cfg(not(feature = "experimental-proxy"))]
+    pub(crate) async fn resume_action(self: &Arc<Self>, _action_id: &str) -> Result<bool> { Ok(false) }
+    #[cfg(feature = "experimental-proxy")]
     pub(crate) async fn resume_action(self: &Arc<Self>, action_id: &str) -> Result<bool> {
         let action = self.jobs.get_action(LOCAL_OWNER_SCOPE, action_id).map_err(|e| job_error(e, action_id))?;
         if action.kind != "proxy-system-operation" { return Ok(false); }
@@ -209,9 +232,11 @@ impl FeatureRuntime {
                 if !matches!(state, JobState::Succeeded | JobState::Failed | JobState::Cancelled) { self.fail(&job_id, error("TURN_INTERRUPTED", "agent.interrupted", &job_id)); }
             }
         }
-        self.proxy.lock().await.stop().await.map_err(|_| error("SERVICE_STOP_FAILED", "proxy.stop_failed", "shutdown"))?;
-        self.release_service_lease()?;
-        agent_call(self, |agent| agent.shutdown(), "shutdown").await?;
+        #[cfg(feature = "experimental-proxy")]
+        {
+            self.proxy.lock().await.stop().await.map_err(|_| error("SERVICE_STOP_FAILED", "proxy.stop_failed", "shutdown"))?;
+            self.release_service_lease()?;
+        }
         Ok(())
     }
     fn fail(&self, job_id: &str, mut failure: Box<AppError>) {
@@ -232,6 +257,7 @@ impl FeatureRuntime {
         event.result = Some(result);
         if let Err(error) = self.jobs.append_event(job_id, event) { eprintln!("feature terminal persistence failed for {job_id}: {error}"); }
     }
+    #[cfg(feature = "experimental-proxy")]
     fn release_service_lease(&self) -> Result<()> {
         let mut lease = self.service_lease.lock().map_err(|_| error("INTERNAL", "proxy.lease", "proxy"))?;
         if let Some((updates, lease_id)) = lease.as_ref() {
@@ -259,9 +285,11 @@ struct SessionLookup { session_id: String }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SessionDelete { session_id: String, expected_revision: u64 }
+#[cfg(feature = "experimental-proxy")]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ProxyStart { digest: String, options: StartOptions }
+#[cfg(feature = "experimental-proxy")]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ProxyPrivilege { digest: String, operation: PrivilegeOperation }
@@ -334,15 +362,19 @@ async fn route(state: &Arc<DaemonState>, request: &ValidatedRequest) -> Result<V
                         Err(failure) => runtime_worker.fail(&job_id, agent_error(failure, &job_id)),
                     }
                 });
-                runtime.track(registered.job.job_id.clone(), Worker { handle, agent_session: Some(tracked_session), privilege_execution: false })?;
+                runtime.track(registered.job.job_id.clone(), Worker { handle, agent_session: Some(tracked_session), #[cfg(feature = "experimental-proxy")] privilege_execution: false })?;
             }
             encode(registered.job, &id)
         }
+        #[cfg(feature = "experimental-proxy")]
         "proxy.status" => {
             // Failed-health cleanup can mutate owned hosts; keep maintenance admission.
             let _admission = admission(state, MODULE_ID, true, &id)?;
             encode(runtime.proxy.lock().await.health().await.map_err(|e| proxy_error(&e, "SERVICE_UNHEALTHY", &id))?, &id)
         }
+        #[cfg(not(feature = "experimental-proxy"))]
+        _ => Err(error("MODULE_UNAVAILABLE", "proxy.enable_experimental_feature", &id)),
+        #[cfg(feature = "experimental-proxy")]
         method => {
             let start: Option<ProxyStart> = if method == "proxy.start" { Some(decode(params, &id)?) } else { None };
             let privilege: Option<ProxyPrivilege> = if method == "proxy.privilege" { Some(decode(params, &id)?) } else { None };
@@ -432,21 +464,10 @@ async fn route(state: &Arc<DaemonState>, request: &ValidatedRequest) -> Result<V
     }
 }
 fn owned_command(command: &str) -> bool { matches!(command, "agent.sessions.send" | "proxy.start" | "proxy.stop" | "proxy.privilege") }
+#[cfg(feature = "experimental-proxy")]
 fn cleanup(operation: &PrivilegeOperation) -> bool { matches!(operation, PrivilegeOperation::CleanupHosts | PrivilegeOperation::RemoveCertificate) }
-fn admission(state: &DaemonState, module_id: &str, cleanup_only: bool, id: &str) -> Result<MaintenanceAdmission> {
-    if module_id == MODULE_ID && !state.features.proxy_writes.load(std::sync::atomic::Ordering::Acquire) {
-        return Err(error("PERMISSION_DENIED", "proxy.owner_read_only", id));
-    }
-    if !cleanup_only {
-        if let Some(updates) = &state.updates {
-            let environment = updates.environment().map_err(|_| error("MODULE_UNAVAILABLE", "features.scope", id))?;
-            if let Some((scope, generation)) = environment.scopes.iter().find(|(_, generation)| generation.targets.signed.packages.values().any(|record| record.manifest.id == module_id)) {
-                return updates.admit_mutation(scope, &generation.generation_id).map_err(|_| error("PERMISSION_DENIED", "features.scope_write_blocked", id));
-            }
-            return Err(error("MODULE_UNAVAILABLE", "features.confirmed_scope_missing", id));
-        }
-    }
-    MaintenanceGate::enter_mutation(&state.layout).map_err(|_| error("PERMISSION_DENIED", "features.maintenance", id))
+fn admission(state: &DaemonState, _module_id: &str, _cleanup_only: bool, id: &str) -> Result<MaintenanceAdmission> {
+    MaintenanceGate::enter_mutation(&state.layout).map_err(|_| error("RESOURCE_BUSY", "features.maintenance", id))
 }
 fn register(runtime: &FeatureRuntime, request: &ValidatedRequest, target: Value, policy: ConfirmationPolicy, id: &str) -> Result<mintcat_runtime_jobs::JobRegistration> {
     runtime.jobs.register_job(RegisterJob {
@@ -460,7 +481,7 @@ fn running(jobs: &JobStore, job_id: &str, id: &str) -> Result<()> {
     if jobs.cancel_at_safe_point(job_id).map_err(|e| job_error(e, id))?.state == JobState::Cancelled { return Err(error("CANCELLED", "features.cancelled", id)); }
     jobs.append_event(job_id, EventUpdate::state("feature-running", JobState::Running)).map_err(|e| job_error(e, id))?; Ok(())
 }
-async fn agent_call<T: Send + 'static>(runtime: &FeatureRuntime, call: impl FnOnce(Arc<NativeAgentSessions>) -> std::result::Result<T, AgentError> + Send + 'static, id: &str) -> Result<T> {
+async fn agent_call<T: Send + 'static>(runtime: &FeatureRuntime, call: impl FnOnce(Arc<AgentSessions>) -> std::result::Result<T, AgentError> + Send + 'static, id: &str) -> Result<T> {
     let agent = Arc::clone(&runtime.agent);
     tokio::task::spawn_blocking(move || call(agent)).await.map_err(|_| error("INTERNAL", "agent.executor", id))?.map_err(|failure| agent_error(failure, id))
 }
@@ -468,6 +489,7 @@ fn decode<T: serde::de::DeserializeOwned>(params: &Value, id: &str) -> Result<T>
 fn encode<T: serde::Serialize>(value: T, id: &str) -> Result<Value> { serde_json::to_value(value).map_err(|_| error("INTERNAL", "features.result", id)) }
 fn job_error(failure: mintcat_runtime_jobs::JobError, id: &str) -> Box<AppError> { Box::new(super::job_error(id, failure)) }
 fn agent_error(failure: AgentError, id: &str) -> Box<AppError> { error(failure.code(), "agent.command_failed", id) }
+#[cfg(feature = "experimental-proxy")]
 fn proxy_error(failure: &anyhow::Error, fallback: &str, id: &str) -> Box<AppError> {
     if let Some(failure) = failure.downcast_ref::<mintcat_runtime_jobs::JobError>() {
         let code = match failure {
@@ -487,229 +509,46 @@ fn proxy_error(failure: &anyhow::Error, fallback: &str, id: &str) -> Box<AppErro
 }
 fn error(code: &str, key: &str, id: &str) -> Box<AppError> { Box::new(AppError { code: code.into(), message_key: key.into(), details: json!({}), request_id: id.into(), job_id: None, retryable: false, recovery_actions: Vec::new() }) }
 
-struct ProxyCode {
-    artifacts: ArtifactStore,
-    digest: String,
-    _lease: mintcat_runtime_artifacts::ModuleLease,
-}
-struct ProxyStateOwner {
-    runtime: Weak<FeatureRuntime>,
-    selected: Mutex<Option<ProxyCode>>,
-    backups: std::path::PathBuf,
-}
-impl ProxyStateOwner {
-    fn runtime(&self) -> mintcat_runtime_updates::Result<Arc<FeatureRuntime>> {
-        self.runtime.upgrade().ok_or_else(|| mintcat_runtime_updates::UpdateError::Blocked("Proxy daemon owner unavailable".into()))
-    }
-    async fn select(&self, generation: &mintcat_runtime_updates::ScopeGeneration, artifacts: ArtifactStore) -> mintcat_runtime_updates::Result<()> {
-        let mut packages = generation.targets.signed.packages.iter().filter(|(_, record)| record.manifest.id == MODULE_ID);
-        let (digest, record) = packages.next().ok_or_else(|| mintcat_runtime_updates::UpdateError::Blocked("generation lacks signed Proxy service".into()))?;
-        proxy_require(packages.next().is_none(), "generation has multiple Proxy services")?;
-        <Self as mintcat_runtime_updates::StateOwner>::supports(self, None, &record.manifest)?;
-        proxy_require(record.digest == *digest, "Proxy package digest differs from signed generation")?;
-        let installed = artifacts.load_module(digest)?;
-        proxy_require(installed.manifest == record.manifest && installed.signature == record.signature, "Proxy installed package differs from exact signed generation")?;
-        let root = mintcat_runtime_release::trust_pinned_root(generation.verified_root.clone(), 0)?;
-        root.verify("targets", &generation.targets)?;
-        root.verify_package_signature(&installed.manifest, &installed.signature, &mintcat_runtime_artifacts::module_manifest_signing_digest(&installed.manifest)?)?;
-        let lease = verify_proxy_code(&artifacts, digest).await?;
-        proxy_require(lease.module().manifest == record.manifest && lease.module().signature == record.signature, "installed Proxy code differs from signed generation")?;
-        *self.selected.lock().map_err(|_| mintcat_runtime_updates::UpdateError::Blocked("Proxy selection lock poisoned".into()))? = Some(ProxyCode { artifacts, digest: digest.clone(), _lease: lease });
-        Ok(())
-    }
-    fn fingerprint(runtime: &FeatureRuntime) -> mintcat_runtime_updates::Result<Value> {
-        let mut state = serde_json::Map::new();
-        for name in ["ca.pem", "ca.key", "accelerate_cache.json", "custom_rules.json", "hosts-owner.json", "revoked-artifacts.json", "write-epoch.json"] {
-            let path = runtime.proxy_data.join(name);
-            if path.try_exists()? {
-                let metadata = std::fs::symlink_metadata(&path)?;
-                proxy_require(metadata.is_file() && !metadata.file_type().is_symlink(), "Proxy owner state is not a regular owned file")?;
-                use sha2::{Digest, Sha256};
-                let mut input = std::fs::File::open(path)?;
-                let mut digest = Sha256::new();
-                std::io::copy(&mut input, &mut digest)?;
-                state.insert(name.into(), Value::String(format!("sha256:{:x}", digest.finalize())));
-            } else { state.insert(name.into(), Value::Null); }
-        }
-        Ok(Value::Object(state))
-    }
-}
-impl mintcat_runtime_updates::StateOwner for ProxyStateOwner {
-    fn owner_id(&self) -> &str { MODULE_ID }
-    fn supports(&self, old: Option<&mintcat_sdk::ModuleManifest>, new: &mintcat_sdk::ModuleManifest) -> mintcat_runtime_updates::Result<()> {
-        proxy_require(new.id == MODULE_ID && new.state.schema_version == 1 && old.is_none_or(|manifest| manifest.id == MODULE_ID && manifest.state.schema_version == 1),
-            "Proxy state migration unsupported; only preserved schema1 native code updates are supported")?;
-        proxy_require(new.components.iter().filter(|component| self.handles_native(new, component)).count() == 1
-            && new.components.iter().all(|component| component.state_model == "stateless" || self.handles_native(new, component)),
-            "Proxy package requires exactly one signed native protocol service and no unhandled state owner")
-    }
-    fn handles_native(&self, manifest: &mintcat_sdk::ModuleManifest, component: &mintcat_sdk::ModuleComponent) -> bool {
-        manifest.id == MODULE_ID && manifest.state.schema_version == 1 && component.kind == "service"
-            && component.runtime == mintcat_feature_proxy::SERVICE_PROTOCOL && component.state_model == "daemon-owned"
-            && manifest.files.iter().any(|file| file.path == component.entry && file.executable)
-    }
-    fn prepare_code<'a>(&'a self, generation: &'a mintcat_runtime_updates::ScopeGeneration, artifacts: ArtifactStore) -> mintcat_runtime_updates::OwnerFuture<'a, ()> {
-        Box::pin(async move { self.select(generation, artifacts).await })
-    }
-    fn rollback_code<'a>(&'a self, generation: &'a mintcat_runtime_updates::ScopeGeneration, artifacts: ArtifactStore) -> mintcat_runtime_updates::OwnerFuture<'a, ()> {
-        // Same-schema rollback preserves current CA/rules/hosts and the old running controller.
-        Box::pin(async move { self.select(generation, artifacts).await })
-    }
-    fn deactivate_code<'a>(&'a self, generation: &'a mintcat_runtime_updates::ScopeGeneration) -> mintcat_runtime_updates::OwnerFuture<'a, ()> {
-        Box::pin(async move {
-            let digest = generation.targets.signed.packages.iter().find(|(_, package)| package.manifest.id == MODULE_ID)
-                .map(|(digest, _)| digest).ok_or_else(|| mintcat_runtime_updates::UpdateError::Blocked("Proxy deactivation generation has no signed owner".into()))?;
-            let runtime = self.runtime()?;
-            let _proxy = runtime.proxy.try_lock().map_err(|_| mintcat_runtime_updates::UpdateError::Busy("Proxy mutation must reach its safe point".into()))?;
-            let mut selected = self.selected.lock().map_err(|_| mintcat_runtime_updates::UpdateError::Blocked("Proxy selection lock poisoned".into()))?;
-            proxy_require(selected.as_ref().is_none_or(|code| code.digest == *digest), "Proxy deactivation would deselect another signed generation")?;
-            runtime.proxy_writes.store(false, std::sync::atomic::Ordering::Release);
-            // Existing service controllers keep their startup lease and cleanup path.
-            // Only new admissions lose this code selection; CA/rules/hosts are untouched.
-            *selected = None;
-            Ok(())
-        })
-    }
-    fn drain(&self) -> mintcat_runtime_updates::OwnerFuture<'_, ()> {
-        Box::pin(async move {
-            let runtime = self.runtime()?;
-            let _proxy = runtime.proxy.try_lock().map_err(|_| mintcat_runtime_updates::UpdateError::Busy("Proxy mutation must reach its safe point".into()))?;
-            runtime.proxy_writes.store(false, std::sync::atomic::Ordering::Release);
-            Ok(())
-        })
-    }
-    fn backup<'a>(&'a self, old_schema: u64, new_schema: u64) -> mintcat_runtime_updates::OwnerFuture<'a, mintcat_runtime_updates::OwnerBackup> {
-        Box::pin(async move {
-            proxy_require(old_schema == 1 && new_schema == 1, "Proxy schema migration unsupported")?;
-            let runtime = self.runtime()?;
-            proxy_require(!runtime.proxy_writes.load(std::sync::atomic::Ordering::Acquire), "Proxy backup requires drained writes")?;
-            let proxy = runtime.proxy.lock().await;
-            let receipt = json!({"formatVersion":1,"writeEpoch":proxy.write_epoch(),"fingerprint":Self::fingerprint(&runtime)?});
-            std::fs::create_dir_all(&self.backups)?;
-            #[cfg(unix)] { use std::os::unix::fs::PermissionsExt; std::fs::set_permissions(&self.backups, std::fs::Permissions::from_mode(0o700))?; }
-            let name = format!("{}.json", uuid::Uuid::new_v4());
-            let bytes = serde_json::to_vec(&receipt)?;
-            let mut options = std::fs::OpenOptions::new(); options.write(true).create_new(true);
-            #[cfg(unix)] { use std::os::unix::fs::OpenOptionsExt; options.mode(0o600); }
-            let mut file = options.open(self.backups.join(&name))?;
-            use std::io::Write;
-            file.write_all(&bytes)?; file.sync_all()?;
-            std::fs::File::open(&self.backups)?.sync_all()?;
-            Ok(mintcat_runtime_updates::OwnerBackup { owner_id: MODULE_ID.into(), old_schema, new_schema,
-                reference: json!({"snapshotName":name,"sha256":mintcat_runtime_release::sha256(&bytes),"writeEpoch":proxy.write_epoch()}) })
-        })
-    }
-    fn migrate<'a>(&'a self, _: &'a mintcat_runtime_updates::OwnerBackup) -> mintcat_runtime_updates::OwnerFuture<'a, ()> {
-        Box::pin(async { Err(mintcat_runtime_updates::UpdateError::Blocked("Proxy schema migration unsupported; code activation preserves schema1 owner state".into())) })
-    }
-    fn read_only_health(&self) -> mintcat_runtime_updates::OwnerFuture<'_, ()> {
-        Box::pin(async move {
-            let (artifacts, digest) = self.selected.lock().map_err(|_| mintcat_runtime_updates::UpdateError::Blocked("Proxy selection lock poisoned".into()))?
-                .as_ref().map(|code| (code.artifacts.clone(), code.digest.clone()))
-                .ok_or_else(|| mintcat_runtime_updates::UpdateError::Blocked("Proxy signed native code not prepared".into()))?;
-            verify_proxy_code(&artifacts, &digest).await?;
-            Self::fingerprint(self.runtime()?.as_ref())?;
-            Ok(())
-        })
-    }
-    fn restore<'a>(&'a self, backup: &'a mintcat_runtime_updates::OwnerBackup) -> mintcat_runtime_updates::OwnerFuture<'a, ()> {
-        Box::pin(async move {
-            proxy_require(backup.owner_id == MODULE_ID && backup.old_schema == 1 && backup.new_schema == 1, "Proxy backup owner/schema mismatch")?;
-            let name = backup.reference["snapshotName"].as_str().ok_or_else(|| mintcat_runtime_updates::UpdateError::Blocked("Proxy receipt name missing".into()))?;
-            proxy_require(name.strip_suffix(".json").is_some_and(|id| uuid::Uuid::parse_str(id).is_ok()), "Proxy receipt name invalid")?;
-            let path = self.backups.join(name);
-            let metadata = std::fs::symlink_metadata(&path)?;
-            proxy_require(metadata.is_file() && !metadata.file_type().is_symlink(), "Proxy receipt must be regular metadata")?;
-            let bytes = std::fs::read(path)?;
-            proxy_require(backup.reference["sha256"].as_str() == Some(mintcat_runtime_release::sha256(&bytes).as_str()), "Proxy receipt digest mismatch")?;
-            let receipt: Value = serde_json::from_slice(&bytes)?;
-            let runtime = self.runtime()?;
-            proxy_require(!runtime.proxy_writes.load(std::sync::atomic::Ordering::Acquire), "Proxy restore requires drained writes")?;
-            let proxy = runtime.proxy.lock().await;
-            proxy_require(receipt["writeEpoch"].as_u64() == Some(proxy.write_epoch()) && receipt["fingerprint"] == Self::fingerprint(&runtime)?,
-                "Proxy owner changed after snapshot; restoring CA/hosts/rules or older metadata is prohibited")?;
-            // Preservation is verified, never overwrite system credentials or hosts.
-            Ok(())
-        })
-    }
-    fn open_writes(&self) -> mintcat_runtime_updates::OwnerFuture<'_, ()> {
-        Box::pin(async move {
-            let artifacts = self.selected.lock().map_err(|_| mintcat_runtime_updates::UpdateError::Blocked("Proxy selection lock poisoned".into()))?
-                .as_ref().map(|code| code.artifacts.clone()).ok_or_else(|| mintcat_runtime_updates::UpdateError::Blocked("Proxy native code not prepared".into()))?;
-            let runtime = self.runtime()?;
-            runtime.proxy.lock().await.set_artifact_store(artifacts);
-            runtime.proxy_writes.store(true, std::sync::atomic::Ordering::Release);
-            Ok(())
-        })
-    }
-}
-fn proxy_require(ok: bool, reason: &'static str) -> mintcat_runtime_updates::Result<()> {
-    if ok { Ok(()) } else { Err(mintcat_runtime_updates::UpdateError::Blocked(reason.into())) }
-}
-async fn verify_proxy_code(artifacts: &ArtifactStore, digest: &str) -> mintcat_runtime_updates::Result<mintcat_runtime_artifacts::ModuleLease> {
-    use tokio::io::AsyncReadExt;
-    let lease = artifacts.acquire_module(digest)?;
-    let manifest = &lease.module().manifest;
-    proxy_require(manifest.id == MODULE_ID && manifest.state.schema_version == 1, "Proxy signed package/schema mismatch")?;
-    let component = manifest.components.iter().find(|component| component.kind == "service" && component.runtime == mintcat_feature_proxy::SERVICE_PROTOCOL && component.state_model == "daemon-owned")
-        .ok_or_else(|| mintcat_runtime_updates::UpdateError::Blocked("signed Proxy native protocol missing".into()))?;
-    proxy_require(manifest.files.iter().any(|file| file.path == component.entry && file.executable), "Proxy native entry is not signed executable content")?;
-    let identity = mintcat_feature_proxy::ServiceIdentity { protocol: mintcat_feature_proxy::SERVICE_PROTOCOL.into(), module_digest: digest.into(),
-        module_version: manifest.version.clone(), instance_id: format!("proxy-probe:{}", uuid::Uuid::new_v4()) };
-    let mut child = tokio::process::Command::new(lease.module().entry_path(&component.entry)?)
-        .env_clear().env("MINTCAT_PROXY_DIGEST", digest).env("MINTCAT_PROXY_VERSION", &manifest.version).env("MINTCAT_PROXY_INSTANCE", &identity.instance_id)
-        .arg("--verify-protocol").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).kill_on_drop(true).spawn()?;
-    let mut output = child.stdout.take().ok_or_else(|| mintcat_runtime_updates::UpdateError::Blocked("Proxy probe stdout missing".into()))?;
-    let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        let mut bytes = Vec::new(); (&mut output).take(4097).read_to_end(&mut bytes).await?;
-        proxy_require(bytes.len() <= 4096 && bytes.last() == Some(&b'\n'), "Proxy native health frame invalid")?;
-        let actual: mintcat_feature_proxy::ServiceIdentity = serde_json::from_slice(&bytes)?;
-        proxy_require(actual == identity, "Proxy signed executable protocol/version/identity mismatch")?;
-        proxy_require(child.wait().await?.success(), "Proxy native health exited unsuccessfully")?;
-        Ok::<(), mintcat_runtime_updates::UpdateError>(())
-    }).await;
-    match result {
-        Ok(Ok(())) => Ok(lease),
-        result => {
-            let _ = child.kill().await; let _ = child.wait().await;
-            match result { Ok(Err(error)) => Err(error), _ => Err(mintcat_runtime_updates::UpdateError::Blocked("Proxy native health deadline expired".into())) }
-        }
-    }
-}
 
 impl mintcat_feature_backup::PortableOwners for FeatureRuntime {
     fn snapshot(&self)->std::result::Result<std::collections::BTreeMap<String,mintcat_feature_backup::OwnerSnapshot>,mintcat_feature_backup::BackupError> {
         use mintcat_feature_backup::{BackupError,OwnerSnapshot};
         let agent=self.agent.portable_snapshot().map_err(|e|BackupError::Invalid(e.to_string()))?;
-        let mut owners = std::collections::BTreeMap::from([
+        let owners = std::collections::BTreeMap::from([
             ("mintcat.feature.agent".into(),OwnerSnapshot {schema_version:1,credential_policy:"excluded-reauthenticate-no-live-authority".into(),
                 excluded_fields:vec!["configuration.credentialRef".into(),"live-task-bindings-converted-to-non-authoritative-timeline".into(),"idempotency-receipts".into(),"provider-tool-authority-and-private-history".into()],
                 content:serde_json::to_value(agent)?}),
         ]);
-        let proxy=self.proxy.try_lock().map_err(|_|BackupError::Busy("Proxy owner held".into()))?;
-        if self.proxy_portable_owner_available()? {
+        #[cfg(feature = "experimental-proxy")]
+        let owners = {
+            let mut owners = owners;
+            let proxy=self.proxy.try_lock().map_err(|_|BackupError::Busy("Proxy owner held".into()))?;
             let config=proxy.portable_snapshot().map_err(|error|BackupError::Busy(error.to_string()))?;
             owners.insert(MODULE_ID.into(),OwnerSnapshot {schema_version:1,credential_policy:"excluded-reauthenticate-no-live-authority".into(),
                 excluded_fields:vec!["ca.pem".into(),"ca.key".into(),"hosts-owner.json".into(),"revocations-and-authorized-ports".into(),"running-controller-and-startup-service-lease".into()],
                 content:serde_json::to_value(config)?});
-        } else {
-            proxy.ensure_empty_portable_target().map_err(|error|BackupError::Module(format!("Proxy signed owner unavailable; refusing to omit existing state: {error}")))?;
-        }
+            owners
+        };
+        #[cfg(not(feature = "experimental-proxy"))]
+        self.ensure_proxy_absent()?;
         Ok(owners)
     }
     fn ensure_empty(&self)->std::result::Result<(),mintcat_feature_backup::BackupError> {
         use mintcat_feature_backup::BackupError;
         if self.agent.has_nonempty().map_err(|e|BackupError::Module(e.to_string()))? {return Err(BackupError::Busy("Agent owner is nonempty".into()));}
+        #[cfg(feature = "experimental-proxy")]
         self.proxy.try_lock().map_err(|_|BackupError::Busy("Proxy owner held".into()))?.ensure_empty_portable_target().map_err(|e|BackupError::Busy(e.to_string()))?;
+        #[cfg(not(feature = "experimental-proxy"))]
+        self.ensure_proxy_absent()?;
         Ok(())
     }
     fn validate(&self,owners:&std::collections::BTreeMap<String,mintcat_feature_backup::OwnerSnapshot>)->std::result::Result<(),mintcat_feature_backup::BackupError> {
         use mintcat_feature_backup::BackupError;
         let sessions:Vec<mintcat_feature_agent::AgentSession>=serde_json::from_value(owners.get("mintcat.feature.agent").ok_or_else(||BackupError::Module("Agent snapshot absent".into()))?.content.clone())?;
         self.agent.validate_portable(&sessions).map_err(|e|BackupError::Invalid(e.to_string()))?;
-        if self.proxy_portable_owner_available()? != owners.contains_key(MODULE_ID) {
-            return Err(BackupError::Module("Proxy snapshot does not match the admitted signed owner set".into()));
-        }
+        #[cfg(not(feature = "experimental-proxy"))]
+        if owners.contains_key(MODULE_ID) { return Err(BackupError::Module("Archive contains retained Proxy data; enable experimental-proxy to restore it.".into())); }
+        #[cfg(feature = "experimental-proxy")]
         if let Some(owner) = owners.get(MODULE_ID) {
             let config:std::collections::BTreeMap<String,Value>=serde_json::from_value(owner.content.clone())?;
             ProxyServiceManager::validate_portable(&config).map_err(|error|BackupError::Invalid(error.to_string()))?;
@@ -724,10 +563,13 @@ impl mintcat_feature_backup::PortableOwners for FeatureRuntime {
         use mintcat_feature_backup::BackupError;
         self.ensure_empty()?;
         let sessions:Vec<mintcat_feature_agent::AgentSession>=serde_json::from_value(owners.get("mintcat.feature.agent").ok_or_else(||BackupError::Module("Agent snapshot absent".into()))?.content.clone())?;
+        self.validate(owners)?;
+        #[cfg(feature = "experimental-proxy")]
         let config = owners.get(MODULE_ID).map(|owner|serde_json::from_value::<std::collections::BTreeMap<String,Value>>(owner.content.clone())).transpose()?;
         // The daemon's exclusive admission spans both owner-local commits.
         let epoch=self.agent.write_epoch().map_err(|e|BackupError::Module(e.to_string()))?;
         self.agent.import_empty_portable(&sessions,epoch).map_err(|e|BackupError::Invalid(e.to_string()))?;
+        #[cfg(feature = "experimental-proxy")]
         if let Some(config) = config {
             let mut proxy=self.proxy.try_lock().map_err(|_|BackupError::Busy("Proxy owner held".into()))?;
             let epoch=proxy.write_epoch();

@@ -1,0 +1,210 @@
+{
+  "manifest": {
+    "schemaVersion": 1,
+    "id": "mintcat.game.drg",
+    "version": "0.1.0",
+    "publisher": "mintcat.official",
+    "target": "host",
+    "hostApi": "1",
+    "components": [
+      {
+        "kind": "service",
+        "entry": "mintcat-game-drg-worker",
+        "runtime": "worker",
+        "stateModel": "stateless"
+      }
+    ],
+    "provides": [
+      {
+        "contractId": "mintcat.game-adapter",
+        "version": 2,
+        "cardinality": "multi"
+      }
+    ],
+    "requires": [],
+    "permissions": [
+      {
+        "capability": "artifact.read",
+        "scope": "operation-grants"
+      },
+      {
+        "capability": "staging.write",
+        "scope": "operation-staging"
+      },
+      {
+        "capability": "installation.read",
+        "scope": "selected:game:drg"
+      }
+    ],
+    "contributes": {
+      "games": [
+        {
+          "schemaVersion": 1,
+          "gameId": "game:drg",
+          "displayName": "Deep Rock Galactic",
+          "adapterVersion": "0.1.0",
+          "settingsSchemaVersion": 1,
+          "settingsSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "compression",
+              "ue4ssEnabled"
+            ],
+            "properties": {
+              "compression": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "zlib"
+                ]
+              },
+              "ue4ssEnabled": {
+                "type": "boolean"
+              }
+            }
+          },
+          "variants": [
+            {
+              "variantId": "steam",
+              "displayName": "Steam",
+              "store": "steam",
+              "storeAppId": "548430",
+              "target": "x86_64-pc-windows-msvc",
+              "mainPakRelativePath": "FSD/Content/Paks/FSD-WindowsNoEditor.pak",
+              "paksRelativePath": "FSD/Content/Paks",
+              "binariesRelativePath": "FSD/Binaries/Win64",
+              "modPakRelativePath": "FSD/Content/Paks/FSD-WindowsNoEditor_Mods.pak",
+              "processNames": [
+                "FSD-Win64-Shipping.exe",
+                "FSD.exe"
+              ]
+            },
+            {
+              "variantId": "xbox",
+              "displayName": "Microsoft Store / Xbox",
+              "store": "microsoft-store",
+              "storeAppId": null,
+              "target": "x86_64-pc-windows-msvc",
+              "mainPakRelativePath": "FSD/Content/Paks/FSD-WinGDK.pak",
+              "paksRelativePath": "FSD/Content/Paks",
+              "binariesRelativePath": "FSD/Binaries/Win64",
+              "modPakRelativePath": "FSD/Content/Paks/FSD-WinGDK_Mods.pak",
+              "processNames": [
+                "FSD-WinGDK-Shipping.exe",
+                "FSD.exe"
+              ]
+            }
+          ],
+          "inputFormats": [
+            "pak",
+            "zip",
+            "directory-snapshot"
+          ],
+          "sourceBindings": [
+            {
+              "sourceId": "modio",
+              "remoteGameKey": "drg",
+              "providerGameId": "2475"
+            },
+            {
+              "sourceId": "nexusmods",
+              "remoteGameKey": "drg",
+              "providerGameId": "deeprockgalactic"
+            },
+            {
+              "sourceId": "modcat",
+              "remoteGameKey": "drg",
+              "providerGameId": "drg"
+            },
+            {
+              "sourceId": "local",
+              "remoteGameKey": "drg",
+              "providerGameId": "drg"
+            }
+          ],
+          "resources": [
+            {
+              "resourceId": "resource.drg.patch",
+              "versionRange": ">=1,<2",
+              "optional": false,
+              "purpose": "signed DRG integration assets and x3daudio hook"
+            },
+            {
+              "resourceId": "resource.ue4ss",
+              "versionRange": ">=3,<4",
+              "optional": true,
+              "purpose": "UE4SS loader selected by the per-game settings snapshot"
+            }
+          ],
+          "capabilities": [
+            "discover",
+            "validate-installation",
+            "inspect-inputs",
+            "create-build-plan",
+            "build-legacy-compatible-pak",
+            "create-deploy-plan",
+            "detect-legacy-install"
+          ]
+        }
+      ],
+      "scopeId": "game:drg",
+      "bundledResources": [
+        {
+          "resourceId": "resource.drg.patch",
+          "version": "1.0.0",
+          "archivePath": "resources/drg-patch.zip"
+        }
+      ]
+    },
+    "state": {
+      "schemaVersion": 1,
+      "readableRange": "1",
+      "writableRange": "1",
+      "rollbackBeforeWriteOnly": true
+    },
+    "activation": {
+      "trigger": "on-demand",
+      "drainPolicy": "finish-requests"
+    },
+    "files": [
+      {
+        "path": "mintcat-game-drg-worker",
+        "size": 0,
+        "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "executable": true
+      },
+      {
+        "path": "resources/drg-patch.zip",
+        "size": 0,
+        "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "executable": false
+      }
+    ]
+  },
+  "policy": {
+    "target": "host",
+    "hostApi": "1",
+    "maxDataSchema": 1,
+    "permissions": [
+      {
+        "capability": "artifact.read",
+        "scope": "operation-grants"
+      },
+      {
+        "capability": "staging.write",
+        "scope": "operation-staging"
+      },
+      {
+        "capability": "installation.read",
+        "scope": "selected:game:drg"
+      }
+    ],
+    "contracts": {
+      "mintcat.game-adapter": [
+        2
+      ]
+    }
+  },
+  "workerBinary": "mintcat-game-drg-worker"
+}

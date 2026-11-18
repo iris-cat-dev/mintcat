@@ -81,7 +81,7 @@ pub fn compose_scope(plan: ScopePlan, available: Vec<PackageRecord>, policy: &Ve
         require(packages.insert(package.digest.clone(), package).is_none(), "duplicate package digest")?;
     }
     let release = ScopeReleaseSet {
-        schema_version: 1, scope_id: plan.scope_id, release_id: plan.release_id,
+        schema_version: 2, scope_id: plan.scope_id, release_id: plan.release_id,
         sequence: plan.sequence, channel: plan.channel, target: plan.target, min_host_api: plan.min_host_api,
         packages: Vec::new(), provider_bindings: plan.provider_bindings,
         singleton_requirements: plan.singleton_requirements, signature_metadata_ref: String::new(),
@@ -92,9 +92,7 @@ pub fn compose_scope(plan: ScopePlan, available: Vec<PackageRecord>, policy: &Ve
         resource_dependencies: plan.resource_dependencies, packages,
     };
     targets.release.signature_metadata_ref = scope_metadata_key(&targets.release.scope_id, &targets.release.channel, &targets.release.target)?;
-    let closure = dependency_closure(&targets, policy)?;
-    targets.packages.retain(|digest, _| closure.contains(digest));
-    targets.resource_dependencies.retain(|digest, _| closure.contains(digest));
+    validate_game_targets(&targets)?;
     targets.release.packages = targets.packages.values().map(|p| ReleasePackage {
         module_id: p.manifest.id.clone(), version: p.manifest.version.clone(), target: p.manifest.target.clone(), digest: p.digest.clone(), schema_version: p.manifest.schema_version,
     }).collect();
@@ -105,12 +103,13 @@ pub fn compose_scope(plan: ScopePlan, available: Vec<PackageRecord>, policy: &Ve
 
 pub(crate) fn validate_targets(targets: &TargetsMetadata, policy: &VerificationPolicy) -> Result<()> {
     let release = &targets.release;
-    require(release.schema_version == 1 && !release.scope_id.is_empty() && !release.release_id.is_empty() && !release.channel.is_empty() && release.sequence > 0, "invalid scope release")?;
+    require(matches!(release.schema_version, 1 | 2) && !release.scope_id.is_empty() && !release.release_id.is_empty() && !release.channel.is_empty() && release.sequence > 0, "invalid scope release")?;
     require(targets.header.version == release.sequence, "scope metadata version must equal sequence")?;
     require(release.target == policy.target && host_satisfies_minimum(&policy.host_api, &release.min_host_api), "scope target mismatch or minimum host API not met")?;
+    if release.schema_version == 2 { validate_game_targets(targets)?; }
     require(release.signature_metadata_ref == scope_metadata_key(&release.scope_id, &release.channel, &release.target)?, "scope metadata reference mismatch")?;
     targets.cohort.validate()?;
-    let closure = dependency_closure(targets, policy)?;
+    let closure = if release.schema_version == 1 { dependency_closure(targets, policy)? } else { targets.packages.keys().cloned().collect() };
     require(closure == targets.packages.keys().cloned().collect(), "release includes unrelated or missing packages")?;
     let mut identities = BTreeSet::new();
     let mut expected = Vec::new();
@@ -140,6 +139,16 @@ pub(crate) fn validate_targets(targets: &TargetsMetadata, policy: &VerificationP
         require(!singleton.optional && singleton.binding_scope.as_deref() == Some("platform") && singletons.insert(&singleton.contract_id), "invalid singleton requirement")?;
         require(targets.packages.values().any(|p| p.manifest.requires.contains(singleton)), "unrelated singleton requirement")?;
     }
+    Ok(())
+}
+
+pub fn validate_game_targets(targets: &TargetsMetadata) -> Result<()> {
+    require(targets.release.schema_version == 2 && targets.release.scope_id.starts_with("game:"), "new activation requires game-only release schema2")?;
+    require(targets.packages.len() == 1 && targets.roots.len() == 1 && targets.resource_dependencies.is_empty() && targets.release.singleton_requirements.is_empty(), "new game release requires one self-contained package, without dependency closure")?;
+    let record = targets.packages.values().next().expect("one package checked");
+    crate::validate_game_manifest(&record.manifest)?;
+    require(targets.roots[0] == record.digest && record.manifest.contributes.get("scopeId").and_then(serde_json::Value::as_str) == Some(targets.release.scope_id.as_str()), "game release root/scope differs from its signed package")?;
+    require(targets.release.provider_bindings.len() == 1, "new game release requires one exact adapter entrypoint")?;
     Ok(())
 }
 fn dependency_closure(targets: &TargetsMetadata, policy: &VerificationPolicy) -> Result<BTreeSet<String>> {

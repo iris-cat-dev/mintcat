@@ -57,8 +57,8 @@ impl VerificationPolicy {
             require(!contract.contract_id.trim().is_empty() && contract.contract_id.len() <= 200, "invalid required contract identity")?;
             require(required.insert((&contract.contract_id, &contract.binding_scope)), "duplicate required contract")?;
             if contract.binding_scope.as_deref() == Some("host") {
-                // Policy approval alone does not turn a module contract into a host service.
-                // This immutable built-in matches the supervisor's host service registry.
+                // Historical source closures retain their original host-contract format.
+                // New game manifests forbid all runtime dependencies.
                 let compatible = version_matches(&contract.version_range, 1)?;
                 let available = contract.contract_id == "source.network" && compatible
                     && self.contracts.get(&contract.contract_id).is_some_and(|versions| versions.contains(&1));
@@ -78,6 +78,53 @@ impl VerificationPolicy {
         }
         Ok(())
     }
+}
+
+/// New releases contain one stateless game worker and its signed data, never
+/// independently activated engines, loaders, native owners or official UI.
+pub fn validate_game_manifest(manifest: &ModuleManifest) -> Result<()> {
+    use mintcat_game_api::{bundled_resources, GameDescriptor, GAME_ADAPTER_CONTRACT_ID, GAME_ADAPTER_CONTRACT_VERSION};
+    require(manifest.requires.is_empty(), "game package must statically include its engine/loader libraries; runtime dependencies are historical only")?;
+    require(manifest.provides.len() == 1 && manifest.provides[0].contract_id == GAME_ADAPTER_CONTRACT_ID && manifest.provides[0].version == GAME_ADAPTER_CONTRACT_VERSION, "game package must provide the exact host game adapter contract only")?;
+    require(manifest.components.iter().filter(|component| component.kind == "service").count() == 1, "game package requires exactly one service worker")?;
+    for component in &manifest.components {
+        require(component.state_model == "stateless" && matches!((component.kind.as_str(), component.runtime.as_str()), ("service", "worker") | ("resource", "data")), "game package contains obsolete UI/native/state-owner runtime")?;
+    }
+    let games: Vec<GameDescriptor> = serde_json::from_value(manifest.contributes.get("games").cloned().ok_or_else(|| crate::ReleaseError::Rejected("signed game descriptor missing".into()))?)?;
+    require(games.len() == 1, "game package must contribute exactly one game")?;
+    let game = &games[0];
+    game.validate().map_err(|error| crate::ReleaseError::Rejected(error.to_string()))?;
+    require(game.game_id.starts_with("game:") && manifest.contributes.get("scopeId").and_then(serde_json::Value::as_str) == Some(game.game_id.as_str()), "game descriptor differs from independent game scope")?;
+    let resources = bundled_resources(manifest).map_err(|error| crate::ReleaseError::Rejected(error.to_string()))?;
+    let mut ids = BTreeSet::new();
+    for resource in &resources {
+        require(ids.insert(&resource.resource_id), "duplicate bundled game resource")?;
+        let requirement = game.resources.iter().find(|requirement| requirement.resource_id == resource.resource_id).ok_or_else(|| crate::ReleaseError::Rejected("unrelated bundled resource".into()))?;
+        let version = semver::Version::parse(&resource.version).map_err(|error| crate::ReleaseError::Rejected(error.to_string()))?;
+        let range = semver::VersionReq::parse(&requirement.version_range).map_err(|error| crate::ReleaseError::Rejected(error.to_string()))?;
+        require(range.matches(&version), "bundled resource version differs from signed game requirement")?;
+        require(resource.archive_path.is_some() != !resource.deployment_bindings.is_empty(), "bundled resource requires exactly one archive or deployment binding set")?;
+        if let Some(path) = &resource.archive_path {
+            checked_path(path)?;
+            require(manifest.files.iter().any(|file| &file.path == path && !file.executable), format!("bundled resource archive {path} missing from signed game payload"))?;
+        }
+        let mut sources = BTreeSet::new();
+        let mut targets = BTreeSet::new();
+        for binding in &resource.deployment_bindings {
+            checked_path(&binding.package_path)?;
+            checked_path(&binding.target_relative_path)?;
+            require(sources.insert(binding.package_path.to_ascii_lowercase()) && targets.insert(binding.target_relative_path.to_ascii_lowercase()), "case-colliding bundled resource binding")?;
+            require(!manifest.components.iter().any(|component| component.entry == binding.package_path), "game runtime entry must never be deployed as a resource")?;
+            let file = manifest.files.iter().find(|file| file.path == binding.package_path).ok_or_else(|| crate::ReleaseError::Rejected(format!("bundled resource file {} missing from signed game payload", binding.package_path)))?;
+            let target = binding.target_relative_path.to_ascii_lowercase();
+            let executable_target = target.ends_with(".dll") || target.ends_with(".exe");
+            require(!executable_target || file.executable, "native bundled resource requires a signed executable flag")?;
+        }
+    }
+    for requirement in game.resources.iter().filter(|requirement| !requirement.optional) {
+        require(ids.contains(&requirement.resource_id), format!("required game resource {} missing from signed bundle", requirement.resource_id))?;
+    }
+    Ok(())
 }
 
 pub fn version_matches(range: &str, version: u64) -> Result<bool> {

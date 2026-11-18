@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1430 --strictPort",
-    "native": "tauri dev --config src-tauri/tauri.conf.json",
+    "native": "node ../../scripts/dev-desktop.mjs",
     "build": "tsc -p tsconfig.json && vite build",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run src"
   },
   "dependencies": {
     "@mintcat/sdk-ts": "workspace:*",

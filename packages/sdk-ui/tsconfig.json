@@ -13,5 +13,5 @@
       "@ant-design/icons": ["packages/sdk-ui/node_modules/@ant-design/icons"]
     }
   },
-  "include": ["src/**/*.ts", "../../modules/**/ui/**/*.ts", "../../tools/module-dev/host/**/*.ts"]
+  "include": ["src/**/*.ts", "../../modules/**/ui/**/*.ts"]
 }

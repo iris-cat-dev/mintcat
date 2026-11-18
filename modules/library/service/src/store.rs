@@ -27,7 +27,7 @@ use crate::{
 pub struct OwnerStore {
     path: PathBuf,
     connection: Arc<Mutex<Connection>>,
-    _writer_lock: Option<Arc<File>>,
+    _writer_lock: Arc<File>,
 }
 
 impl std::fmt::Debug for OwnerStore {
@@ -127,7 +127,7 @@ impl OwnerStore {
         Ok(Self {
             path,
             connection: Arc::new(Mutex::new(connection)),
-            _writer_lock: Some(Arc::new(writer_lock)),
+            _writer_lock: Arc::new(writer_lock),
         })
     }
 
@@ -143,12 +143,25 @@ impl OwnerStore {
     /// Retain the validated current-schema connection without acquiring writer ownership.
     pub(crate) fn open_read_only(path: &Path) -> Result<Self, LibraryError> {
         let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        let parent = path.parent().ok_or_else(|| LibraryError::InvalidRecord("owner path missing".into()))?;
+        let lock = OpenOptions::new().read(true).write(true).create(true).open(parent.join("writer.lock"))?;
+        fs2::FileExt::try_lock_exclusive(&lock).map_err(|_| LibraryError::ResourceBusy { owner_operation_id: "library-writer".into() })?;
         Self::check_read_only_health(&connection, true)?;
         Ok(Self {
             path: path.to_owned(),
             connection: Arc::new(Mutex::new(connection)),
-            _writer_lock: None,
+            _writer_lock: Arc::new(lock),
         })
+    }
+    pub(crate) fn resume_after_recovery(&self) -> Result<(), LibraryError> {
+        let mut connection = self.connection()?;
+        if !connection.is_readonly(rusqlite::MAIN_DB)? { return Ok(()); }
+        Self::check_read_only_health(&connection, true)?;
+        let writer = Connection::open_with_flags(&self.path, OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        writer.busy_timeout(Duration::from_secs(5))?;
+        writer.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
+        *connection = writer;
+        Ok(())
     }
 
     fn check_read_only_health(connection: &Connection, require_current: bool) -> Result<(), LibraryError> {
@@ -160,14 +173,11 @@ impl OwnerStore {
         if check != "ok" { return Err(LibraryError::InvalidRecord("Library integrity check failed".into())); }
         Ok(())
     }
-    pub(crate) fn paused_snapshot(path: &Path) -> Result<LibrarySnapshot, LibraryError> {
-        Self::read_only_health(path, true)?;
-        let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Deferred)?;
-        crate::backup_boundary::ensure_quiescent(&transaction)?;
-        let snapshot = read_snapshot(&transaction)?;
-        transaction.commit()?;
-        Ok(snapshot)
+    pub(crate) fn ensure_writable(&self) -> Result<(), LibraryError> {
+        if self.connection()?.is_readonly(rusqlite::MAIN_DB)? {
+            return Err(LibraryError::ResourceBusy { owner_operation_id: "library-backup-recovery".into() });
+        }
+        Ok(())
     }
 
     pub(crate) fn connection(&self) -> Result<MutexGuard<'_, Connection>, LibraryError> {

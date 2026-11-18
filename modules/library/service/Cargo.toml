@@ -5,16 +5,8 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-[features]
-fixtures = []
-
-[[bin]]
-name = "mintcat-library-worker"
-path = "src/bin/worker.rs"
-
 [dependencies]
 fs2.workspace = true
-tokio.workspace = true
 base64.workspace = true
 mintcat-runtime-artifacts.workspace = true
 mintcat-sdk.workspace = true
@@ -29,6 +21,4 @@ uuid.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
-ed25519-dalek.workspace = true
-target-lexicon.workspace = true
 tempfile.workspace = true

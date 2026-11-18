@@ -14,7 +14,6 @@ mintcat-runtime-supervisor.workspace = true
 mintcat-runtime-transfers.workspace = true
 mintcat-runtime-broker.workspace = true
 mintcat-feature-backup.workspace = true
-mintcat-library-service.workspace = true
 mintcat-source-api.workspace = true
 mintcat-sdk.workspace = true
 mintcat-game-api.workspace = true
@@ -34,5 +33,11 @@ target-lexicon.workspace = true
 [[bin]]
 name = "mintcat-update-readiness-failure"
 path = "tests/fixtures/readiness_failure.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "mintcat-update-game-fixture"
+path = "tests/fixtures/game_worker.rs"
 test = false
 bench = false

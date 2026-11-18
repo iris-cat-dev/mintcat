@@ -33,30 +33,20 @@ pub struct UpdateOperation {
     pub metadata_expires_at: u64,
     #[serde(default)] pub quarantined: bool,
     pub bundle: RepositoryBundle,
-    pub backups: BTreeMap<String, OwnerBackup>,
+    /// Historical owner snapshots are retained only as recovery evidence.
+    #[serde(default)] pub backups: BTreeMap<String, Value>,
     #[serde(default)] pub drained: BTreeSet<String>,
-    pub migrated: BTreeSet<String>,
-    pub barrier: Option<UiBarrier>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OwnerBackup {
-    pub owner_id: String,
-    pub old_schema: u64,
-    pub new_schema: u64,
-    /// An owner-issued, durable, consistent snapshot reference, not a copied live database.
-    pub reference: Value,
+    #[serde(default)] pub migrated: BTreeSet<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnvironmentSnapshot {
     pub generation_id: String,
     pub scopes: BTreeMap<String, ScopeGeneration>,
-    #[serde(default)] pub disabled_ui: BTreeSet<String>,
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-pub enum LeaseKind { Task, Service, Ui, Rollback }
+pub enum LeaseKind { Task, Service, Rollback }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DurableLease {
@@ -69,34 +59,6 @@ pub struct DurableLease {
     /// Expiry is not proof that a process/job stopped. Running leases require explicit release.
     pub running: bool,
 }
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum UiStage { Deferred, Disposed, Ready, Failed, RebuildRequired }
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UiAck {
-    pub barrier_id: String,
-    pub session_id: String,
-    pub stage: UiStage,
-    pub state: Option<Value>,
-    pub error: Option<String>,
-    #[serde(default)] pub rebuilt: bool,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UiBarrier {
-    pub barrier_id: String,
-    pub affected_module_ids: Vec<String>,
-    pub scope_id: String,
-    pub expected_generation_id: String,
-    pub new_generation_id: String,
-    pub runtime_changed: bool,
-    pub participants: BTreeMap<String, Option<UiAck>>,
-}
-impl UiBarrier {
-    pub fn disposed(&self) -> bool { self.participants.values().all(|a| a.as_ref().is_some_and(|a| matches!(a.stage, UiStage::Disposed | UiStage::Ready))) }
-    pub fn ready(&self) -> bool { self.participants.values().all(|a| a.as_ref().is_some_and(|a| a.stage == UiStage::Ready && (!self.runtime_changed || a.rebuilt))) }
-}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameInventory { pub game_id: String, pub display_name: String, pub descriptor: Value }
@@ -105,7 +67,7 @@ pub struct GameInventory { pub game_id: String, pub display_name: String, pub de
 pub struct ModuleInventoryEntry {
     pub module_id: String,
     pub digest: String,
-    #[serde(rename = "enabled")] pub ui_enabled: bool,
+    pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")] pub game: Option<GameInventory>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,6 +82,9 @@ pub struct RevocationMetadata {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct UpdateState {
+    #[serde(default)] pub schema_version: u64,
+    /// Exact historical platform/source/UI proofs; never activated by the new runtime.
+    #[serde(default)] pub archived_scopes: BTreeMap<String, ScopeGeneration>,
     pub environment: EnvironmentSnapshot,
     pub operations: BTreeMap<String, UpdateOperation>,
     pub leases: BTreeMap<String, DurableLease>,
@@ -133,5 +98,5 @@ pub(crate) struct UpdateState {
     pub recovery_required: Option<String>,
 }
 impl Default for UpdateState {
-    fn default() -> Self { Self { environment: EnvironmentSnapshot { generation_id: "empty".into(), scopes: BTreeMap::new(), disabled_ui: BTreeSet::new() }, operations: BTreeMap::new(), leases: BTreeMap::new(), revoked: BTreeSet::new(), high_water: BTreeMap::new(), revisions: BTreeMap::new(), authorized_channels: BTreeMap::new(), scope_blockers: BTreeMap::new(), recovery_operation: None, revocation_high_water: None, recovery_required: None } }
+    fn default() -> Self { Self { schema_version: 2, archived_scopes: BTreeMap::new(), environment: EnvironmentSnapshot { generation_id: "empty".into(), scopes: BTreeMap::new() }, operations: BTreeMap::new(), leases: BTreeMap::new(), revoked: BTreeSet::new(), high_water: BTreeMap::new(), revisions: BTreeMap::new(), authorized_channels: BTreeMap::new(), scope_blockers: BTreeMap::new(), recovery_operation: None, revocation_high_water: None, recovery_required: None } }
 }

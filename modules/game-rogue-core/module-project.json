@@ -1,0 +1,205 @@
+{
+  "manifest": {
+    "schemaVersion": 1,
+    "id": "mintcat.game.rogue-core",
+    "version": "0.1.0",
+    "publisher": "mintcat.official",
+    "target": "host",
+    "hostApi": "1",
+    "components": [
+      {
+        "kind": "service",
+        "entry": "mintcat-game-rogue-core-worker",
+        "runtime": "worker",
+        "stateModel": "stateless"
+      }
+    ],
+    "provides": [
+      {
+        "contractId": "mintcat.game-adapter",
+        "version": 2,
+        "cardinality": "multi"
+      }
+    ],
+    "requires": [],
+    "permissions": [
+      {
+        "capability": "artifact.read",
+        "scope": "operation-grants"
+      },
+      {
+        "capability": "staging.write",
+        "scope": "operation-staging"
+      },
+      {
+        "capability": "installation.read",
+        "scope": "selected:game:rogue-core"
+      }
+    ],
+    "contributes": {
+      "games": [
+        {
+          "schemaVersion": 1,
+          "gameId": "game:rogue-core",
+          "displayName": "Deep Rock Galactic: Rogue Core",
+          "adapterVersion": "0.1.0",
+          "settingsSchemaVersion": 1,
+          "settingsSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "compression",
+              "ue4ssEnabled"
+            ],
+            "properties": {
+              "compression": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "zlib"
+                ]
+              },
+              "ue4ssEnabled": {
+                "type": "boolean"
+              }
+            }
+          },
+          "variants": [
+            {
+              "variantId": "steam-release",
+              "displayName": "Steam Release",
+              "store": "steam",
+              "storeAppId": "2605790",
+              "target": "x86_64-pc-windows-msvc",
+              "mainPakRelativePath": "Content/Paks/RogueCore-Windows.pak",
+              "paksRelativePath": "Content/Paks",
+              "binariesRelativePath": "Binaries/Win64",
+              "modPakRelativePath": "Content/Paks/RogueCore-Windows_Mods.pak",
+              "processNames": [
+                "RogueCore-Win64-Shipping.exe",
+                "RogueCore.exe"
+              ]
+            },
+            {
+              "variantId": "steam-playtest",
+              "displayName": "Steam Playtest",
+              "store": "steam",
+              "storeAppId": "2860770",
+              "target": "x86_64-pc-windows-msvc",
+              "mainPakRelativePath": "Content/Paks/RogueCore-Windows.pak",
+              "paksRelativePath": "Content/Paks",
+              "binariesRelativePath": "Binaries/Win64",
+              "modPakRelativePath": "Content/Paks/RogueCore-Windows_Mods.pak",
+              "processNames": [
+                "RogueCore-Win64-Shipping.exe",
+                "RogueCore.exe"
+              ]
+            }
+          ],
+          "inputFormats": [
+            "pak",
+            "zip",
+            "directory-snapshot"
+          ],
+          "sourceBindings": [
+            {
+              "sourceId": "nexusmods",
+              "remoteGameKey": "rogue-core",
+              "providerGameId": "deeprockgalacticroguecore"
+            },
+            {
+              "sourceId": "modcat",
+              "remoteGameKey": "rogue-core",
+              "providerGameId": "drgrc"
+            },
+            {
+              "sourceId": "local",
+              "remoteGameKey": "rogue-core",
+              "providerGameId": "rogue-core"
+            }
+          ],
+          "resources": [
+            {
+              "resourceId": "resource.rogue-core.patch",
+              "versionRange": ">=1,<2",
+              "optional": false,
+              "purpose": "signed Rogue Core integration content"
+            },
+            {
+              "resourceId": "resource.ue4ss",
+              "versionRange": ">=3,<4",
+              "optional": true,
+              "purpose": "UE4SS loader with Rogue Core UE 5.6 settings"
+            }
+          ],
+          "capabilities": [
+            "discover",
+            "validate-installation",
+            "unreal-engine-5.6",
+            "create-build-plan",
+            "build-legacy-compatible-pak",
+            "create-deploy-plan",
+            "detect-legacy-install"
+          ]
+        }
+      ],
+      "scopeId": "game:rogue-core",
+      "bundledResources": [
+        {
+          "resourceId": "resource.rogue-core.patch",
+          "version": "1.0.0",
+          "archivePath": "resources/rogue-core-patch.zip"
+        }
+      ]
+    },
+    "state": {
+      "schemaVersion": 1,
+      "readableRange": "1",
+      "writableRange": "1",
+      "rollbackBeforeWriteOnly": true
+    },
+    "activation": {
+      "trigger": "on-demand",
+      "drainPolicy": "finish-requests"
+    },
+    "files": [
+      {
+        "path": "mintcat-game-rogue-core-worker",
+        "size": 0,
+        "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "executable": true
+      },
+      {
+        "path": "resources/rogue-core-patch.zip",
+        "size": 0,
+        "sha256": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "executable": false
+      }
+    ]
+  },
+  "policy": {
+    "target": "host",
+    "hostApi": "1",
+    "maxDataSchema": 1,
+    "permissions": [
+      {
+        "capability": "artifact.read",
+        "scope": "operation-grants"
+      },
+      {
+        "capability": "staging.write",
+        "scope": "operation-staging"
+      },
+      {
+        "capability": "installation.read",
+        "scope": "selected:game:rogue-core"
+      }
+    ],
+    "contracts": {
+      "mintcat.game-adapter": [
+        2
+      ]
+    }
+  },
+  "workerBinary": "mintcat-game-rogue-core-worker"
+}

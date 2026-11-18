@@ -699,6 +699,17 @@ export interface UpdatesActivateParams {
   "operationId": Identifier;
 }
 
+export interface SourcesListParams {
+}
+
+export interface ConfiguredSource {
+  "sourceId": "modio" | "modcat" | "nexusmods";
+}
+
+export interface SourcesListResult {
+  "sources": Array<ConfiguredSource>;
+}
+
 export interface SourceSearchParams {
   "sourceId": Identifier;
   "gameId": Identifier;
@@ -774,12 +785,6 @@ export interface ModuleInventory {
   "modules": Array<ModuleInventoryEntry>;
 }
 
-export interface ModulesSetEnabledParams {
-  "moduleId": Identifier;
-  "enabled": boolean;
-  "expectedGenerationId": Identifier;
-}
-
 export interface ModsPackParams {
   "profileId": Identifier;
   "revision": number;
@@ -825,56 +830,6 @@ export interface UpdatesGcParams {
 }
 
 export type UpdatesGcResult = Record<string, unknown>;
-
-export interface UiSessionOpenParams {
-  "sessionId": Identifier;
-  "generationId": Identifier;
-}
-
-export interface UiSessionOpenResult {
-  "sessionId": Identifier;
-  "generationId": Identifier;
-  "leaseId": Identifier;
-}
-
-export interface UiSessionCloseParams {
-  "sessionId": Identifier;
-}
-
-export interface UiSessionCloseResult {
-  "closed": boolean;
-}
-
-export interface UiPrepareParams {
-  "sessionId": Identifier;
-}
-
-export interface UiBarrier {
-  "barrierId": Identifier;
-  "affectedModuleIds": Array<Identifier>;
-  "scopeId": Identifier;
-  "expectedGenerationId": Identifier;
-  "newGenerationId": Identifier;
-  "runtimeChanged": boolean;
-  "participants": Record<string, unknown>;
-}
-
-export interface UiPrepareResult {
-  "barriers": Array<UiBarrier>;
-}
-
-export interface UiAckParams {
-  "barrierId": Identifier;
-  "sessionId": Identifier;
-  "stage": "deferred" | "disposed" | "ready" | "failed" | "rebuild-required";
-  "state"?: unknown;
-  "error"?: string;
-  "rebuilt"?: boolean;
-}
-
-export interface UiAckResult {
-  "acknowledged": boolean;
-}
 
 export interface AgentConfiguration {
   "baseUrl": string;
@@ -1127,70 +1082,7 @@ export interface GamesDiscoverResult {
   "items": Array<GameInstallationCandidate>;
 }
 
-export interface UiArtifactsAuthorityParams {
-  "expectedGenerationId": Identifier;
-}
-
-export interface UiAdmittedPackageRecord {
-  "manifest": ModuleManifest;
-  "signature": ModuleSignature;
-  "digest": Digest;
-  "length": number;
-  "recordDigest": Digest;
-}
-
-export interface UiRootHeader {
-  "kind": "root";
-  "schemaVersion": 1;
-  "version": number;
-  "expires": number;
-}
-
-export interface UiRootRole {
-  "keyIds": Array<Identifier>;
-  "threshold": number;
-}
-
-export interface UiFrozenRootMetadata {
-  "header": UiRootHeader;
-  "keys": Record<string, unknown>;
-  "roles": Record<string, unknown>;
-  "publishers": Record<string, unknown>;
-}
-
-export interface UiMetadataSignature {
-  "keyId": Identifier;
-  "signature": string;
-}
-
-export interface UiFrozenVerifiedRoot {
-  "signed": UiFrozenRootMetadata;
-  "signatures": Array<UiMetadataSignature>;
-}
-
-export interface UiArtifactBinding {
-  "moduleId": Identifier;
-  "digest": Digest;
-  "package": UiAdmittedPackageRecord;
-  "verifiedRoot": UiFrozenVerifiedRoot;
-}
-
-export interface UiArtifactsAuthorityResult {
-  "generationId": Identifier;
-  "modules": Array<UiArtifactBinding>;
-}
-
-export interface UiRequestParams {
-  "sessionId": Identifier;
-  "generationId": Identifier;
-  "moduleId": Identifier;
-  "digest": Digest;
-  "request": JsonRpcRequest;
-}
-
-export type UiRequestResult = JsonRpcResponse;
-
-export type CommandName = "system.status" | "system.doctor" | "games.list" | "profiles.list" | "profiles.contentState" | "profiles.create" | "profiles.update" | "profiles.activate" | "profiles.delete" | "profiles.clone" | "groups.list" | "groups.create" | "groups.update" | "groups.move" | "groups.delete" | "mods.list" | "mods.get" | "mods.rename" | "mods.setEnabled" | "mods.setEnabledBatch" | "mods.move" | "mods.remove" | "mods.cleanupMissing" | "mods.setVersion" | "jobs.get" | "jobs.watch" | "jobs.cancel" | "actions.get" | "actions.approve" | "actions.reject" | "modules.inspect" | "install.plan" | "install.apply" | "install.uninstall" | "updates.activate" | "sources.search" | "mods.add" | "mods.importLocal" | "settings.get" | "settings.update" | "modules.list" | "modules.setEnabled" | "mods.pack" | "updates.stage" | "updates.prepare" | "updates.confirm" | "updates.rollback" | "updates.operations" | "updates.channel" | "updates.gc" | "ui.session.open" | "ui.session.close" | "ui.prepare" | "ui.ack" | "agent.sessions.create" | "agent.sessions.get" | "agent.sessions.send" | "agent.sessions.delete" | "proxy.status" | "proxy.start" | "proxy.stop" | "proxy.privilege" | "backup.export" | "backup.restore" | "backup.recover" | "backup.cloud.list" | "backup.cloud.upload" | "backup.cloud.download" | "library.import-legacy" | "library.config-import" | "games.register" | "games.discover" | "ui.artifacts.authority" | "ui.request";
+export type CommandName = "system.status" | "system.doctor" | "games.list" | "profiles.list" | "profiles.contentState" | "profiles.create" | "profiles.update" | "profiles.activate" | "profiles.delete" | "profiles.clone" | "groups.list" | "groups.create" | "groups.update" | "groups.move" | "groups.delete" | "mods.list" | "mods.get" | "mods.rename" | "mods.setEnabled" | "mods.setEnabledBatch" | "mods.move" | "mods.remove" | "mods.cleanupMissing" | "mods.setVersion" | "jobs.get" | "jobs.watch" | "jobs.cancel" | "actions.get" | "actions.approve" | "actions.reject" | "modules.inspect" | "install.plan" | "install.apply" | "install.uninstall" | "updates.activate" | "sources.list" | "sources.search" | "mods.add" | "mods.importLocal" | "settings.get" | "settings.update" | "modules.list" | "mods.pack" | "updates.stage" | "updates.prepare" | "updates.confirm" | "updates.rollback" | "updates.operations" | "updates.channel" | "updates.gc" | "agent.sessions.create" | "agent.sessions.get" | "agent.sessions.send" | "agent.sessions.delete" | "proxy.status" | "proxy.start" | "proxy.stop" | "proxy.privilege" | "backup.export" | "backup.restore" | "backup.recover" | "backup.cloud.list" | "backup.cloud.upload" | "backup.cloud.download" | "library.import-legacy" | "library.config-import" | "games.register" | "games.discover";
 
 export interface CommandParams {
   "system.status": SystemStatusParams;
@@ -1228,13 +1120,13 @@ export interface CommandParams {
   "install.apply": InstallApplyParams;
   "install.uninstall": InstallUninstallParams;
   "updates.activate": UpdatesActivateParams;
+  "sources.list": SourcesListParams;
   "sources.search": SourceSearchParams;
   "mods.add": ModsAddParams;
   "mods.importLocal": ModsImportLocalParams;
   "settings.get": SettingsGetParams;
   "settings.update": SettingsUpdateParams;
   "modules.list": ModulesListParams;
-  "modules.setEnabled": ModulesSetEnabledParams;
   "mods.pack": ModsPackParams;
   "updates.stage": UpdatesStageParams;
   "updates.prepare": UpdatesOperationParams;
@@ -1243,10 +1135,6 @@ export interface CommandParams {
   "updates.operations": UpdatesOperationsParams;
   "updates.channel": UpdatesChannelParams;
   "updates.gc": UpdatesGcParams;
-  "ui.session.open": UiSessionOpenParams;
-  "ui.session.close": UiSessionCloseParams;
-  "ui.prepare": UiPrepareParams;
-  "ui.ack": UiAckParams;
   "agent.sessions.create": AgentSessionsCreateParams;
   "agent.sessions.get": AgentSessionsGetParams;
   "agent.sessions.send": AgentSessionsSendParams;
@@ -1265,8 +1153,6 @@ export interface CommandParams {
   "library.config-import": LibraryConfigImportParams;
   "games.register": GamesRegisterParams;
   "games.discover": GamesDiscoverParams;
-  "ui.artifacts.authority": UiArtifactsAuthorityParams;
-  "ui.request": UiRequestParams;
 }
 
 export interface CommandResult {
@@ -1305,13 +1191,13 @@ export interface CommandResult {
   "install.apply": JobRef;
   "install.uninstall": JobRef;
   "updates.activate": JobRef;
+  "sources.list": SourcesListResult;
   "sources.search": SourceSearchResult;
   "mods.add": JobRef;
   "mods.importLocal": JobRef;
   "settings.get": SettingsResult;
   "settings.update": SettingsResult;
   "modules.list": ModuleInventory;
-  "modules.setEnabled": ModuleInventory;
   "mods.pack": JobRef;
   "updates.stage": JobRef;
   "updates.prepare": JobRef;
@@ -1320,10 +1206,6 @@ export interface CommandResult {
   "updates.operations": UpdatesOperationsResult;
   "updates.channel": JobRef;
   "updates.gc": UpdatesGcResult;
-  "ui.session.open": UiSessionOpenResult;
-  "ui.session.close": UiSessionCloseResult;
-  "ui.prepare": UiPrepareResult;
-  "ui.ack": UiAckResult;
   "agent.sessions.create": AgentSession;
   "agent.sessions.get": AgentSession;
   "agent.sessions.send": JobRef;
@@ -1342,8 +1224,6 @@ export interface CommandResult {
   "library.config-import": JobRef;
   "games.register": GamesRegisterResult;
   "games.discover": GamesDiscoverResult;
-  "ui.artifacts.authority": UiArtifactsAuthorityResult;
-  "ui.request": UiRequestResult;
 }
 
 export const CORE_SCHEMA: Record<string, unknown> = {
@@ -4005,6 +3885,43 @@ export const CORE_SCHEMA: Record<string, unknown> = {
         }
       }
     },
+    "SourcesListParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "ConfiguredSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId"
+      ],
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "enum": [
+            "modio",
+            "modcat",
+            "nexusmods"
+          ]
+        }
+      }
+    },
+    "SourcesListResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sources"
+      ],
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ConfiguredSource"
+          }
+        }
+      }
+    },
     "SourceSearchParams": {
       "type": "object",
       "additionalProperties": false,
@@ -4296,26 +4213,6 @@ export const CORE_SCHEMA: Record<string, unknown> = {
         }
       }
     },
-    "ModulesSetEnabledParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "moduleId",
-        "enabled",
-        "expectedGenerationId"
-      ],
-      "properties": {
-        "moduleId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "expectedGenerationId": {
-          "$ref": "#/$defs/Identifier"
-        }
-      }
-    },
     "ModsPackParams": {
       "type": "object",
       "additionalProperties": false,
@@ -4475,178 +4372,6 @@ export const CORE_SCHEMA: Record<string, unknown> = {
     },
     "UpdatesGcResult": {
       "type": "object"
-    },
-    "UiSessionOpenParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "sessionId",
-        "generationId"
-      ],
-      "properties": {
-        "sessionId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "generationId": {
-          "$ref": "#/$defs/Identifier"
-        }
-      }
-    },
-    "UiSessionOpenResult": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "sessionId",
-        "generationId",
-        "leaseId"
-      ],
-      "properties": {
-        "sessionId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "generationId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "leaseId": {
-          "$ref": "#/$defs/Identifier"
-        }
-      }
-    },
-    "UiSessionCloseParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "sessionId"
-      ],
-      "properties": {
-        "sessionId": {
-          "$ref": "#/$defs/Identifier"
-        }
-      }
-    },
-    "UiSessionCloseResult": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "closed"
-      ],
-      "properties": {
-        "closed": {
-          "type": "boolean"
-        }
-      }
-    },
-    "UiPrepareParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "sessionId"
-      ],
-      "properties": {
-        "sessionId": {
-          "$ref": "#/$defs/Identifier"
-        }
-      }
-    },
-    "UiBarrier": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "barrierId",
-        "affectedModuleIds",
-        "scopeId",
-        "expectedGenerationId",
-        "newGenerationId",
-        "runtimeChanged",
-        "participants"
-      ],
-      "properties": {
-        "barrierId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "affectedModuleIds": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Identifier"
-          }
-        },
-        "scopeId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "expectedGenerationId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "newGenerationId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "runtimeChanged": {
-          "type": "boolean"
-        },
-        "participants": {
-          "type": "object"
-        }
-      }
-    },
-    "UiPrepareResult": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "barriers"
-      ],
-      "properties": {
-        "barriers": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/UiBarrier"
-          }
-        }
-      }
-    },
-    "UiAckParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "barrierId",
-        "sessionId",
-        "stage"
-      ],
-      "properties": {
-        "barrierId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "sessionId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "stage": {
-          "type": "string",
-          "enum": [
-            "deferred",
-            "disposed",
-            "ready",
-            "failed",
-            "rebuild-required"
-          ]
-        },
-        "state": {},
-        "error": {
-          "type": "string"
-        },
-        "rebuilt": {
-          "type": "boolean"
-        }
-      }
-    },
-    "UiAckResult": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "acknowledged"
-      ],
-      "properties": {
-        "acknowledged": {
-          "type": "boolean"
-        }
-      }
     },
     "AgentConfiguration": {
       "type": "object",
@@ -5646,243 +5371,6 @@ export const CORE_SCHEMA: Record<string, unknown> = {
           }
         }
       }
-    },
-    "UiArtifactsAuthorityParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "expectedGenerationId"
-      ],
-      "properties": {
-        "expectedGenerationId": {
-          "$ref": "#/$defs/Identifier"
-        }
-      }
-    },
-    "UiAdmittedPackageRecord": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "manifest",
-        "signature",
-        "digest",
-        "length",
-        "recordDigest"
-      ],
-      "properties": {
-        "manifest": {
-          "$ref": "#/$defs/ModuleManifest"
-        },
-        "signature": {
-          "$ref": "#/$defs/ModuleSignature"
-        },
-        "digest": {
-          "$ref": "#/$defs/Digest"
-        },
-        "length": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "recordDigest": {
-          "$ref": "#/$defs/Digest"
-        }
-      }
-    },
-    "UiRootHeader": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind",
-        "schemaVersion",
-        "version",
-        "expires"
-      ],
-      "properties": {
-        "kind": {
-          "const": "root",
-          "type": "string"
-        },
-        "schemaVersion": {
-          "const": 1,
-          "type": "integer"
-        },
-        "version": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "expires": {
-          "type": "integer",
-          "minimum": 1
-        }
-      }
-    },
-    "UiRootRole": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "keyIds",
-        "threshold"
-      ],
-      "properties": {
-        "keyIds": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/Identifier"
-          }
-        },
-        "threshold": {
-          "type": "integer",
-          "minimum": 1
-        }
-      }
-    },
-    "UiFrozenRootMetadata": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "header",
-        "keys",
-        "roles",
-        "publishers"
-      ],
-      "properties": {
-        "header": {
-          "$ref": "#/$defs/UiRootHeader"
-        },
-        "keys": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "roles": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/UiRootRole"
-          }
-        },
-        "publishers": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            }
-          }
-        }
-      }
-    },
-    "UiMetadataSignature": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "keyId",
-        "signature"
-      ],
-      "properties": {
-        "keyId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "signature": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    "UiFrozenVerifiedRoot": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "signed",
-        "signatures"
-      ],
-      "properties": {
-        "signed": {
-          "$ref": "#/$defs/UiFrozenRootMetadata"
-        },
-        "signatures": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/UiMetadataSignature"
-          }
-        }
-      }
-    },
-    "UiArtifactBinding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "moduleId",
-        "digest",
-        "package",
-        "verifiedRoot"
-      ],
-      "properties": {
-        "moduleId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "digest": {
-          "$ref": "#/$defs/Digest"
-        },
-        "package": {
-          "$ref": "#/$defs/UiAdmittedPackageRecord"
-        },
-        "verifiedRoot": {
-          "$ref": "#/$defs/UiFrozenVerifiedRoot"
-        }
-      }
-    },
-    "UiArtifactsAuthorityResult": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "generationId",
-        "modules"
-      ],
-      "properties": {
-        "generationId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "modules": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/UiArtifactBinding"
-          }
-        }
-      }
-    },
-    "UiRequestParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "sessionId",
-        "generationId",
-        "moduleId",
-        "digest",
-        "request"
-      ],
-      "properties": {
-        "sessionId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "generationId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "moduleId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "digest": {
-          "$ref": "#/$defs/Digest"
-        },
-        "request": {
-          "$ref": "#/$defs/JsonRpcRequest"
-        }
-      }
-    },
-    "UiRequestResult": {
-      "$ref": "#/$defs/JsonRpcResponse"
     }
   }
 };
@@ -6755,6 +6243,27 @@ export const COMMAND_SPECS = [
     "agentExposed": false
   },
   {
+    "method": "sources.list",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/SourcesListParams",
+    "resultSchema": "#/$defs/SourcesListResult",
+    "classification": "read",
+    "execution": "sync",
+    "permission": "source.read",
+    "idempotency": "none",
+    "confirmation": "none",
+    "errorCodes": [
+      "PERMISSION_DENIED",
+      "RECOVERY_REQUIRED"
+    ],
+    "summary": "List configured built-in remote sources without network requests.",
+    "cli": [
+      "sources",
+      "list"
+    ],
+    "agentExposed": true
+  },
+  {
     "method": "sources.search",
     "contractVersion": 1,
     "paramsSchema": "#/$defs/SourceSearchParams",
@@ -6913,33 +6422,6 @@ export const COMMAND_SPECS = [
     "cli": [
       "modules",
       "list"
-    ],
-    "agentExposed": false
-  },
-  {
-    "method": "modules.setEnabled",
-    "contractVersion": 1,
-    "paramsSchema": "#/$defs/ModulesSetEnabledParams",
-    "resultSchema": "#/$defs/ModuleInventory",
-    "classification": "mutation",
-    "execution": "sync",
-    "permission": "modules.ui.write",
-    "idempotency": "required",
-    "confirmation": "none",
-    "errorCodes": [
-      "INVALID_ARGUMENT",
-      "NOT_FOUND",
-      "REVISION_CONFLICT",
-      "PERMISSION_DENIED",
-      "MODULE_UNAVAILABLE",
-      "RESOURCE_BUSY",
-      "RECOVERY_REQUIRED",
-      "INCOMPATIBLE_CONTRACT"
-    ],
-    "summary": "Execute modules.setEnabled through the authoritative Application service.",
-    "cli": [
-      "modules",
-      "setEnabled"
     ],
     "agentExposed": false
   },
@@ -7156,116 +6638,6 @@ export const COMMAND_SPECS = [
     "cli": [
       "updates",
       "gc"
-    ],
-    "agentExposed": false
-  },
-  {
-    "method": "ui.session.open",
-    "contractVersion": 1,
-    "paramsSchema": "#/$defs/UiSessionOpenParams",
-    "resultSchema": "#/$defs/UiSessionOpenResult",
-    "classification": "mutation",
-    "execution": "sync",
-    "permission": "ui.session",
-    "idempotency": "optional",
-    "confirmation": "none",
-    "errorCodes": [
-      "INVALID_ARGUMENT",
-      "NOT_FOUND",
-      "REVISION_CONFLICT",
-      "PERMISSION_DENIED",
-      "MODULE_UNAVAILABLE",
-      "RESOURCE_BUSY",
-      "RECOVERY_REQUIRED",
-      "INCOMPATIBLE_CONTRACT"
-    ],
-    "summary": "Execute ui.session.open through the authoritative Application service.",
-    "cli": [
-      "ui",
-      "session",
-      "open"
-    ],
-    "agentExposed": false
-  },
-  {
-    "method": "ui.session.close",
-    "contractVersion": 1,
-    "paramsSchema": "#/$defs/UiSessionCloseParams",
-    "resultSchema": "#/$defs/UiSessionCloseResult",
-    "classification": "mutation",
-    "execution": "sync",
-    "permission": "ui.session",
-    "idempotency": "optional",
-    "confirmation": "none",
-    "errorCodes": [
-      "INVALID_ARGUMENT",
-      "NOT_FOUND",
-      "REVISION_CONFLICT",
-      "PERMISSION_DENIED",
-      "MODULE_UNAVAILABLE",
-      "RESOURCE_BUSY",
-      "RECOVERY_REQUIRED",
-      "INCOMPATIBLE_CONTRACT"
-    ],
-    "summary": "Execute ui.session.close through the authoritative Application service.",
-    "cli": [
-      "ui",
-      "session",
-      "close"
-    ],
-    "agentExposed": false
-  },
-  {
-    "method": "ui.prepare",
-    "contractVersion": 1,
-    "paramsSchema": "#/$defs/UiPrepareParams",
-    "resultSchema": "#/$defs/UiPrepareResult",
-    "classification": "read",
-    "execution": "sync",
-    "permission": "ui.prepare",
-    "idempotency": "none",
-    "confirmation": "none",
-    "errorCodes": [
-      "INVALID_ARGUMENT",
-      "NOT_FOUND",
-      "REVISION_CONFLICT",
-      "PERMISSION_DENIED",
-      "MODULE_UNAVAILABLE",
-      "RESOURCE_BUSY",
-      "RECOVERY_REQUIRED",
-      "INCOMPATIBLE_CONTRACT"
-    ],
-    "summary": "Execute ui.prepare through the authoritative Application service.",
-    "cli": [
-      "ui",
-      "prepare"
-    ],
-    "agentExposed": false
-  },
-  {
-    "method": "ui.ack",
-    "contractVersion": 1,
-    "paramsSchema": "#/$defs/UiAckParams",
-    "resultSchema": "#/$defs/UiAckResult",
-    "classification": "mutation",
-    "execution": "sync",
-    "permission": "ui.session",
-    "idempotency": "optional",
-    "confirmation": "none",
-    "errorCodes": [
-      "INVALID_ARGUMENT",
-      "NOT_FOUND",
-      "REVISION_CONFLICT",
-      "PERMISSION_DENIED",
-      "MODULE_UNAVAILABLE",
-      "RESOURCE_BUSY",
-      "RECOVERY_REQUIRED",
-      "INCOMPATIBLE_CONTRACT"
-    ],
-    "summary": "Execute ui.ack through the authoritative Application service.",
-    "cli": [
-      "ui",
-      "ack"
     ],
     "agentExposed": false
   },
@@ -7772,57 +7144,6 @@ export const COMMAND_SPECS = [
     "cli": [
       "games",
       "discover"
-    ],
-    "agentExposed": false
-  },
-  {
-    "method": "ui.artifacts.authority",
-    "contractVersion": 1,
-    "paramsSchema": "#/$defs/UiArtifactsAuthorityParams",
-    "resultSchema": "#/$defs/UiArtifactsAuthorityResult",
-    "classification": "read",
-    "execution": "sync",
-    "permission": "ui.session",
-    "idempotency": "none",
-    "confirmation": "none",
-    "errorCodes": [
-      "MODULE_UNAVAILABLE",
-      "STALE_SESSION",
-      "INCOMPATIBLE_CONTRACT",
-      "INVALID_PARAMS",
-      "CONFLICT",
-      "PERMISSION_DENIED"
-    ],
-    "summary": "Read exact enabled UI package records and frozen verified roots from the protected admitted active environment; this is not release admission.",
-    "cli": [
-      "ui",
-      "artifacts",
-      "authority"
-    ],
-    "agentExposed": false
-  },
-  {
-    "method": "ui.request",
-    "contractVersion": 1,
-    "paramsSchema": "#/$defs/UiRequestParams",
-    "resultSchema": "#/$defs/UiRequestResult",
-    "classification": "mutation",
-    "execution": "sync",
-    "permission": "ui.session",
-    "idempotency": "optional",
-    "confirmation": "none",
-    "errorCodes": [
-      "MODULE_UNAVAILABLE",
-      "STALE_SESSION",
-      "INCOMPATIBLE_CONTRACT",
-      "INVALID_PARAMS",
-      "CONFLICT",
-      "PERMISSION_DENIED"
-    ],
-    "summary": "Admit a nested standard Application request under the live UI session and exact enabled module/environment binding before dispatch.",
-    "cli": [
-      "ui",
-      "request"
     ],
     "agentExposed": false
   }

@@ -8,13 +8,18 @@ const TARGETS: &[&str] = &["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_6
 #[serde(rename_all="camelCase", deny_unknown_fields)]
 struct Input {
     schema_version: u64, target: String, variant: String,
-    root: PathBuf, policy: PathBuf, bundle: PathBuf, packages: Vec<PathBuf>,
-    scopes: BTreeMap<String, ScopePin>, modules: BTreeSet<String>,
+    #[serde(default)] root: Option<PathBuf>,
+    #[serde(default)] policy: Option<PathBuf>,
+    #[serde(default)] bundle: Option<PathBuf>,
+    #[serde(default)] packages: Vec<PathBuf>,
+    #[serde(default)] scopes: BTreeMap<String, ScopePin>,
+    #[serde(default)] modules: BTreeSet<String>,
     binaries: BTreeMap<String, Binary>, output: PathBuf,
-    #[serde(default)] fixed_webview2: Option<PathBuf>,
+    #[serde(default)] fixed_webview2: Option<ResourceTree>,
     /// Portable only: an explicit relative directory beside the executables, never a legacy database.
     #[serde(default)] portable_data_dir: Option<PathBuf>,
-    #[serde(default)] sources: BTreeMap<String, mintcat_source_api::SourceWorkerConfig>,
+    #[serde(default)] sources: BTreeMap<String, mintcat_source_api::SourceConfig>,
+    #[serde(default)] cloud: Option<serde_json::Value>,
 }
 #[derive(Deserialize, Serialize, PartialEq)]
 #[serde(rename_all="camelCase", deny_unknown_fields)]
@@ -25,6 +30,9 @@ struct Binary { path: PathBuf, sha256: String }
 #[derive(Deserialize, Serialize, PartialEq)]
 #[serde(rename_all="camelCase", deny_unknown_fields)]
 struct FilePin { sha256: Option<String>, mode: u32 }
+#[derive(Deserialize)]
+#[serde(rename_all="camelCase", deny_unknown_fields)]
+struct ResourceTree { path: PathBuf, files: BTreeMap<String, FilePin> }
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all="camelCase", deny_unknown_fields)]
 struct StageManifest {
@@ -39,9 +47,13 @@ struct DataDirectory { mode: String, #[serde(skip_serializing_if="Option::is_non
 #[derive(Deserialize)]
 #[serde(rename_all="camelCase", deny_unknown_fields)]
 struct StagedRuntimeConfiguration {
-    schema_version: u64, trust_root: PathBuf, verification_policy: PathBuf,
-    repository_path: PathBuf, scopes: BTreeMap<String, ScopePin>,
-    sources: BTreeMap<String, mintcat_source_api::SourceWorkerConfig>,
+    schema_version: u64,
+    #[serde(default)] trust_root: Option<PathBuf>,
+    #[serde(default)] verification_policy: Option<PathBuf>,
+    #[serde(default)] repository_path: Option<PathBuf>,
+    #[serde(default)] scopes: BTreeMap<String, ScopePin>,
+    #[serde(default)] sources: BTreeMap<String, mintcat_source_api::SourceConfig>,
+    #[serde(default, rename="cloud")] _cloud: Option<serde_json::Value>,
 }
 fn resolve(base: &Path, path: &Path) -> PathBuf { if path.is_absolute() { path.into() } else { base.join(path) } }
 fn variant(target: &str, variant: &str) -> Result<()> {
@@ -129,24 +141,24 @@ fn check_webview_native_files(directory: &Path, target: &str) -> Result<()> {
     Ok(())
 }
 fn check_closure(verified: &[mintcat_runtime_release::VerifiedScopeRelease], records: &BTreeMap<String, mintcat_runtime_release::PackageRecord>, scopes: &BTreeMap<String, ScopePin>, modules: &BTreeSet<String>) -> Result<()> {
-    let mut actual_scopes = BTreeMap::new(); let mut actual_modules = BTreeSet::new(); let mut needed = BTreeSet::new(); let mut kinds = BTreeSet::new();
+    let mut actual_scopes = BTreeMap::new(); let mut actual_modules = BTreeSet::new(); let mut needed = BTreeSet::new();
     for scope in verified {
         let release = scope.release();
-        if actual_scopes.insert(release.scope_id.clone(), ScopePin { release_id: release.release_id.clone(), sequence: release.sequence, channel: release.channel.clone() }).is_some() { return Err("ambiguous duplicate baseline scope".into()); }
+        if !release.scope_id.starts_with("game:") || scope.package_records().len() != 1 { return Err("each release scope must contain exactly one game package".into()); }
+        if actual_scopes.insert(release.scope_id.clone(), ScopePin { release_id: release.release_id.clone(), sequence: release.sequence, channel: release.channel.clone() }).is_some() { return Err("duplicate game scope".into()); }
         for (digest, record) in scope.package_records() {
-            if records.get(digest) != Some(record) { return Err("offline package differs from signed scope lock".into()); }
+            mintcat_runtime_release::validate_game_manifest(&record.manifest)?;
+            if records.get(digest) != Some(record) { return Err("offline game package differs from signed scope lock".into()); }
             needed.insert(digest.clone()); actual_modules.insert(record.manifest.id.clone());
-            for component in &record.manifest.components { kinds.insert(component.kind.clone()); }
         }
     }
-    if &actual_scopes != scopes || !scopes.contains_key("platform") { return Err("exact platform/game scope locks differ from the release plan".into()); }
-    if &actual_modules != modules || modules.is_empty() || needed != records.keys().cloned().collect() { return Err("complete module/package closure differs from the release plan".into()); }
-    if !["service", "resource", "ui"].iter().all(|kind| kinds.contains(*kind)) { return Err("baseline must contain signed worker, resource and UI components".into()); }
+    if &actual_scopes != scopes { return Err("exact game scope locks differ from the release plan".into()); }
+    if &actual_modules != modules || needed != records.keys().cloned().collect() { return Err("game package closure differs from the release plan".into()); }
     Ok(())
 }
 pub fn stage(manifest_path: &Path) -> Result<()> {
     let input: Input = read_json(manifest_path)?;
-    if input.schema_version != 1 { return Err("unsupported release schema".into()); }
+    if input.schema_version != 2 { return Err("release input requires schemaVersion=2".into()); }
     variant(&input.target, &input.variant)?;
     let data_directory = data_directory(&input.variant, input.portable_data_dir)?;
     if (input.variant == "fixed-webview2") != input.fixed_webview2.is_some() { return Err("fixed WebView2 requires an authenticated runtime tree; other variants must not supply one".into()); }
@@ -154,21 +166,41 @@ pub fn stage(manifest_path: &Path) -> Result<()> {
     let base = manifest_path.parent().unwrap_or(Path::new("."));
     let output = resolve(base, &input.output);
     if output.exists() { return Err("release stage already exists; choose a fresh immutable directory".into()); }
-    let root_path = resolve(base, &input.root);
-    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-    let policy: VerificationPolicy = read_json(&resolve(base, &input.policy))?;
-    if policy.target != input.target || policy.host_api != "1" { return Err("release target/host API differs from verification policy".into()); }
-    let bundle: RepositoryBundle = read_json(&resolve(base, &input.bundle))?;
-    let packages = input.packages.iter().map(|p| resolve(base, p)).collect::<Vec<_>>();
+    let games = !input.scopes.is_empty();
+    if games != (input.root.is_some() && input.policy.is_some() && input.bundle.is_some()) ||
+        (!games && (input.root.is_some() || input.policy.is_some() || input.bundle.is_some() || !input.packages.is_empty() || !input.modules.is_empty())) {
+        return Err("configured games require root, policy, bundle and packages; a builtin-only stage must not supply game signing inputs".into());
+    }
+    check_sources(&input.sources)?;
+    let packages = input.packages.iter().map(|path| resolve(base, path)).collect::<Vec<_>>();
     let parent = output.parent().unwrap_or(Path::new(".")); fs::create_dir_all(parent)?;
     let temporary = parent.join(format!(".release-stage-{}", uuid::Uuid::new_v4())); fs::create_dir(&temporary)?;
     let attempt: Result<()> = (|| {
-        let verifier = RepositoryVerifier::from_pinned_file(temporary.join("verification-state.json"), &root_path)?;
-        let verified = verifier.verify(&bundle, &policy, now)?; let root = verifier.trusted_root(now)?;
-        let mut records = BTreeMap::new();
-        for package in &packages { let record = verify_package(package, &root, &policy)?; if records.insert(record.digest.clone(), record).is_some() { return Err("duplicate supplied package".into()); } }
-        check_closure(&verified, &records, &input.scopes, &input.modules)?;
-        check_sources(&records, &input.sources)?;
+        let mut runtime = json!({"schemaVersion":2,"scopes":input.scopes,"sources":input.sources});
+        if let Some(cloud) = &input.cloud { runtime["cloud"] = cloud.clone(); }
+        if games {
+            let root_path = resolve(base, input.root.as_ref().expect("validated game root"));
+            let policy: VerificationPolicy = read_json(&resolve(base, input.policy.as_ref().expect("validated game policy")))?;
+            if policy.target != input.target || policy.host_api != "1" { return Err("release target/host API differs from verification policy".into()); }
+            let bundle: RepositoryBundle = read_json(&resolve(base, input.bundle.as_ref().expect("validated game bundle")))?;
+            let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+            let verifier = RepositoryVerifier::from_pinned_file(temporary.join("verification-state.json"), &root_path)?;
+            let verified = verifier.verify(&bundle, &policy, now)?; let root = verifier.trusted_root(now)?;
+            let mut records = BTreeMap::new();
+            for package in &packages { let record = verify_package(package, &root, &policy)?; if records.insert(record.digest.clone(), record).is_some() { return Err("duplicate supplied game package".into()); } }
+            check_closure(&verified, &records, &input.scopes, &input.modules)?;
+            LocalRepository::open(&temporary.join("baseline"))?.publish_bundle(&bundle, &packages, &root, &policy, now)?;
+            fs::create_dir(temporary.join("trust"))?;
+            let mut options = fs::OpenOptions::new(); options.create_new(true).write(true);
+            #[cfg(unix)] { use std::os::unix::fs::OpenOptionsExt; options.mode(0o644); }
+            let mut pinned = options.open(temporary.join("trust/root.json"))?; pinned.write_all(&serde_json::to_vec(root.envelope())?)?; pinned.sync_all()?;
+            fs::write(temporary.join("trust/policy.json"), serde_json::to_vec_pretty(&policy)?)?;
+            runtime["trustRoot"] = json!("trust/root.json");
+            runtime["verificationPolicy"] = json!("trust/policy.json");
+            runtime["repositoryPath"] = json!("baseline");
+            fs::remove_file(temporary.join("verification-state.json"))?;
+            fs::remove_file(temporary.join("verification-state.release-lock"))?;
+        }
         let extension = if input.target.contains("windows") { ".exe" } else { "" };
         for (name, binary) in &input.binaries {
             let source = resolve(base, &binary.path); check_binary(&source, &input.target)?;
@@ -176,22 +208,19 @@ pub fn stage(manifest_path: &Path) -> Result<()> {
             let destination = temporary.join(format!("{name}{extension}")); fs::copy(&source, &destination)?;
             if sha256(&fs::read(&destination)?) != binary.sha256 { return Err("native binary changed while staging".into()); }
         }
-        LocalRepository::open(&temporary.join("baseline"))?.publish_bundle(&bundle, &packages, &root, &policy, now)?;
-        fs::create_dir(temporary.join("trust"))?;
-        let mut options = fs::OpenOptions::new(); options.create_new(true).write(true);
-        #[cfg(unix)] { use std::os::unix::fs::OpenOptionsExt; options.mode(0o644); }
-        let mut pinned = options.open(temporary.join("trust/root.json"))?; pinned.write_all(&serde_json::to_vec(root.envelope())?)?; pinned.sync_all()?;
-        fs::write(temporary.join("trust/policy.json"), serde_json::to_vec_pretty(&policy)?)?;
         fs::write(temporary.join("scope-locks.json"), serde_json::to_vec_pretty(&input.scopes)?)?;
-        fs::write(temporary.join("runtime.json"), serde_json::to_vec_pretty(&json!({"schemaVersion":1,"trustRoot":"trust/root.json","verificationPolicy":"trust/policy.json","repositoryPath":"baseline","scopes":input.scopes,"sources":input.sources}))?)?;
-        if let Some(runtime) = &input.fixed_webview2 {
-            let runtime = fs::canonicalize(resolve(base, runtime))?;
-            let authenticated = packages.iter().any(|package| fs::canonicalize(package.join("payload")).ok().as_ref() == Some(&runtime) && read_json::<mintcat_sdk::ModuleManifest>(&package.join("module.json")).map(|manifest| records.values().any(|record| record.manifest == manifest && manifest.components.iter().any(|component| component.kind == "resource" && component.runtime == "data"))).unwrap_or(false));
-            if !authenticated { return Err("fixed WebView2 must be the payload of a verified signed baseline resource package".into()); }
-            check_webview_runtime(&runtime, &input.target)?; copy_tree(&runtime, &temporary.join("webview2"))?;
+        fs::write(temporary.join("runtime.json"), serde_json::to_vec_pretty(&runtime)?)?;
+        if let Some(resource) = &input.fixed_webview2 {
+            let source = resolve(base, &resource.path);
+            let metadata = fs::symlink_metadata(&source)?;
+            if !metadata.is_dir() || metadata.file_type().is_symlink() { return Err("fixed WebView2 must be a real resource directory".into()); }
+            let mut files = BTreeMap::new(); inventory::<false>(&source, &source, &mut files, false)?;
+            if files.is_empty() || files != resource.files { return Err("fixed WebView2 resource bytes/permissions differ from explicit input pins".into()); }
+            check_webview_runtime(&source, &input.target)?;
+            let destination = temporary.join("webview2"); copy_tree(&source, &destination)?;
+            let mut copied = BTreeMap::new(); inventory::<false>(&destination, &destination, &mut copied, false)?;
+            if copied != files { return Err("fixed WebView2 resources changed while staging".into()); }
         }
-        fs::remove_file(temporary.join("verification-state.json"))?;
-        fs::remove_file(temporary.join("verification-state.release-lock"))?;
         // Repository producer state uses private permissions. A shipped baseline
         // contains only public signed distribution data and must remain readable
         // when the installer owns it and runtime state belongs to another user.
@@ -200,7 +229,7 @@ pub fn stage(manifest_path: &Path) -> Result<()> {
             fs::set_permissions(&temporary, fs::Permissions::from_mode(0o755))?;
         }
         let mut files = BTreeMap::new(); inventory::<true>(&temporary, &temporary, &mut files, true)?;
-        let manifest = StageManifest { schema_version: 1, target: input.target.clone(), variant: input.variant.clone(), scopes: input.scopes, modules: input.modules, binaries: input.binaries.into_iter().map(|(name, binary)| (name, binary.sha256)).collect(), files, data_directory };
+        let manifest = StageManifest { schema_version: 2, target: input.target.clone(), variant: input.variant.clone(), scopes: input.scopes, modules: input.modules, binaries: input.binaries.into_iter().map(|(name, binary)| (name, binary.sha256)).collect(), files, data_directory };
         fs::write(temporary.join("release-manifest.json"), serde_json::to_vec_pretty(&manifest)?)?;
         #[cfg(unix)] {
             use std::os::unix::fs::PermissionsExt;
@@ -224,57 +253,85 @@ pub fn verify_stage(directory: &Path, target: &str, requested_variant: &str, man
     let bytes = fs::read(directory.join("release-manifest.json"))?;
     if sha256(&bytes) != manifest_sha256 { return Err("immutable stage manifest pin differs from the assembly plan".into()); }
     let manifest: StageManifest = serde_json::from_slice(&bytes)?;
-    if manifest.schema_version != 1 || manifest.target != target || manifest.variant != requested_variant { return Err("stage schema/target/variant differs from the assembly plan".into()); }
+    if manifest.schema_version != 2 || manifest.target != target || manifest.variant != requested_variant { return Err("stage schema/target/variant differs from the assembly plan".into()); }
     data_directory(requested_variant, manifest.data_directory.path.clone()).and_then(|expected| if expected.mode == manifest.data_directory.mode { Ok(expected) } else { Err("invalid declared data directory mode".into()) })?;
     if manifest.binaries.keys().cloned().collect::<BTreeSet<_>>() != expected_binaries(requested_variant) { return Err("incomplete stage native binaries".into()); }
     let mut files = BTreeMap::new(); inventory::<false>(directory, directory, &mut files, true)?;
     if files != manifest.files { return Err("immutable stage bytes or permissions changed after verification".into()); }
     let extension = if target.contains("windows") { ".exe" } else { "" };
     for (name, digest) in &manifest.binaries { let path = directory.join(format!("{name}{extension}")); check_binary(&path, target)?; if sha256(&fs::read(path)?) != *digest { return Err("stage binary hash differs from compiled release pin".into()); } }
-    let policy: VerificationPolicy = read_json(&directory.join("trust/policy.json"))?;
-    if policy.target != target || policy.host_api != "1" { return Err("stage verification policy target/host API mismatch".into()); }
-    let temporary = std::env::temp_dir().join(format!("mintcat-stage-verify-{}", uuid::Uuid::new_v4())); fs::create_dir(&temporary)?;
-    let result: Result<()> = (|| {
+    let configuration: StagedRuntimeConfiguration = read_json(&directory.join("runtime.json"))?;
+    let scope_locks: BTreeMap<String, ScopePin> = read_json(&directory.join("scope-locks.json"))?;
+    if configuration.schema_version != 2 || configuration.scopes != manifest.scopes || scope_locks != manifest.scopes { return Err("stage runtime configuration differs from pinned game scopes".into()); }
+    check_sources(&configuration.sources)?;
+    if manifest.scopes.is_empty() {
+        if configuration.trust_root.is_some() || configuration.verification_policy.is_some() || configuration.repository_path.is_some() || !manifest.modules.is_empty() || directory.join("baseline").exists() || directory.join("trust").exists() { return Err("builtin-only stage contains unexpected game signing inputs".into()); }
+    } else {
+        if configuration.trust_root.as_deref() != Some(Path::new("trust/root.json")) || configuration.verification_policy.as_deref() != Some(Path::new("trust/policy.json")) || configuration.repository_path.as_deref() != Some(Path::new("baseline")) { return Err("game runtime paths must be exact relocatable stage paths".into()); }
+        let policy: VerificationPolicy = read_json(&directory.join("trust/policy.json"))?;
+        if policy.target != target || policy.host_api != "1" { return Err("stage verification policy target/host API mismatch".into()); }
+        let temporary = tempfile::tempdir()?;
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        let verifier = RepositoryVerifier::from_pinned_file(temporary.join("state.json"), &directory.join("trust/root.json"))?;
+        let verifier = RepositoryVerifier::from_pinned_file(temporary.path().join("state.json"), &directory.join("trust/root.json"))?;
         let bundle: RepositoryBundle = read_json(&directory.join("baseline/current.json"))?;
         let verified = verifier.verify(&bundle, &policy, now)?; let root = verifier.trusted_root(now)?;
         let mut records = BTreeMap::new();
-        for entry in fs::read_dir(directory.join("baseline/artifacts/sha256"))? { let entry = entry?; let record = verify_package(&entry.path(), &root, &policy)?; if entry.file_name().to_str() != Some(&record.digest[7..]) || records.insert(record.digest.clone(), record).is_some() { return Err("stage artifact identity collision".into()); } }
+        for entry in fs::read_dir(directory.join("baseline/artifacts/sha256"))? { let entry = entry?; let record = verify_package(&entry.path(), &root, &policy)?; if entry.file_name().to_str() != Some(&record.digest[7..]) || records.insert(record.digest.clone(), record).is_some() { return Err("stage game artifact identity collision".into()); } }
         check_closure(&verified, &records, &manifest.scopes, &manifest.modules)?;
-        let configuration: StagedRuntimeConfiguration = read_json(&directory.join("runtime.json"))?;
-        let scope_locks: BTreeMap<String, ScopePin> = read_json(&directory.join("scope-locks.json"))?;
-        if configuration.schema_version != 1 || configuration.trust_root != Path::new("trust/root.json") || configuration.verification_policy != Path::new("trust/policy.json") || configuration.repository_path != Path::new("baseline") ||
-            configuration.scopes != manifest.scopes || scope_locks != manifest.scopes {
-            return Err("stage runtime configuration differs from the exact relocatable baseline".into());
-        }
-        check_sources(&records, &configuration.sources)?;
-        if requested_variant == "fixed-webview2" {
-            check_webview_runtime(&directory.join("webview2"), target)?;
-            let mut webview_files = BTreeMap::new(); inventory::<false>(&directory.join("webview2"), &directory.join("webview2"), &mut webview_files, false)?;
-            let mut authenticated = false;
-            for (digest, record) in &records {
-                if record.manifest.components.iter().any(|component| component.kind == "resource" && component.runtime == "data") {
-                    let payload = directory.join("baseline/artifacts/sha256").join(&digest[7..]).join("payload");
-                    let mut package_files = BTreeMap::new(); inventory::<false>(&payload, &payload, &mut package_files, false)?;
-                    if package_files == webview_files { authenticated = true; }
-                }
-            }
-            if !authenticated { return Err("fixed WebView2 bytes do not match an authenticated resource payload".into()); }
-        }
-        Ok(())
-    })();
-    let cleanup = fs::remove_dir_all(&temporary);
-    result?; cleanup?;
+    }
+    if requested_variant == "fixed-webview2" { check_webview_runtime(&directory.join("webview2"), target)?; }
     println!("Verified immutable {} stage for {}: {}", requested_variant, target, directory.display());
     Ok(())
 }
 
-fn check_sources(records: &BTreeMap<String, mintcat_runtime_release::PackageRecord>, sources: &BTreeMap<String, mintcat_source_api::SourceWorkerConfig>) -> Result<()> {
-    let expected = records.values().filter_map(|record| record.manifest.id.strip_prefix("source-").map(str::to_owned)).collect::<BTreeSet<_>>();
-    if sources.keys().cloned().collect::<BTreeSet<_>>() != expected { return Err("runtime sources must exactly configure every shipped signed source provider".into()); }
-    for config in sources.values() {
+fn check_sources(sources: &BTreeMap<String, mintcat_source_api::SourceConfig>) -> Result<()> {
+    for (id, config) in sources {
+        if !["modio", "modcat", "nexusmods"].contains(&id.as_str()) { return Err(format!("unknown builtin source: {id}").into()); }
         config.download_origins()?; config.navigation_origins()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtin_release_input_needs_no_game_signing_fields() {
+        let input: Input = serde_json::from_value(json!({
+            "schemaVersion": 2, "target": "aarch64-apple-darwin", "variant": "standard",
+            "binaries": {}, "output": "stage"
+        })).unwrap();
+        assert!(input.root.is_none() && input.policy.is_none() && input.bundle.is_none());
+        assert!(input.scopes.is_empty() && input.modules.is_empty() && input.packages.is_empty());
+        assert!(input.sources.is_empty());
+    }
+
+    #[test]
+    fn builtin_runtime_configuration_is_relocatable_without_a_baseline() {
+        let runtime: StagedRuntimeConfiguration = serde_json::from_value(json!({
+            "schemaVersion": 2, "scopes": {}, "sources": {}
+        })).unwrap();
+        assert!(runtime.trust_root.is_none() && runtime.verification_policy.is_none() && runtime.repository_path.is_none());
+    }
+
+    #[test]
+    fn portable_data_never_overlaps_product_resources() {
+        for path in ["../data", "baseline/data", "trust/data", "runtime.json", "mintcatd.exe/data"] {
+            assert!(data_directory("portable", Some(PathBuf::from(path))).is_err());
+        }
+        assert_eq!(data_directory("portable", Some(PathBuf::from("data"))).unwrap().mode, "portable");
+    }
+
+    #[test]
+    fn stage_inventory_detects_modified_resource_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("resource.dat"), b"original").unwrap();
+        let mut original = BTreeMap::new();
+        inventory::<false>(directory.path(), directory.path(), &mut original, true).unwrap();
+        fs::write(directory.path().join("resource.dat"), b"modified").unwrap();
+        let mut modified = BTreeMap::new();
+        inventory::<false>(directory.path(), directory.path(), &mut modified, true).unwrap();
+        assert!(original != modified);
+    }
 }

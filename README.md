@@ -2,7 +2,7 @@
 ![Logo](apps/desktop/src/assets/icon.ico)
 
 # Introduction
-MintCat manages Deep Rock Galactic and Rogue Core Mods through a standalone Rust daemon, a typed product CLI, independently signed workers/resources/UI modules, and a Tauri Workbench host.
+MintCat manages Deep Rock Galactic and Rogue Core Mods with a standalone Rust daemon, a typed CLI and a Tauri Workbench. UI, Library, sources, Agent and backup ship with the application; only game adapters are independently signed plugins.
 
 
 # Features
@@ -16,59 +16,57 @@ MintCat manages Deep Rock Galactic and Rogue Core Mods through a standalone Rust
 
 
 # Architecture
-- `apps/desktop`: contribution-based Workbench and independent rescue controls; no business SQL or game installer in the renderer.
-- `apps/cli`: `mintcat`, generated domain commands and a canonical Application API escape hatch.
-- `runtime/daemon`: `mintcatd`, authenticated local IPC, durable jobs/actions, controlled brokers and scoped module admission.
-- `modules`: the Library single writer, source providers, Unreal PAK engine, independent game adapters, installation orchestration, Agent, Proxy and backup.
-- `runtime/release` / `runtime/updates`: verified packages and complete per-scope closures, activation barriers, probation, recovery, rollback and leases.
+- `apps/desktop`: statically bundled official Workbench and independent rescue controls; no renderer SQL or game-file writes.
+- `apps/cli`: `mintcat`, generated domain commands and one canonical Application API.
+- `runtime/daemon`: builtin business services, authenticated IPC, durable jobs/actions, network/credential/file brokers and atomic installation commits.
+- `modules`: ordinary Rust business libraries, shared Unreal PAK/UE4SS code, and independently packaged DRG/Rogue Core workers with their resources. Proxy is opt-in through `experimental-proxy`.
+- `runtime/release` / `runtime/updates`: game-only signed packages, independent game scopes, approval, probation, recovery, rollback and retained historical closures.
 - `packages/contracts`: one CommandSpec/schema source for the Rust and TypeScript SDKs.
 - The active desktop sources are `apps/desktop/src` and `apps/desktop/src-tauri`. Retired root-level `src`, `src-tauri` and `public` directories have been removed; do not recreate them as compatibility entrypoints. Native bundle icons live under `apps/desktop/src-tauri/icons`; the frontend logo lives under `apps/desktop/src/assets` and is imported through Vite's asset pipeline, with no shared public directory.
-- Artifact GC combines durable Library content, transfer references, unexpired prepared/applying install plans, active receipts and module/task/service/UI/rollback leases; expired unused plans release their artifacts.
+- Artifact GC retains Library content, transfer references, prepared/applying install plans, active receipts, frozen historical game packages and live task/service/rollback leases; unused expired plans release their artifacts.
 - The Workbench follows the supplied dark/light glass UI references: 172px labeled sidebar, 72px game/search/Profile toolbar, compact source-grouped mod table, pink actions and switches, and translucent rounded surfaces over a native window material—not a simulated wallpaper or whole-window opacity. Light uses a milky tint; Dark uses blue-gray. Sticky table headers and elevated menus remain opaque enough to read. Local import and download management are real Library routes; missing category/compatibility/certification metadata stays “—”. Game settings, Proxy and backup remain under Settings; Agent retains its 680px drawer.
 - Native appearance follows the saved UI theme. macOS uses an Overlay title bar with real traffic lights and a public behind-window `NSVisualEffectView` using `UnderWindowBackground`, not a dense whole-window Sidebar fill. CSS tint layers stay light: window/panel alpha is 18%/16% for Light and 32%/14% for Dark; these are separate from the system material and are not whole-window opacity. Transparent WKWebView still requires Tauri's `macos-private-api` feature and `macOSPrivateApi`, so this configuration is not Mac App Store compatible. Windows 11 22H2+ uses public DWM Acrylic with checked application results; older Windows, Linux, unavailable effects and reduced transparency keep a solid surface. macOS also observes system accessibility changes. Browser preview always uses the solid fallback.
-- Signed UI modules share one host React/ReactDOM/Ant Design runtime. Initial React commit must succeed before a page is admitted; later render failures remain isolated from the frame. Business requests still go through the Application API, and expected API errors do not tear down the page.
+- Official pages and styles share the host React/ReactDOM/Ant Design runtime and are bundled by Vite. Page drafts remain local; mutations go through the Application API and durable jobs survive navigation. Expected API errors stay within the page.
 
-Current design and acceptance limits: [modular runtime architecture](docs/design/modular-runtime-architecture.md) and [execution record](docs/design/modular-refactor-todo.md).
+This README describes the current architecture. [The earlier modular design](docs/design/modular-runtime-architecture.md) and [its execution record](docs/design/modular-refactor-todo.md) remain historical migration evidence.
 
 
 # Build & Dev
 
 ```shell
 pnpm install
-cargo build --workspace --all-targets
+cargo build              # Default desktop, CLI and builtin daemon; no game builds.
 pnpm check
-pnpm dev                 # Browser preview only; no native module/data authority.
-pnpm desktop:native      # Actual Tauri host.
+pnpm dev                 # Actual native Tauri host; builds its daemon first.
+pnpm --filter @mintcat/desktop-vnext dev  # Browser-only preview; no native RPC.
 ```
 
 The old desktop, renderer task executor, CLI bridge and DLL installation entrypoints are retired. Every CLI/daemon development entry requires an explicit data directory through `--data-dir` or `MINTCAT_DATA_DIR`; it never infers the legacy `com.mint.cat` database path.
 
 Local development bundles use `com.mint.cat.vnext.local`. On macOS, a release-mode local app defaults to `~/Library/Application Support/com.mint.cat.vnext.local/vnext`; a debug host uses `isolated-vnext-development` under the same application directory. Earlier `com.mint.cat.vnext.dev` data and production data are not migrated implicitly. Keep local module signing seeds outside shipped artifacts and build-cleanup directories, with mode `0600`; retain them for subsequent signed updates. Replacing a pinned root is not a repair for missing Library data and requires an explicit trust migration or a separate data directory.
 
-Signed game support does not imply an enrolled Library game. Until an installation is registered, the Library page shows setup guidance, and neither Library nor Search requests that game's profiles. Online Search can still browse signed sources before enrollment; adding mods and choosing a target Profile remain disabled until a Profile exists. Existing enrolled games still load their profiles and content through the normal Application API.
+Without game plugins, builtin Library, Agent and backup remain available. Existing games, Profiles and Mods can still be browsed and edited. Discovery, game-specific import/install and source bindings require the corresponding verified game adapter. Search offers configured sources intersecting that adapter's bindings; a supported but unenrolled game can be browsed before a target Profile is created.
+
+Agent sessions require an explicit frozen target: `gameId`, `profileId`, `profileRevision`, `contentRevision`, `installationId` and `installationRevision`. All six fields are required; a credential reference is optional. A model cannot grant approval or replace that target with another game, Profile or installation.
 
 ```shell
 target/debug/mintcatd --data-dir ./target/dev-data --environment development init
 target/debug/mintcat --data-dir ./target/dev-data --json status
 
-# Business modules require an explicitly authenticated baseline configuration.
-MINTCAT_RUNTIME_CONFIG=./runtime.json target/debug/mintcat --data-dir ./target/dev-data --environment development --json doctor
-MINTCAT_RUNTIME_CONFIG=./runtime.json target/debug/mintcat --data-dir ./target/dev-data --environment development --json api games.list --params '{"pageSize":100}'
+# Builtin services start without any signed baseline or game configuration.
+target/debug/mintcat --data-dir ./target/dev-data --environment development --json doctor
+target/debug/mintcat --data-dir ./target/dev-data --environment development --json api games.list --params '{"pageSize":100}'
 ```
 
-`status` does not initialize storage or start a daemon. An unconfigured daemon offers diagnostics/rescue, not an unsigned fallback Library or game installer. The browser preview runs on port 1430 and explicitly lacks native authority. A directory marker prevents an unmarked legacy database directory from being initialized as modular-runtime storage. Each data directory owns one daemon and an authenticated local endpoint: a mode-`0600` Unix socket or an owner-only Windows named pipe.
+`status` does not initialize storage or start a daemon. Native API commands can start the builtin daemon on demand. Explicit game configuration adds verified game packages, not business services. A directory marker prevents an unmarked legacy database directory from being initialized as runtime storage. Each data directory owns one daemon and an authenticated mode-`0600` Unix socket or owner-only Windows named pipe. On Unix, keep fixture paths short enough for the local socket path limit.
 
-### vNext module runtime
+### Independently signed game plugins
 
-Module payloads are published under `artifacts/modules/sha256/<digest>` and are never updated in place. `module.json` owns the target, host API, worker entry, contracts, permissions, and complete file digest list; `signature.json` is an Ed25519 signature over the canonical package digest. Every environment requires a trusted key. Keys registered as development-only are accepted only by an explicitly isolated `development` runtime and never by `production`.
+Each game scope selects one self-contained game package: its worker, descriptor and required resources. UI, remote sources, Library, Agent, backup, engine libraries and standalone resource packages are not independently activated.
 
-Service workers use inherited stdin/stdout pipes for the framed protocol and reserve stderr for logs under `runtime/module-logs`. The host verifies the worker handshake against the signed manifest, performs a health request before registration, binds providers by scope/contract/version, drains active requests before shutdown, and retains artifact leases until the worker or large-file grant is released.
+Packages live under `artifacts/modules/sha256/<digest>` and are never modified in place. `module.json` declares the exact target, host API, worker contract, permissions and complete file identities; `signature.json` authenticates the canonical package digest. Trusted signing keys remain required for every game package. Development-only keys are accepted only in explicitly isolated development runtimes.
 
-```shell
-# Build and exercise the real example worker, signature/target checks,
-# multi-version scoped providers, crash isolation, grants, leases, and GC.
-cargo test -p mintcat-runtime-artifacts -p mintcat-runtime-supervisor
-```
+Workers use framed inherited stdin/stdout and private stderr logs. The host checks the signed handshake and health, admits the exact game provider, and keeps old packages/artifacts pinned by pending tasks and installation receipts. The worker computes verified outputs and a deployment plan; the host owns approval, atomic file commits, recovery and uninstall.
 
 ### vNext durable jobs and actions
 
@@ -86,7 +84,7 @@ cargo test -p mintcat-runtime-jobs -p mintcat-daemon
 
 ### vNext network, credential, and interaction broker
 
-`runtime/broker` is the only vNext transport boundary for source modules. Every request declares exact HTTP(S) origins, redirect limits, response bounds, cancellation, and a direct/forward route policy. Credentials are opaque keychain references and are injected only on their declared origins; caller-supplied authorization, cookie, proxy-authorization, and API-key headers are rejected. Redirects are followed manually, credentials are stripped outside their credential scope, forwarding proxy requests never carry provider credentials, and diagnostics remove query strings and secret values.
+`runtime/broker` is the transport boundary for builtin source providers. Every request declares exact HTTP(S) origins, redirect limits, response bounds, cancellation, and a direct/forward route policy. Credentials are opaque keychain references injected only on declared origins; caller-supplied authorization, cookie, proxy-authorization, and API-key headers are rejected. Redirects strip credentials outside their scope, forwarding requests never carry provider credentials, and diagnostics remove query strings and secrets.
 
 Browser authorization, browser-mediated downloads, and file selection are durable `ActionRequired` transitions, not renderer callbacks. The host validates every browser navigation and callback against declared origins or an explicit custom callback scheme. File paths and browser callback URLs stay in the protected broker grant table; command consumers receive one-time opaque grants, and the broker wipes the protected resource when consumed. A host can explicitly reject or close an interaction, which rejects the action and fails the bound job with `INTERACTION_REJECTED`. Headless jobs remain queryable in `awaiting-approval` and resume after a host completes the same bound action.
 
@@ -100,6 +98,8 @@ cargo test -p mintcat-runtime-broker
 
 `modules/source/api` defines the only source-provider interface used by vNext search, detail, version, dependency, and download-resolution workflows. Source results use stable `ModRef` identities; a short-lived URL is returned only in a `DownloadDescriptor`, never persisted as a version identity.
 
+Configured mod.io, ModCat and Nexus providers run inside the daemon with the real `NetworkBroker`; no source workers are installed. `sources.list` reports configured providers, while verified game descriptors supply bindings. Local input uses a host-authorized grant and a real game binding, not a pretend remote provider.
+
 `modules/source-modio` maps an explicit local game binding to the numeric mod.io game ID. It provides live cursor pagination, sort mapping, detail/review/tag normalization, version and dependency enumeration, URL parsing, and exact remote-file resolution through `runtime/broker`. Stable versions use `file:<remoteFileId>`; selecting an old version cannot silently resolve the latest file. Provider credentials remain broker-owned, and download URLs must stay within the configured CDN origin set.
 
 `modules/source-modcat` keeps ModCat’s `ModId`, `VersionId`, and `FilesId` semantics inside the provider. Game descriptors supply separate ModCat IDs (for example `drg` and `drgrc`), so search/detail results cannot cross DRG and Rogue Core bindings. Every version retains its exact file identity; authenticated download headers and credential references travel only in the bounded `DownloadDescriptor`, not in Library metadata. Empty or blank optional `PicUrl` values are normalized to missing images in search and detail metadata, so absent thumbnails cannot invalidate a result page.
@@ -107,6 +107,8 @@ cargo test -p mintcat-runtime-broker
 `modules/source-nexusmods` keeps Nexus game-domain, mod ID, and file ID semantics inside the provider. GraphQL search uses game-bound live cursors and retains partial GraphQL failures as structured warnings. REST detail/file lookup never substitutes `latest` for an explicit file ID. API keys remain broker-owned; premium or browser-gated downloads return a durable `browser-download` action whose navigation and callback scopes are host-enforced. A captured `nxm:` callback must match the bound game/mod/file and be unexpired before its short-lived key can resolve a constrained CDN descriptor.
 
 `modules/source-local` imports only host-authorized file or directory grants. Files are streamed into the content-addressed artifact store; directories are copied through a no-follow, bounded, two-pass snapshot and encoded as a deterministic directory artifact. PAK, ZIP, unpacked `Content`, JavaScript, and native payloads are classified without persisting the original path. ZIP inspection rejects traversal, absolute/drive/ADS names, links and special files, case-insensitive collisions, excessive depth/count/size/expansion, and compression bombs. Script/native counts remain explicit approval risks.
+
+Each source task freezes the application's exact executable digest, source configuration and verified game descriptors. After the executable changes, an interrupted remote download enters `recovery-required` and must be cancelled and resubmitted. Legacy source-worker generations are recovery inputs only; builtin code does not silently resume their network work. Authorized local input and already-committed Library journals retain their original recovery semantics.
 
 ```shell
 cargo test -p mintcat-source-modio -p mintcat-source-modcat -p mintcat-source-nexusmods -p mintcat-source-local
@@ -130,7 +132,7 @@ cargo test -p mintcat-runtime-transfers
 
 `runtime/downloads` is the single coordinator between source providers, shared transfers, the artifact store, durable jobs, and the Library owner. `mods.setVersion` resolves one exact version/file plan and commits the operation plus outbox before returning its `jobId`; it does not change the requested or effective Profile version early. `cache-only` records verified content without taking a Profile-content lease, while `prepare-and-apply` holds the Profile lease and switches every declared binding and version selection in one fenced Library transaction only after every item has a live verified grant.
 
-Verified items from a failed batch remain cache entries, but the Profile keeps all prior bindings and its prior content revision. Cancellation revokes Library commit authority before detaching transfer consumers. Provider interactions remain durable actions bound to the operation plan and module digest. Checkpoints resume with a fresh fence after restart; a crash after the Library commit is reconciled from the recorded operation result instead of applying a second revision.
+Verified items from a failed batch remain cache entries, but the Profile keeps all prior bindings and its prior content revision. Cancellation revokes Library commit authority before detaching transfer consumers. Provider interactions remain durable actions bound to the operation plan and its frozen authority. Safe checkpoints resume with a fresh fence only while source identity still matches; a crash after the Library commit is reconciled from the recorded operation result instead of applying a second revision.
 
 ```shell
 # Exercise cache/apply separation, batch rollback, shared multi-Profile files,
@@ -175,7 +177,7 @@ cargo test -p mintcat-unreal-pak -p mintcat-engine-unreal-pak
 
 ### vNext UE4SS loader and signed resources
 
-`modules/loader-ue4ss` converts controlled artifacts into a restricted `DeploymentManifest`; it never receives an installation root or extracts an archive into a game. Signed module packages bind every resource file to one explicit target, lock resource ID/version/package digest/publisher/signing key per game, and attach that lock to approval requirements for executable files. Rogue Core settings deterministically add UE 5.6 and both required hooks while Deep Rock Galactic keeps the signed template unchanged.
+`modules/loader-ue4ss` is a shared Rust library that converts controlled artifacts into a restricted `DeploymentManifest`; it never receives an installation root or extracts an archive into a game. Game packages bind resource files to explicit targets, lock resource ID/version/package digest/publisher/signing key, and include those locks in executable-file approvals. Rogue Core settings add UE 5.6 and both required hooks; DRG keeps its own template. UE4SS is not a separately activated plugin.
 
 JS ZIPs and directory snapshots publish only the single selected `js/` tree, native inputs must be PE images marked as DLLs, and audio ZIPs must contain exactly one safety-checked PAK. Portable paths, case and parent/file collisions, links, compression ratios, entry sizes, and aggregate sizes are checked before a target is emitted. Manifests contain exact owned files only; receipt-driven file transactions perform uninstall, so shared `ue4ss` or `mods` directories are never deletion targets.
 
@@ -215,9 +217,9 @@ cargo test -p mintcat-game-rogue-core
 
 `modules/install` resolves one immutable Profile snapshot into ordered, verified game inputs and one pinned module closure. Pack and install call the same game-adapter BuildPlan; pack returns content-addressed outputs without writing the selected game, while install persists an expiring, hashed DeployPlan whose approval binds the exact output digests, target preconditions, and risks. A Library content guard prevents Profile edits from crossing the final revision/order check, and the file-transaction runtime supplies physical-root exclusion, process checks, journaled replacement, recovery, and receipts.
 
-`WorkerGameAdapter` selects providers from the signed game's declared requirements inside the exact closure, rather than requiring every game to bind Unreal. The game worker's `build.prepare` performs engine inspection/conflict reporting and loader planning; both current games explicitly reuse `modules/engine-unreal-pak/src/game_inputs.rs` and the shared UE4SS loader. Prepared deployment files carry authenticated output grants and are adopted into the host artifact store before approval and installation planning. File transactions, approval bindings, journals and receipts remain shared.
+`WorkerGameAdapter` routes to the selected game's signed worker. `build.prepare` performs engine inspection/conflict reporting and loader planning using shared Rust code. Prepared output grants are authenticated and adopted by the host before approval and installation; file transactions, journals and receipts remain shared.
 
-This worker wire contract is version 2, not an alias for version 1. Publish newly signed DRG/RC service/UI packages under new immutable package versions and regenerate their scope locks before starting the new host; do not mix an `@1` baseline with `@2` workers or mutate admitted package bytes. Drain `@1` in-flight work under its original generation rather than redirecting its frozen closure. The existing plans still describe the two supported Unreal games; removing implicit engine binding does not provide a Unity installer or establish a Windows real-game compatibility matrix.
+The worker contract is version 2. New releases use one immutable game package per scope, without a separate engine/resource/UI closure. Historical tasks and receipts retain their exact original packages and resource bindings for recovery and uninstall; they are never redirected to a newer adapter. Licensed game data and authentic required archives remain necessary for real installation.
 
 Known legacy outputs without a receipt require an exact-digest takeover plan and explicit approval. Updating an installation never deletes the last known-good output first. Each successful replacement adds a receipt, and unified uninstall replays the active receipt chain newest-first to restore the original pre-Mintcat bytes or remove files that were originally absent; modified and foreign files remain untouched. Results are returned by plan/apply calls and can be replayed from the persisted plan/receipt instead of inferred from global UI events.
 
@@ -240,7 +242,9 @@ The daemon replays Library outbox rows into `runtime/jobs` with the Library oper
 
 The legacy `rc` game key becomes canonical `rogue-core` / `game:rogue-core` during import, including linked profiles, Mods, installations, hints and per-game settings. Source-specific remote namespaces remain migration metadata; this is not a permanent game API alias.
 
-Exports are deterministic logical snapshots from one read transaction. A synced same-directory temporary file is atomically linked to a new backup path; exports never overwrite an existing backup. Restore requires an empty Library database.
+Exports are deterministic logical snapshots. A synced temporary file is atomically linked to a new backup path; exports never overwrite a backup. Portable format2/Library4 archives restore into current Library5, including data-owner settings, without requiring retired stateless UI/source packages. Empty-owner admission, content identity, schema compatibility, credential exclusion and human approval remain mandatory; execution authority is never transplanted.
+
+Cloud backup additionally requires a configured HTTPS service origin implementing `/v1/backups`, allowed origins for external download URLs, and a daemon-owned credential reference. The default local application has no cloud endpoint. Missing service configuration is reported as non-retryable `CLOUD_PREREQUISITE` with a safe UI message; offline export/import remains available. Backup and Agent Application API errors use the shared UI presentation rather than raw error JSON.
 
 Library query and edit commands use the same owner and gate. `games.list`, Profile and group CRUD, paged Mod reads, shared rename, association-only remove, first-wins moves, batch enable/disable, scoped missing-local cleanup, and version downloads all require explicit game/Profile/member IDs. Mutations require idempotency keys and expected revisions; reads never create or activate a Profile. The native desktop bridge, product CLI, and Agent command catalog consume these generated contracts rather than opening Library storage.
 
@@ -254,37 +258,32 @@ cargo test -p mintcat-library-service -p mintcat-daemon
 ```shell
 # Call the typed Application API without a GUI. Mutations additionally require
 # --idempotency-key and their contract-specific expected revision.
-pnpm cli -- --data-dir ./target/dev-data --environment development api games.list --params '{"pageSize":100}'
+pnpm cli --data-dir ./target/dev-data --environment development api games.list --params '{"pageSize":100}'
 ```
 
-## Product CLI and module development
+## Product CLI and game development
 
-`mintcat` connects to the standalone `mintcatd`; the desktop does not need to be running. The daemon loads an explicitly configured, authenticated offline baseline. An unconfigured daemon exposes diagnostics/rescue, not a hidden unsigned Library or game implementation.
+`mintcat` connects to standalone `mintcatd`; the desktop need not be running. Builtin services require no signed baseline. Game plugins use an explicit schemaVersion=2 `runtime.json` containing game scopes, repository/trust/policy and source configuration.
 
 ```shell
 pnpm build:cli
-pnpm cli -- --help
-MINTCAT_RUNTIME_CONFIG=./runtime.json pnpm cli -- --data-dir ./target/dev-data --environment development --json api games.list --params '{"pageSize":100}'
-pnpm cli -- --data-dir ./target/dev-data --json jobs wait --job-id <job-id> --wait-timeout 30
+pnpm cli --help
+pnpm cli --data-dir ./target/dev-data --environment development --json api games.list --params '{"pageSize":100}'
+pnpm cli --data-dir ./target/dev-data --json jobs wait --job-id <job-id> --wait-timeout 30
 ```
 
-Domain help, pagination, completion and JSON validation come from the same CommandSpec as the Application API. Mutations require an idempotency key and their expected revisions. Durable jobs and actions survive client disconnects; an approval is bound to its frozen target and revision. `--yes` does not let an Agent or a stale action bypass human-only approval. `api jobs.watch` returns one canonical result envelope; `jobs watch`, `jobs wait`, or an explicit `--wait`/`--events` request follow jobs using JSON-line events and authoritative snapshots. Diagnostics go to stderr.
-
-Module development and release use one executable:
+Commands, help, pagination and JSON validation share the Application CommandSpec. Mutations require idempotency keys and expected revisions. `jobs.watch` returns retained events and the authoritative snapshot; jobs and approval bindings survive disconnects. `--yes` declares a human request, not approval of a durable action or permission to bypass a stale target.
 
 ```shell
-target/debug/mintcat-module new ./target/example-module --id local.example --target aarch64-apple-darwin
-target/debug/mintcat-module dev ./target/example-module --dev-root ./target/example-dev --key /path/to/test-only.seed
-target/debug/mintcat-module check ./target/example-module
-target/debug/mintcat-module pack ./target/example-module --key /path/to/signing.seed --output ./target/example.mcpkg
-target/debug/mintcat-module release --help
+pnpm game check modules/game-drg --target aarch64-apple-darwin
+pnpm game pack modules/game-drg --target aarch64-apple-darwin \
+  --key /path/to/game-signing.seed --output ./target/drg-package
+pnpm game release --help
 ```
 
-`mintcat-module` incrementally builds a signed worker/UI generation, invokes the real framed worker protocol, serves the owning UI package with the shared SDK, and drains the old process before replacement. `release compose/verify/publish` creates and checks exact scope bindings, signatures, target triples and immutable package bytes in a selected local repository; it never edits an online release pointer implicitly. The runnable `new` example is not an implementation of an existing game.
-The isolated UI host mounts one authenticated `pages` contribution at a time. Its page links select the route in the URL hash and reload with the same scoped session state; additional Library pages no longer create multiple renderers in one container. The standalone worker host does not grant Application mutation authority.
+`check` and `pack` build only the selected game and validate its required signed payload. The official DRG and Rogue Core projects currently lack authentic `resources/drg-patch.zip` and `resources/rogue-core-patch.zip`; packaging deliberately refuses until those inputs are supplied. Generic `new/dev` scaffolding and a standalone UI host are retired.
 
-The local workflow was exercised through `new/dev/check/pack/compose/verify/publish` and pinned standalone-CLI staging on `aarch64-apple-darwin`. This does not establish Windows installation, production signing, real-game compatibility or native Workbench visual acceptance.
-
+For mechanism-only verification, `node tools/module-dev/smoke-games.mjs --help` describes isolated TEST-ONLY fixtures using real workers. It exercises check/pack/stage and actual worker authorization, and rejects marker-only archives before deployment. Those fixtures are not installable game resources.
 
 # Packaging and runtime data
 
@@ -292,51 +291,37 @@ The local workflow was exercised through `new/dev/check/pack/compose/verify/publ
 
 ```shell
 pnpm package:app
-# Explicit signed baseline and fresh output directory:
-pnpm package:app --baseline /path/to/MintCat.app --output target/my-app-build
+# Optionally include explicitly verified games; never rebuild them here:
+pnpm package:app --game-config /path/to/runtime.json --output target/my-app-build
 pnpm package:app --help
 ```
 
-Requires macOS, the installed JavaScript/Rust build toolchains, and a signed baseline for the host architecture. By default, the script reuses `target/release/bundle/macos/MintCat.app`; `--baseline` also accepts a complete immutable stage or an app's `Contents/Resources` directory. A missing/incomplete baseline fails before building rather than producing a desktop-only bundle.
+Requires macOS and installed JavaScript/Rust toolchains. The default is a fresh builtin-only application with no games, no baseline and no publisher signing key. `--game-config` accepts schemaVersion=2 game-only scopes and reuses their verified packages, trust, policy and source configuration.
 
-`scripts/build-app.mjs` rebuilds the frontend and all four native executables, hashes the binaries, creates and verifies an immutable stage, and invokes the existing assembler for the `.app` target only. It verifies the final bundle signature and embedded UI. Output defaults to a fresh `target/app-builds/<timestamp>-<pid>/assembled/bundles/macos/MintCat.app`; existing outputs and the input baseline are never overwritten.
+The builder compiles static UI plus desktop, CLI, daemon and verifier for the explicit host target using the shared Cargo cache. It pins binaries with streamed SHA-256, verifies an immutable stage, assembles and checks an ad-hoc-signed `.app`. Output is `target/app-builds/<timestamp>-<pid>/assembled/bundles/macos/MintCat.app`; existing outputs are not replaced.
 
-This is a local ad-hoc-signed build, not a production release. It reuses signed module versions, trust and source configuration without reading a signing seed, resetting databases, advancing active scopes or launching the GUI. Changes to business modules require a newly signed baseline supplied with `--baseline`; the script does not silently ship unsigned replacements. Actual native GUI startup remains an acceptance check separate from packaging.
+Business updates arrive with the application; game updates remain independently signed. Assembly does not change product versions, reset data, read publisher keys, publish pointers or launch the GUI. Native startup and interaction are separate from signing and embedded-asset checks.
 
 ### Verified release assembly
 
-All release flavors use one verified immutable stage and assembler:
-
 ```shell
+pnpm build
 target/debug/mintcat-module stage --manifest ./release-input.json
 MINTCAT_MODULE_BIN=./target/debug/mintcat-module node scripts/package-cli.mjs --manifest ./assembly.json
 # GUI flavors: scripts/build-release.sh, build-portable.mjs, build-fixed-webview2.mjs.
 ```
 
-GUI artifacts must embed the offline Workbench rather than require the development server:
+Release inputs and runtime manifests use schemaVersion=2. Assembly inputs require an explicit signing mode and stage-manifest SHA-256 pin. Exact target, builtin binaries and selected game package/scope identities are verified. Builtin-only inputs omit game trust/repository resources. Portable and fixed WebView2 flavors are Windows MSVC-only; fixed WebView2 is a pinned native resource and forbids system-runtime fallback. Production signing/notarization requires explicit credentials.
 
-```shell
-pnpm build
-cargo build -p mintcat-desktop-vnext --features custom-protocol
-target/debug/mintcat-desktop-vnext --verify-embedded-ui
-```
+A complete GUI bundle contains static Workbench assets, `runtime.json`, its immutable release manifest and sibling `mintcat`, `mintcatd` and `mintcat-module`. Game configurations additionally include verified baseline/trust resources. Do not ship a bare desktop `tauri bundle`. The assembler checks embedded assets; acceptance also requires native launch, daemon health and changed interactions.
 
-The assembler invokes that native self-check for GUI flavors and rejects a dev-only desktop before creating an output. This checks embedded assets, not native UI visual acceptance.
+Shipped CLI/daemon discover the same resource configuration as the desktop: executable siblings for standalone/Windows, `Contents/Resources` in a macOS app, and product resources on Linux. A partial sibling release is an error.
 
-The embedded-UI self-check does not validate a runnable application. Do not distribute a bare `tauri bundle` of the desktop executable: release-mode startup also requires `runtime.json`, the immutable release manifest, the authenticated module baseline/trust resources, and sibling `mintcat`, `mintcatd`, and `mintcat-module` executables. Build a complete stage and use the assembler above, including for an ad-hoc-signed local `.app`. Verify the actual native launch, signed Workbench page admission, `modules.list`, and daemon diagnostics—not just CodeSign and embedded assets.
+Bundled game pins initialize missing scopes, but replacing the app does not advance existing scopes. Updates use `updates.stage` → `updates.prepare` → `updates.activate` → `updates.confirm`, with expected revision, durable idempotency and human activation approval. Game routes publish atomically after confirmation; historical tasks and receipts keep their old closures. There is no platform/UI activation barrier.
 
-The repaired local application is `target/release/bundle/macos/MintCat.app`; its verified assembly inputs and complete bundle are under `target/mac-app-startup-fixed`. This rebuild reuses the retained 13-module signed baseline, existing trust root and confirmed scope releases without clearing or migrating the local data directory.
+Source browsing is separate from binary-download authority. mod.io and Nexus can read with empty `downloadOrigins`, but authenticated operations still need broker-managed credentials. Missing authorization is explicit; users may select another configured, game-bound source. UI diagnostics keep credentials and provider response text out of default messages.
 
-Inputs must pin the exact target, binaries, signed worker/resource/UI closure, scope locks and stage-manifest SHA-256. Portable and fixed WebView2 are Windows MSVC-only; fixed WebView2 verifies native files and forbids system-runtime fallback. Production signing/notarization requires explicit credentials. No release assembler silently builds its verifier or uses a developer's Cargo at runtime.
+`kernel.sqlite3` stores durable runtime state, `runtime/` owns transport/logs, `state/` owns business data and maintenance evidence, and `artifacts/` owns immutable content/packages. Legacy databases are read-only import inputs, never a second active writer. Use `--data-dir` for isolated validation.
 
-Shipped CLI/daemon discover the same relative runtime configuration as the desktop: executable siblings for standalone/Windows, `Contents/Resources` for a macOS app, and the compiled product resource directory on Linux. A partial sibling release is an error, not permission to choose another baseline.
+TEST-ONLY local staging and worker execution do not establish licensed-game installation or a clean Windows machine matrix. Authentic patch/optional UE4SS resources and an authorized Windows host remain prerequisites for those checks.
 
-Bundled scope pins bootstrap missing scopes; replacing the application does not silently advance scopes already registered in the data directory. A retained-data update uses the signed repository and explicit `updates.stage` → `updates.prepare` → `updates.activate` → `updates.confirm`, with an expected scope revision, durable idempotency keys and human approval for activation. Platform probation keeps the state-owner migration gate closed; native routing is published after confirmation, not while that gate is held.
-
-The current local macOS source/error repack under `target/mac-source-errors-fixed/assembled-final/bundles` preserves the `com.mint.cat.vnext.local` data identity and existing signing root. Quit the old desktop before running `node target/mac-source-errors-fixed/activate-local-platform.mjs --yes`; the helper gracefully restarts only the daemon holding that data directory's lock when its executable differs, and explicitly confirms the signed platform update without clearing Library state. If a UI barrier blocks preparation, it rolls back its own preparation to release maintenance rather than fabricate snapshots or disposal acknowledgements. That failed candidate remains quarantined and requires a new signed release; replacing `.app` or deleting quarantine state is not an upgrade. `--data-dir` and `--app` select an explicit isolated fixture or installed application.
-
-Source API browsing is independent of binary download authority: mod.io and Nexus accept an empty `downloadOrigins` for read operations, while provider resolution and host verification still deny unapproved downloads. The local source configuration has no mod.io/Nexus `credentialRef`; these authenticated providers require real broker-managed credentials, and missing/invalid authorization is reported clearly rather than hidden or replaced with an invented key. Users can explicitly switch to an enabled, game-bound alternative such as ModCat. Shared SDK UI error presentation keeps the Chinese cause/action visible and technical identifiers in collapsed diagnostics; provider response text, secrets and credential-bearing URLs are not exposed as default error messages.
-
-CLI/daemon use the declared data directory; the desktop uses its declared isolated runtime directory. `kernel.sqlite3` lives at its root, `runtime/` contains local transport/logs, `state/` contains module-owned state and maintenance evidence, and `artifacts/` contains immutable content/packages. Legacy database paths are import inputs only, never a second active writer.
-
-Local Darwin fixture staging does not establish Windows installation, production signing, real-game compatibility or native Workbench visual acceptance. External prerequisites remain explicit in the execution record.

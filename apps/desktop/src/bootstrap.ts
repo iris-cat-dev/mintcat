@@ -2,8 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import './ui-runtime';
 import { presentUiError, renderUiError } from '@mintcat/sdk-ui';
 import { mountChrome } from './chrome';
-import { hasNativeDaemonConnector, readDaemonStatus, requestApplication, runDaemonDoctor } from './daemon';
-import type { Workbench, ModuleList } from './workbench';
+import { callDaemon, hasNativeDaemonConnector, readDaemonStatus, requestApplication, runDaemonDoctor } from './daemon';
+import type { Workbench } from './workbench';
 import { initializeWindowSurface } from './window-surface';
 
 export async function mountDesktop(app: HTMLElement, configuredDataDir?: string): Promise<void> {
@@ -30,7 +30,7 @@ rescue.append(summary, description, status, controls, modules, output);
 shell.append(sidebar, header, surface, footer, rescue); app.append(shell);
 const chrome = mountChrome(header, footer, brand, () => { rescue.open = !rescue.open; }, native);
 const placeholder = document.createElement('div'); placeholder.className = 'workbench-loading';
-placeholder.textContent = native ? '正在加载已签名模块…' : '浏览器预览只显示桌面框架；游戏、模组与任务需要原生后台。';
+placeholder.textContent = native ? '正在加载工作台…' : '浏览器预览只显示桌面框架；游戏、模组与任务需要原生后台。';
 surface.append(placeholder);
 let workbench: Workbench | undefined;
 let shellGeneration = 0;
@@ -47,7 +47,7 @@ if (native && !configuredDataDir) {
   }
 }
 if (!native || !configuredDataDir) {
-  status.textContent = native ? 'Set VITE_MINTCAT_VNEXT_DATA_DIR to the isolated vNext directory before native use.' : 'Browser preview: shell and rescue layout only. Native signed modules, daemon data and writes are unavailable.';
+  status.textContent = native ? 'Set VITE_MINTCAT_VNEXT_DATA_DIR to the isolated vNext directory before native use.' : 'Browser preview: shell and rescue layout only. Daemon data and writes require the native desktop.';
   placeholder.textContent = status.textContent;
   window.dispatchEvent(new CustomEvent('mintcat-ui-notice', { detail: status.textContent }));
 } else {
@@ -79,6 +79,7 @@ if (!native || !configuredDataDir) {
         workbench = new framework.Workbench(surface, dataDir, showError, modules, navigation, header.querySelector<HTMLElement>('#mc-page-toolbar') ?? undefined);
       }
       await workbench.refresh();
+      if (epoch === shellGeneration) status.textContent = 'Workbench loaded. Persistent daemon jobs continue independently.';
     })().finally(() => { if (starting === pending) starting = undefined; });
     starting = pending;
     return pending;
@@ -90,35 +91,32 @@ if (!native || !configuredDataDir) {
     output.textContent = `${log.truncated ? '[Last 64 KiB]\\n' : ''}${log.text}`;
   });
   button('Local confirmed recovery sets', async () => {
-    const operations = await requestApplication<{ items: Array<{ operationId: string; scopeId: string; phase: string; previous?: { generationId: string; confirmed: boolean } }> }>(dataDir, 'updates.operations', {});
-    output.replaceChildren(document.createTextNode(JSON.stringify(operations, null, 2)));
-    for (const operation of operations.items.filter(item => item.previous?.confirmed)) {
+    const result = await callDaemon(dataDir, 'updates.operations', {});
+    output.replaceChildren(document.createTextNode(JSON.stringify(result, null, 2)));
+    for (const operation of result.operations) {
+      const { operationId, scopeId, previous } = operation;
+      if (typeof operationId !== 'string' || typeof scopeId !== 'string') throw new Error('Invalid recovery operation identity');
+      if (previous == null) continue;
+      if (typeof previous !== 'object' || !('confirmed' in previous) || typeof previous.confirmed !== 'boolean') throw new Error('Invalid previous recovery snapshot');
+      if (!previous.confirmed) continue;
+      if (!('generationId' in previous) || typeof previous.generationId !== 'string') throw new Error('Missing confirmed recovery generation');
       const restore = document.createElement('button'); restore.type = 'button';
-      restore.textContent = `Restore local confirmed ${operation.scopeId}: ${operation.previous!.generationId}`;
+      restore.textContent = `Restore local confirmed ${scopeId}: ${previous.generationId}`;
       restore.addEventListener('click', () => {
-        if (!window.confirm(`Restore the confirmed local set for ${operation.scopeId}? Runtime revision and data rollback gates will be enforced.`)) return;
+        if (!window.confirm(`Restore the confirmed local set for ${scopeId}? Runtime revision and data rollback gates will be enforced.`)) return;
         restore.disabled = true;
-        requestApplication<{ jobId: string }>(dataDir, 'updates.rollback', { operationId: operation.operationId, reason: 'Human rescue UI selected confirmed local recovery set' }, crypto.randomUUID())
-          .then(job => { status.textContent = `Recovery task ${job.jobId} started in daemon. Reload signed workbench after it completes.`; })
+        callDaemon(dataDir, 'updates.rollback', { operationId, reason: 'Human rescue UI selected confirmed local recovery set' }, crypto.randomUUID())
+          .then(job => { status.textContent = `Recovery task ${job.jobId} started in daemon. Reload workbench after it completes.`; })
           .catch(showError).finally(() => { restore.disabled = false; });
       });
       output.append(restore);
     }
   });
-  button('Load signed workbench', startWorkbench);
-  button('Safe mode', async () => { shellGeneration++; starting = undefined; workbench?.dispose(); workbench = undefined; status.textContent = 'Safe mode: UI modules unloaded. Persistent daemon jobs are unchanged.'; });
-  button('Signed module inventory', async () => {
-    const list = await requestApplication<ModuleList>(dataDir, 'modules.list', {});
+  button('Load workbench', startWorkbench);
+  button('Safe mode', async () => { shellGeneration++; starting = undefined; workbench?.dispose(); workbench = undefined; status.textContent = 'Safe mode: workbench closed. Persistent daemon jobs are unchanged.'; });
+  button('Game plugin inventory', async () => {
+    const list = await requestApplication(dataDir, 'modules.list', {});
     output.replaceChildren(document.createTextNode(JSON.stringify(list, null, 2)));
-    for (const module of list.modules) {
-      const enable = document.createElement('button'); enable.type = 'button'; enable.textContent = `Enable UI: ${module.moduleId}`;
-      enable.addEventListener('click', () => {
-        enable.disabled = true;
-        requestApplication(dataDir, 'modules.setEnabled', { moduleId: module.moduleId, enabled: true, expectedGenerationId: list.generationId }, crypto.randomUUID())
-          .then(startWorkbench).catch(showError).finally(() => { enable.disabled = false; });
-      });
-      output.append(enable);
-    }
   });
   void startWorkbench().catch(showError);
 }

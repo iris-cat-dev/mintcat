@@ -4,7 +4,7 @@ use mintcat_game_api::{
 };
 use mintcat_sdk::{
     ModuleActivation, ModuleComponent, ModuleFile, ModuleManifest, ModuleState, PermissionRequest,
-    ProvidedContract, RequiredContract,
+    ProvidedContract,
 };
 use serde_json::json;
 
@@ -140,12 +140,7 @@ pub fn module_manifest(target: &str, host_api: &str, worker: ModuleFile) -> Modu
             version: GAME_ADAPTER_CONTRACT_VERSION,
             cardinality: Some("multi".to_owned()),
         }],
-        requires: vec![RequiredContract {
-            contract_id: "engine.unreal-pak".to_owned(),
-            version_range: "=1".to_owned(),
-            optional: false,
-            binding_scope: None,
-        }],
+        requires: vec![],
         permissions: vec![
             PermissionRequest {
                 capability: "artifact.read".to_owned(),
@@ -162,7 +157,8 @@ pub fn module_manifest(target: &str, host_api: &str, worker: ModuleFile) -> Modu
         ],
         contributes: json!({
             "games": [descriptor()],
-            "scopeId": "game:drg"
+            "scopeId": "game:drg",
+            "bundledResources": [{"resourceId": DRG_PATCH_RESOURCE_ID, "version": "1.0.0", "archivePath": "resources/drg-patch.zip"}]
         }),
         state: ModuleState {
             schema_version: 1,

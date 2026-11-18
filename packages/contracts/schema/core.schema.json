@@ -2643,6 +2643,27 @@
         }
       }
     },
+    "SourcesListParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "ConfiguredSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId"],
+      "properties": {
+        "sourceId": {"type": "string", "enum": ["modio", "modcat", "nexusmods"]}
+      }
+    },
+    "SourcesListResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources"],
+      "properties": {
+        "sources": {"type": "array", "items": {"$ref": "#/$defs/ConfiguredSource"}}
+      }
+    },
     "SourceSearchParams": {
       "type": "object",
       "additionalProperties": false,
@@ -2934,26 +2955,6 @@
         }
       }
     },
-    "ModulesSetEnabledParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "moduleId",
-        "enabled",
-        "expectedGenerationId"
-      ],
-      "properties": {
-        "moduleId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "expectedGenerationId": {
-          "$ref": "#/$defs/Identifier"
-        }
-      }
-    },
     "ModsPackParams": {
       "type": "object",
       "additionalProperties": false,
@@ -3113,178 +3114,6 @@
     },
     "UpdatesGcResult": {
       "type": "object"
-    },
-    "UiSessionOpenParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "sessionId",
-        "generationId"
-      ],
-      "properties": {
-        "sessionId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "generationId": {
-          "$ref": "#/$defs/Identifier"
-        }
-      }
-    },
-    "UiSessionOpenResult": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "sessionId",
-        "generationId",
-        "leaseId"
-      ],
-      "properties": {
-        "sessionId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "generationId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "leaseId": {
-          "$ref": "#/$defs/Identifier"
-        }
-      }
-    },
-    "UiSessionCloseParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "sessionId"
-      ],
-      "properties": {
-        "sessionId": {
-          "$ref": "#/$defs/Identifier"
-        }
-      }
-    },
-    "UiSessionCloseResult": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "closed"
-      ],
-      "properties": {
-        "closed": {
-          "type": "boolean"
-        }
-      }
-    },
-    "UiPrepareParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "sessionId"
-      ],
-      "properties": {
-        "sessionId": {
-          "$ref": "#/$defs/Identifier"
-        }
-      }
-    },
-    "UiBarrier": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "barrierId",
-        "affectedModuleIds",
-        "scopeId",
-        "expectedGenerationId",
-        "newGenerationId",
-        "runtimeChanged",
-        "participants"
-      ],
-      "properties": {
-        "barrierId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "affectedModuleIds": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Identifier"
-          }
-        },
-        "scopeId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "expectedGenerationId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "newGenerationId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "runtimeChanged": {
-          "type": "boolean"
-        },
-        "participants": {
-          "type": "object"
-        }
-      }
-    },
-    "UiPrepareResult": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "barriers"
-      ],
-      "properties": {
-        "barriers": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/UiBarrier"
-          }
-        }
-      }
-    },
-    "UiAckParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "barrierId",
-        "sessionId",
-        "stage"
-      ],
-      "properties": {
-        "barrierId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "sessionId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "stage": {
-          "type": "string",
-          "enum": [
-            "deferred",
-            "disposed",
-            "ready",
-            "failed",
-            "rebuild-required"
-          ]
-        },
-        "state": {},
-        "error": {
-          "type": "string"
-        },
-        "rebuilt": {
-          "type": "boolean"
-        }
-      }
-    },
-    "UiAckResult": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "acknowledged"
-      ],
-      "properties": {
-        "acknowledged": {
-          "type": "boolean"
-        }
-      }
     },
     "AgentConfiguration": {
       "type": "object",
@@ -4278,243 +4107,6 @@
           }
         }
       }
-    },
-    "UiArtifactsAuthorityParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "expectedGenerationId"
-      ],
-      "properties": {
-        "expectedGenerationId": {
-          "$ref": "#/$defs/Identifier"
-        }
-      }
-    },
-    "UiAdmittedPackageRecord": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "manifest",
-        "signature",
-        "digest",
-        "length",
-        "recordDigest"
-      ],
-      "properties": {
-        "manifest": {
-          "$ref": "#/$defs/ModuleManifest"
-        },
-        "signature": {
-          "$ref": "#/$defs/ModuleSignature"
-        },
-        "digest": {
-          "$ref": "#/$defs/Digest"
-        },
-        "length": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "recordDigest": {
-          "$ref": "#/$defs/Digest"
-        }
-      }
-    },
-    "UiRootHeader": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind",
-        "schemaVersion",
-        "version",
-        "expires"
-      ],
-      "properties": {
-        "kind": {
-          "const": "root",
-          "type": "string"
-        },
-        "schemaVersion": {
-          "const": 1,
-          "type": "integer"
-        },
-        "version": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "expires": {
-          "type": "integer",
-          "minimum": 1
-        }
-      }
-    },
-    "UiRootRole": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "keyIds",
-        "threshold"
-      ],
-      "properties": {
-        "keyIds": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/Identifier"
-          }
-        },
-        "threshold": {
-          "type": "integer",
-          "minimum": 1
-        }
-      }
-    },
-    "UiFrozenRootMetadata": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "header",
-        "keys",
-        "roles",
-        "publishers"
-      ],
-      "properties": {
-        "header": {
-          "$ref": "#/$defs/UiRootHeader"
-        },
-        "keys": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "roles": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/UiRootRole"
-          }
-        },
-        "publishers": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            }
-          }
-        }
-      }
-    },
-    "UiMetadataSignature": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "keyId",
-        "signature"
-      ],
-      "properties": {
-        "keyId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "signature": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    "UiFrozenVerifiedRoot": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "signed",
-        "signatures"
-      ],
-      "properties": {
-        "signed": {
-          "$ref": "#/$defs/UiFrozenRootMetadata"
-        },
-        "signatures": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/UiMetadataSignature"
-          }
-        }
-      }
-    },
-    "UiArtifactBinding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "moduleId",
-        "digest",
-        "package",
-        "verifiedRoot"
-      ],
-      "properties": {
-        "moduleId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "digest": {
-          "$ref": "#/$defs/Digest"
-        },
-        "package": {
-          "$ref": "#/$defs/UiAdmittedPackageRecord"
-        },
-        "verifiedRoot": {
-          "$ref": "#/$defs/UiFrozenVerifiedRoot"
-        }
-      }
-    },
-    "UiArtifactsAuthorityResult": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "generationId",
-        "modules"
-      ],
-      "properties": {
-        "generationId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "modules": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/UiArtifactBinding"
-          }
-        }
-      }
-    },
-    "UiRequestParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "sessionId",
-        "generationId",
-        "moduleId",
-        "digest",
-        "request"
-      ],
-      "properties": {
-        "sessionId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "generationId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "moduleId": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "digest": {
-          "$ref": "#/$defs/Digest"
-        },
-        "request": {
-          "$ref": "#/$defs/JsonRpcRequest"
-        }
-      }
-    },
-    "UiRequestResult": {
-      "$ref": "#/$defs/JsonRpcResponse"
     }
   }
 }

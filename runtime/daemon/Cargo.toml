@@ -11,7 +11,7 @@ name = "mintcatd"
 path = "src/main.rs"
 
 [features]
-fixtures = ["mintcat-library-service/fixtures"]
+experimental-proxy = ["dep:mintcat-feature-proxy"]
 
 [dependencies]
 anyhow.workspace = true
@@ -21,7 +21,7 @@ mintcat-install.workspace = true
 mintcat-game-api.workspace = true
 mintcat-feature-agent.workspace = true
 mintcat-feature-backup.workspace = true
-mintcat-feature-proxy.workspace = true
+mintcat-feature-proxy = { workspace = true, optional = true }
 mintcat-source-api.workspace = true
 mintcat-source-local.workspace = true
 mintcat-source-service.workspace = true
@@ -50,7 +50,7 @@ uuid.workspace = true
 target-lexicon.workspace = true
 
 [dev-dependencies]
-mintcat-library-service = { workspace = true, features = ["fixtures"] }
+mintcat-library-service.workspace = true
 tempfile.workspace = true
 async-trait.workspace = true
 mintcat-source-api.workspace = true

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractSetVersion": "1.6.0",
+  "contractSetVersion": "2.0.0",
   "tools": [
     {
       "type": "function",
@@ -1278,6 +1278,27 @@
         "permission": "install.plan",
         "idempotency": "required",
         "confirmation": "policy"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "sources_list",
+        "description": "List configured built-in remote sources without network requests.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        }
+      },
+      "xMintcat": {
+        "command": "sources.list",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "source.read",
+        "idempotency": "none",
+        "confirmation": "none"
       }
     },
     {
@@ -3103,6 +3124,25 @@
       "confirmation": "required"
     },
     {
+      "command": "sources.list",
+      "path": [
+        "sources",
+        "list"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "resultSchema": "#/$defs/SourcesListResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "source.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
       "command": "sources.search",
       "path": [
         "sources",
@@ -3429,44 +3469,6 @@
       "confirmation": "none"
     },
     {
-      "command": "modules.setEnabled",
-      "path": [
-        "modules",
-        "setEnabled"
-      ],
-      "contractVersion": 1,
-      "paramsSchema": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "moduleId",
-          "enabled",
-          "expectedGenerationId"
-        ],
-        "properties": {
-          "moduleId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "enabled": {
-            "type": "boolean"
-          },
-          "expectedGenerationId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          }
-        }
-      },
-      "resultSchema": "#/$defs/ModuleInventory",
-      "classification": "mutation",
-      "execution": "sync",
-      "permission": "modules.ui.write",
-      "idempotency": "required",
-      "confirmation": "none"
-    },
-    {
       "command": "mods.pack",
       "path": [
         "mods",
@@ -3735,150 +3737,6 @@
       "execution": "sync",
       "permission": "updates.gc",
       "idempotency": "required",
-      "confirmation": "none"
-    },
-    {
-      "command": "ui.session.open",
-      "path": [
-        "ui",
-        "session",
-        "open"
-      ],
-      "contractVersion": 1,
-      "paramsSchema": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "sessionId",
-          "generationId"
-        ],
-        "properties": {
-          "sessionId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "generationId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          }
-        }
-      },
-      "resultSchema": "#/$defs/UiSessionOpenResult",
-      "classification": "mutation",
-      "execution": "sync",
-      "permission": "ui.session",
-      "idempotency": "optional",
-      "confirmation": "none"
-    },
-    {
-      "command": "ui.session.close",
-      "path": [
-        "ui",
-        "session",
-        "close"
-      ],
-      "contractVersion": 1,
-      "paramsSchema": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "sessionId"
-        ],
-        "properties": {
-          "sessionId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          }
-        }
-      },
-      "resultSchema": "#/$defs/UiSessionCloseResult",
-      "classification": "mutation",
-      "execution": "sync",
-      "permission": "ui.session",
-      "idempotency": "optional",
-      "confirmation": "none"
-    },
-    {
-      "command": "ui.prepare",
-      "path": [
-        "ui",
-        "prepare"
-      ],
-      "contractVersion": 1,
-      "paramsSchema": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "sessionId"
-        ],
-        "properties": {
-          "sessionId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          }
-        }
-      },
-      "resultSchema": "#/$defs/UiPrepareResult",
-      "classification": "read",
-      "execution": "sync",
-      "permission": "ui.prepare",
-      "idempotency": "none",
-      "confirmation": "none"
-    },
-    {
-      "command": "ui.ack",
-      "path": [
-        "ui",
-        "ack"
-      ],
-      "contractVersion": 1,
-      "paramsSchema": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "barrierId",
-          "sessionId",
-          "stage"
-        ],
-        "properties": {
-          "barrierId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "sessionId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "stage": {
-            "type": "string",
-            "enum": [
-              "deferred",
-              "disposed",
-              "ready",
-              "failed",
-              "rebuild-required"
-            ]
-          },
-          "state": {},
-          "error": {
-            "type": "string"
-          },
-          "rebuilt": {
-            "type": "boolean"
-          }
-        }
-      },
-      "resultSchema": "#/$defs/UiAckResult",
-      "classification": "mutation",
-      "execution": "sync",
-      "permission": "ui.session",
-      "idempotency": "optional",
       "confirmation": "none"
     },
     {
@@ -4581,142 +4439,6 @@
       "execution": "sync",
       "permission": "library.read",
       "idempotency": "none",
-      "confirmation": "none"
-    },
-    {
-      "command": "ui.artifacts.authority",
-      "path": [
-        "ui",
-        "artifacts",
-        "authority"
-      ],
-      "contractVersion": 1,
-      "paramsSchema": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "expectedGenerationId"
-        ],
-        "properties": {
-          "expectedGenerationId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          }
-        }
-      },
-      "resultSchema": "#/$defs/UiArtifactsAuthorityResult",
-      "classification": "read",
-      "execution": "sync",
-      "permission": "ui.session",
-      "idempotency": "none",
-      "confirmation": "none"
-    },
-    {
-      "command": "ui.request",
-      "path": [
-        "ui",
-        "request"
-      ],
-      "contractVersion": 1,
-      "paramsSchema": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "sessionId",
-          "generationId",
-          "moduleId",
-          "digest",
-          "request"
-        ],
-        "properties": {
-          "sessionId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "generationId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "moduleId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "digest": {
-            "type": "string",
-            "minLength": 71,
-            "maxLength": 71,
-            "pattern": "^sha256:[0-9a-f]{64}$"
-          },
-          "request": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "jsonrpc",
-              "id",
-              "method",
-              "contractVersion",
-              "sessionGeneration",
-              "deadlineMs",
-              "params"
-            ],
-            "properties": {
-              "jsonrpc": {
-                "const": "2.0",
-                "type": "string"
-              },
-              "id": {
-                "oneOf": [
-                  {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 200
-                  },
-                  {
-                    "type": "integer",
-                    "minimum": 0
-                  }
-                ]
-              },
-              "method": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200
-              },
-              "contractVersion": {
-                "type": "integer",
-                "minimum": 1
-              },
-              "sessionGeneration": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200
-              },
-              "deadlineMs": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 86400000
-              },
-              "idempotencyKey": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200
-              },
-              "params": {
-                "type": "object"
-              }
-            }
-          }
-        }
-      },
-      "resultSchema": "#/$defs/UiRequestResult",
-      "classification": "mutation",
-      "execution": "sync",
-      "permission": "ui.session",
-      "idempotency": "optional",
       "confirmation": "none"
     }
   ]

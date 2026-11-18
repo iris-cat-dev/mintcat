@@ -110,8 +110,7 @@ body {
 .glass-primary-action.ant-btn-primary:not(:disabled):hover { filter: brightness(1.06); }
 .app-workspace { grid-area: workspace; display: flex; min-width: 0; min-height: 0; position: relative; overflow: hidden; padding: 12px 20px 0; }
 .workbench-content { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
-.app-page-actions:empty, .settings-tabs[hidden], .module-notice:empty { display: none; }
-.app-page-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.settings-tabs[hidden], .module-notice:empty { display: none; }
 .settings-tabs { flex-shrink: 0; }
 .settings-tabs .ant-tabs-nav { margin-bottom: 10px; }
 .module-page { flex: 1; min-width: 0; min-height: 0; overflow: auto; border: 1px solid var(--mc-border); border-radius: 12px; background: var(--mc-panel-bg); box-shadow: inset 0 1px 0 var(--mc-window-highlight); }
@@ -132,13 +131,12 @@ body {
 .rescue summary { cursor: pointer; font-weight: 600; }
 .rescue-directory { overflow-wrap: anywhere; color: var(--mc-muted); }
 .rescue .controls { display: flex; flex-wrap: wrap; gap: 8px; }
-.rescue button, .app-page-actions button, .game-settings button { border: 1px solid var(--mc-border); border-radius: 8px; background: var(--mc-panel-bg); color: inherit; padding: 5px 12px; font: inherit; cursor: pointer; }
-.rescue button:hover, .app-page-actions button:hover, .game-settings button:hover { color: var(--mc-accent); border-color: var(--mc-accent); }
+.rescue button, .game-settings button { border: 1px solid var(--mc-border); border-radius: 8px; background: var(--mc-panel-bg); color: inherit; padding: 5px 12px; font: inherit; cursor: pointer; }
+.rescue button:hover, .game-settings button:hover { color: var(--mc-accent); border-color: var(--mc-accent); }
 .rescue button:disabled { cursor: not-allowed; opacity: .5; }
 .rescue-output { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 350px; overflow: auto; }
-.signed-modules { margin-top: 12px; }
-.signed-modules > div { overflow-wrap: anywhere; padding: 6px 0; }
-.signed-modules button { margin-left: 8px; }
+.game-plugins { margin-top: 12px; }
+.game-plugins > div { overflow-wrap: anywhere; padding: 6px 0; }
 .game-settings { padding: 16px; color: var(--mc-text); }
 .game-settings form { max-width: 640px; background: var(--mc-panel-bg); border: 1px solid var(--mc-border); border-radius: 14px; padding: 8px 20px 20px; }
 .game-settings label { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 12px 0; }

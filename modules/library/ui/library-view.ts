@@ -366,7 +366,7 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
         items: [{ key: 'asc', label: '名称 A → Z', icon: icon('SortAscendingOutlined') }, { key: 'desc', label: '名称 Z → A', icon: icon('SortDescendingOutlined') }],
         onClick: ({ key }: { key: string }) => actions.run(() => actions.sortMods(key as 'asc' | 'desc')),
       } }, button('排序', 'SortAscendingOutlined', undefined, !writable || !!state.query.trim())),
-      h(Antd.Button, { type: 'primary', className: 'library-install-button', icon: icon('SaveOutlined'), disabled: !profile,
+      h(Antd.Button, { type: 'primary', className: 'library-install-button', icon: icon('SaveOutlined'), disabled: !profile || !state.variantId,
         onClick: () => navigateUi('install') }, '安装模组')));
   return h('div', { className: `mod-list-page-card library-page-${page}` },
     toolbar ? createPortal(toolbarNode, toolbar, `library-toolbar:${state.generation}`) : toolbarNode,
@@ -398,7 +398,7 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
           h('thead', null, h('tr', null, ...['#', '名称', '版本', '类别', '多人游戏', '游戏版本', '认证', '启用'].map(label => h('th', { key: label, scope: 'col' }, label)))),
           h('tbody', null, ...tableRows)),
         !tableRows.length && !state.loading ? h(Antd.Empty, { image: Antd.Empty.PRESENTED_IMAGE_SIMPLE,
-          description: state.profileId ? (filter === 'all' ? '暂无匹配的模组' : '没有符合筛选的模组') : '请选择或创建配置' }) : null)) :
+          description: !state.games.length ? '尚未安装游戏支持插件；可先使用备份和 Agent。' : state.profileId ? (filter === 'all' ? '暂无匹配的模组' : '没有符合筛选的模组') : '请选择或创建配置' }) : null)) :
       h('div', { className: 'library-management-page' },
         h('div', { className: 'library-management-heading' },
           h('div', null, h('h2', null, page === 'local' ? '本地导入' : '下载管理'),
@@ -438,7 +438,7 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
         h(Antd.Select<string>, { value: state.variantId || undefined, options: state.games.find(game => game.gameId === state.gameId)?.variants.map(variant => ({ value: variant.variantId, label: variant.displayName })),
           onChange: actions.selectVariant, 'aria-label': '游戏版本' }),
         h(Antd.Input, { value: rootPath, placeholder: '真实游戏安装目录（绝对路径）', 'aria-label': '安装目录', onChange: (event: React.ChangeEvent<HTMLInputElement>) => setRootPath(event.target.value) }),
-        h(Antd.Space, null, h(Antd.Button, { disabled: !state.gameId, onClick: () => actions.run(() => actions.discover(rootPath)) }, '发现安装目录'),
+        h(Antd.Space, null, h(Antd.Button, { disabled: !state.variantId, onClick: () => actions.run(() => actions.discover(rootPath)) }, '发现安装目录'),
           h(Antd.Button, { type: 'primary', disabled: !rootPath.trim() || !state.variantId, onClick: () => actions.run(() => actions.register(rootPath)) }, '验证并注册')),
         state.candidates.length ? h(Antd.Select<string>, { placeholder: '选择发现的安装目录', 'aria-label': '发现的安装目录',
           options: state.candidates.map(candidate => ({ value: `${candidate.variantId}\u0000${candidate.rootPath}`, label: `${candidate.rootPath} · ${candidate.variantId}` })),

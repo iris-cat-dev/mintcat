@@ -25,21 +25,21 @@ const modules: GameModuleList = { generationId: 'signed-generation', modules: [
     gameId: 'example', displayName: '示例游戏', settingsSchemaVersion: 1, settingsSchema: { type: 'object', properties: {} }, variants: [],
     sourceBindings: [{ sourceId: 'modio', remoteGameKey: '2475' }, { sourceId: 'modcat', remoteGameKey: 'example' }, { sourceId: 'disabled', remoteGameKey: 'example' }],
   } } },
-  { moduleId: 'source-modio', enabled: true }, { moduleId: 'source-modcat', enabled: true }, { moduleId: 'source-disabled', enabled: false },
 ] };
-function contextFor(search: (params: CommandParams['sources.search']) => Promise<CommandResult['sources.search']>, games?: () => Promise<CommandResult['games.list']>) {
+function contextFor(search: (params: CommandParams['sources.search']) => Promise<CommandResult['sources.search']>, games?: () => Promise<CommandResult['games.list']>, currentModules = modules, sourceIds = ['modio', 'modcat']) {
   const hostFailure = vi.fn();
   const context: UiContext = {
     moduleId: 'mintcat.ui.search', signal: new AbortController().signal, kit,
-    own: value => value, onGenerationChanged: () => ({ dispose() {} }),
+    own: value => value, onInventoryChanged: () => ({ dispose() {} }),
     async call<M extends CommandName>(method: M, params: CommandParams[M]): Promise<CommandResult[M]> {
       if (method === 'games.list') return (games ? await games() : { items: [] }) as CommandResult[M];
+      if (method === 'sources.list') return { sources: sourceIds.map(sourceId => ({ sourceId })) } as CommandResult[M];
       if (method === 'sources.search') return await search(params as CommandParams['sources.search']) as CommandResult[M];
       throw new Error(`Unexpected command ${method}`);
     },
-    async request<T>(): Promise<T> { return modules as unknown as T; },
+    async request<T>(): Promise<T> { return currentModules as unknown as T; },
     query: (_key, load) => load(), invalidate() {}, state: (_key, _version, fallback) => fallback,
-    saveState() {}, dirty() {}, resource: path => path, notify() {},
+    saveState() {}, dirty() {}, notify() {},
     guard: action => (...args) => { void Promise.resolve().then(() => action(...args)).catch(hostFailure); },
     interval: () => ({ dispose() {} }),
   };
@@ -57,7 +57,7 @@ function click(root: HTMLElement, label: string): void {
 }
 
 describe('search failure transitions', () => {
-  it('shows auth failure rather than empty results and offers only an available signed alternative without a host duplicate', async () => {
+  it('shows auth failure rather than empty results and offers only a configured alternative without a host duplicate', async () => {
     const calls: string[] = [];
     const { context, hostFailure } = contextFor(async params => {
       calls.push(params.sourceId);
@@ -105,5 +105,24 @@ describe('search failure transitions', () => {
     expect(root.textContent).not.toContain('来源授权失败');
     expect(root.textContent).toContain('没有找到模组');
     expect(hostFailure).not.toHaveBeenCalled();
+  });
+  it('guides an empty game inventory without issuing game or search requests', async () => {
+    const search = vi.fn(async () => ({ items: [] }));
+    const games = vi.fn(async () => ({ items: [] }));
+    const { context, hostFailure } = contextFor(search, games, { generationId: 'builtins', modules: [] });
+    const root = await open(context);
+    expect(root.textContent).toContain('尚未安装游戏支持插件');
+    expect(root.textContent).toContain('备份和 Agent 仍可使用');
+    expect(search).not.toHaveBeenCalled(); expect(games).not.toHaveBeenCalled(); expect(hostFailure).not.toHaveBeenCalled();
+  });
+  it('browses Nexus Mods only when it is configured and bound to the selected game', async () => {
+    const inventory = structuredClone(modules);
+    inventory.modules[0].game!.descriptor!.sourceBindings.push({ sourceId: 'nexusmods', remoteGameKey: 'deeprockgalactic' });
+    const search = vi.fn(async (params: CommandParams['sources.search']) => ({ items: params.sourceId === 'nexusmods' && params.remoteGameKey === 'deeprockgalactic' ? [{ reference: { sourceId: 'nexusmods', remoteGameKey: 'deeprockgalactic', remoteModId: 'retained-nexus' }, displayName: '真实绑定来源结果' }] : [] }));
+    const { context } = contextFor(search, undefined, inventory, ['nexusmods']);
+    const root = await open(context);
+    expect([...root.querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(['nexusmods']);
+    await React.act(async () => click(root, '刷新搜索'));
+    expect(root.textContent).toContain('真实绑定来源结果');
   });
 });

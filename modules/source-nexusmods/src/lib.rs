@@ -15,7 +15,7 @@ use mintcat_sdk::{ActionRequired, ModRef};
 use mintcat_source_api::{
     DownloadDescriptor, DownloadResolution, ReviewStatus, SearchPage, SearchRequest,
     SearchSortField, SortDirection, SourceDependency, SourceError, SourceGameBinding, SourceMod,
-    SourceNetworkClient, SourceProvider, SourceVersion, SourceWarning,
+    SourceProvider, SourceVersion, SourceWarning,
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value};
@@ -69,8 +69,8 @@ pub enum NexusDownloadOutcome {
 
 #[derive(Clone)]
 pub struct NexusProvider {
-    broker: SourceNetworkClient,
-    interactions: Option<InteractionClient>,
+    broker: NetworkBroker,
+    interactions: InteractionClient,
     config: NexusConfig,
     api_origin: Origin,
     website_origin: Origin,
@@ -82,12 +82,6 @@ impl NexusProvider {
         interactions: InteractionClient,
         config: NexusConfig,
     ) -> Result<Self, SourceError> {
-        let mut provider = Self::with_network_client(broker.into(), config)?;
-        provider.interactions = Some(interactions);
-        Ok(provider)
-    }
-
-    pub fn with_network_client(broker: SourceNetworkClient, config: NexusConfig) -> Result<Self, SourceError> {
         let api_origin = Origin::from_url(&config.api_base)
             .map_err(|_| SourceError::InvalidArgument("invalid Nexus API origin configuration".into()))?;
         let website_origin = Origin::from_url(&config.website_base)
@@ -105,7 +99,7 @@ impl NexusProvider {
         }
         Ok(Self {
             broker,
-            interactions: None,
+            interactions,
             config,
             api_origin,
             website_origin,
@@ -123,7 +117,7 @@ impl NexusProvider {
         match self.resolve_download(game, mod_ref, cancellation).await {
             Ok(descriptor) => Ok(NexusDownloadOutcome::Ready(descriptor)),
             Err(SourceError::InteractionRequired { target_url, .. }) => {
-                let action = self.interactions.as_ref().ok_or_else(|| SourceError::Unavailable("browser interactions require the host broker".into()))?.request_browser_download(
+                let action = self.interactions.request_browser_download(
                     job_id,
                     context,
                     BrowserDownloadRequest {
@@ -146,13 +140,11 @@ impl NexusProvider {
         mod_ref: &ModRef,
         cancellation: &CancellationToken,
     ) -> Result<DownloadDescriptor, SourceError> {
-        let callback = self.interactions.as_ref()
-            .ok_or_else(|| SourceError::Unavailable("browser interactions require the host broker".into()))?
-            .consume_browser_callback(&action.action_id, &interaction_binding(action))?;
+        let callback = self.interactions.consume_browser_callback(&action.action_id, &interaction_binding(action))?;
         self.resume_download_from_callback(action, game, mod_ref, callback, cancellation).await
     }
 
-    pub async fn resume_download_from_callback(
+    async fn resume_download_from_callback(
         &self,
         action: &ActionRequired,
         game: &SourceGameBinding,
@@ -646,16 +638,6 @@ impl SourceProvider for NexusProvider {
         NexusProvider::resume_download(self, action, game, mod_ref, cancellation).await
     }
 
-    async fn resume_download_callback(
-        &self,
-        action: &ActionRequired,
-        game: &SourceGameBinding,
-        mod_ref: &ModRef,
-        callback: Url,
-        cancellation: &CancellationToken,
-    ) -> Result<DownloadDescriptor, SourceError> {
-        self.resume_download_from_callback(action, game, mod_ref, callback, cancellation).await
-    }
 }
 
 #[derive(Debug)]

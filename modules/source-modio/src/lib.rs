@@ -4,12 +4,12 @@ use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use mintcat_runtime_broker::{
     BrokerError, CancellationToken, CredentialBinding, CredentialPlacement, CredentialRef,
-    NetworkRequest, Origin, ProxyPolicy,
+    NetworkBroker, NetworkRequest, Origin, ProxyPolicy,
 };
 use mintcat_sdk::ModRef;
 use mintcat_source_api::{
     DownloadDescriptor, ReviewStatus, SearchPage, SearchRequest, SearchSortField, SortDirection,
-    SourceDependency, SourceError, SourceGameBinding, SourceMod, SourceNetworkClient, SourceProvider, SourceVersion,
+    SourceDependency, SourceError, SourceGameBinding, SourceMod, SourceProvider, SourceVersion,
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::json;
@@ -29,17 +29,17 @@ pub struct ModioConfig {
 
 #[derive(Clone)]
 pub struct ModioProvider {
-    broker: SourceNetworkClient,
+    broker: NetworkBroker,
     config: ModioConfig,
     api_origin: Origin,
 }
 
 impl ModioProvider {
-    pub fn new(broker: impl Into<SourceNetworkClient>, config: ModioConfig) -> Result<Self, SourceError> {
+    pub fn new(broker: NetworkBroker, config: ModioConfig) -> Result<Self, SourceError> {
         let api_origin = Origin::from_url(&config.api_base)
             .map_err(|_| SourceError::InvalidArgument("invalid mod.io API origin configuration".into()))?;
         Ok(Self {
-            broker: broker.into(),
+            broker,
             config,
             api_origin,
         })

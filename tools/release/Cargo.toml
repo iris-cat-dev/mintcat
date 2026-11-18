@@ -21,3 +21,4 @@ mintcat-game-drg.workspace = true
 mintcat-game-rogue-core.workspace = true
 target-lexicon.workspace = true
 base64.workspace = true
+zip.workspace = true

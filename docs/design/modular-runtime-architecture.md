@@ -1,8 +1,8 @@
 # Mintcat 模块化运行时与大规模重构设计
 
-状态：目标架构与重构前的历史调研基线，不是全部目标能力已验收的声明。当前代码入口为 `apps/desktop`、`apps/cli` 与 `runtime/daemon`；第 1 节的 renderer SQL、Agent CLI bridge、FFI/旧更新路径已经退役，保留为迁移决策证据。当前实现与未完成验收以 [执行记录](modular-refactor-todo.md) 为准。
+状态：**历史设计与迁移调研，不再作为现行发布或实施契约**。2026-11-18 已收窄为“内置业务 + 游戏插件”：官方 UI、Library、来源、Agent、备份随应用发布；仅 DRG 与 Rogue Core 独立签名、安装和更新。Unreal PAK/UE4SS 为共享 Rust 库或游戏包内资源。通用业务插件、签名 UI、platform 热切换与其 session/barrier 设计已被替代；保留本文作为迁移决策证据。
 
-后续实现入口：[可执行重构 TODO](modular-refactor-todo.md)，包含 R00–R35 的依赖、文件范围、动作与验收；下载数据并发的完整协议见 [专项设计](mod-download-concurrency.md)。两份补充文档与本文共同构成实施要求。
+现行入口、构建与数据恢复边界见 [README](../../README.md)。下载并发、持久任务、人工审批和原子文件事务仍有效，见 [专项设计](mod-download-concurrency.md)。
 
 ## 0. 核心决策
 

@@ -5,11 +5,11 @@ mod application;
 mod sources;
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::BTreeMap,
     fs::{self, OpenOptions},
     future::Future,
     io::Write,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, Mutex, RwLock},
 };
 
@@ -35,12 +35,12 @@ use mintcat_runtime_supervisor::{ModuleSupervisor, SupervisorError};
 use mintcat_runtime_transfers::{
     TransferConfig, TransferError, TransferManager, TransferState as RuntimeTransferState,
 };
-use mintcat_feature_backup::{CloudBackupTransport, CloudCredentialProvider, NativeBackupCodec};
+use mintcat_feature_backup::{CloudBackupTransport, CloudCredentialProvider, BackupCodec};
 use mintcat_install::{GameAdapterRegistry, GameCatalog, InstallCoordinator, InstallService};
 use mintcat_runtime_broker::{InteractionClient, InteractionHost};
 use mintcat_runtime_file_transactions::FileTransactionManager;
 use mintcat_runtime_updates::UpdatesCoordinator;
-use mintcat_source_service::{SourceApplication, SourceNetworkHost};
+use mintcat_source_service::SourceApplication;
 use mintcat_sdk::{
     ActionRequired, AppError, ApplicationCommand, DoctorCheck, DoctorCheckStatus, DownloadMode,
     DownloadOverlay, DownloadOverlayItem, JobState, JsonRpcId, ProfilesContentStateResult,
@@ -84,7 +84,6 @@ pub struct BoundDaemon {
 
 struct DaemonState {
     layout: RuntimeLayout,
-    environment: RuntimeEnvironment,
     generation_id: String,
     supervisor: ModuleSupervisor,
     jobs: JobStore,
@@ -97,7 +96,6 @@ struct DaemonState {
     credential_vault: CredentialVault,
     interactions: InteractionClient,
     interaction_host: InteractionHost,
-    source_network: Arc<SourceNetworkHost>,
     composition_lock: tokio::sync::Mutex<()>,
     sources: RwLock<Option<SourceGeneration>>,
     source_generations: RwLock<BTreeMap<String, SourceGeneration>>,
@@ -105,8 +103,7 @@ struct DaemonState {
     configuration: Option<composition::RuntimeConfiguration>,
     install: InstallCoordinator,
     features: Arc<agent_proxy::FeatureRuntime>,
-    backup_codec: RwLock<Option<Arc<NativeBackupCodec>>>,
-    backup_pending_codecs: Mutex<HashMap<String, Arc<NativeBackupCodec>>>,
+    backup_codec: Arc<BackupCodec>,
     backup_running: Mutex<std::collections::HashSet<String>>,
     backup_cloud: Option<Arc<CloudBackupTransport>>,
     backup_cloud_credentials: Option<Arc<dyn CloudCredentialProvider>>,
@@ -122,8 +119,8 @@ struct SourceGeneration {
     lock_digest: String,
     application: SourceApplication,
     downloads: DownloadCoordinator,
-    supervisor: ModuleSupervisor,
-    lease_id: Option<String>,
+    remote_downloads_available: bool,
+    configured_sources: Arc<[String]>,
 }
 
 
@@ -165,16 +162,13 @@ impl BoundDaemon {
         let artifacts = ArtifactStore::from_layout(
             &layout, environment, target_lexicon::HOST.to_string(), "1", trust,
         )?;
-        let library = LibraryStore::unavailable(&layout);
-        #[cfg(any(test, feature = "fixtures"))]
-        let library = if environment == RuntimeEnvironment::Test && configuration.is_none() && configuration_error.is_none() {
-            LibraryStore::open(&layout)?
-        } else { library };
+        let library = if layout.state_dir.join("mintcat.feature-backup/maintenance.json").try_exists().map_err(LibraryError::Io)? {
+            LibraryStore::open_for_recovery(&layout)?
+        } else { LibraryStore::open(&layout)? };
         let library_authorization = LibraryAuthorization::new(
             LOCAL_OWNER_SCOPE,
             [READ_PERMISSION, PROFILE_WRITE_PERMISSION, CONTENT_WRITE_PERMISSION, METADATA_WRITE_PERMISSION],
         );
-        // Kernel recovery does not start any Library writer or touch game files.
         let recovered = jobs.recover_incomplete()?;
         let credential_store: Arc<dyn CredentialStore> = if environment == RuntimeEnvironment::Test {
             Arc::new(MemoryCredentialStore::default())
@@ -193,7 +187,13 @@ impl BoundDaemon {
         );
         let supervisor = ModuleSupervisor::new(artifacts.clone(), &generation_id, &layout.runtime_dir)?;
         let (interactions, interaction_host) = mintcat_runtime_broker::open_interaction_broker(database.clone(), jobs.clone())?;
-        let source_network = Arc::new(SourceNetworkHost::new(network_broker.clone(), Vec::new())?);
+        let updates = match configuration.as_ref().filter(|configuration| configuration.has_game_runtime()).map(|configuration| configuration.updates(&layout, database.clone(), artifacts.clone())).transpose() {
+            Ok(updates) => updates,
+            Err(error) => {
+                configuration_error = Some(error);
+                None
+            }
+        };
         let adapters = GameAdapterRegistry::default();
         let catalog = GameCatalog::new(supervisor.clone(), adapters.clone());
         let transactions = FileTransactionManager::open(database.clone(), layout.state_dir.join("file-transactions"))
@@ -202,16 +202,9 @@ impl BoundDaemon {
             database.clone(), library.clone(), LOCAL_OWNER_SCOPE, &generation_id,
             artifacts.clone(), transactions, adapters,
         ).map_err(|error| DaemonError::Composition(error.to_string()))?;
-        let install = InstallCoordinator::new(service, jobs.clone(), catalog, layout.clone(), LOCAL_OWNER_SCOPE);
+        let install = InstallCoordinator::new(service, jobs.clone(), catalog, layout.clone(), LOCAL_OWNER_SCOPE, updates.clone());
         let features = Arc::new(agent_proxy::FeatureRuntime::new(&layout, artifacts.clone(), jobs.clone(), network_broker.clone())
             .map_err(|error| DaemonError::Composition(format!("{}: {}", error.code, error.message_key)))?);
-        let updates = match configuration.as_ref().map(|configuration| configuration.updates(&layout, database, artifacts.clone())).transpose() {
-            Ok(updates) => updates,
-            Err(error) => {
-                configuration_error = Some(error);
-                None
-            }
-        };
         let (backup_cloud, backup_cloud_credentials) = match configuration.as_ref().map(|configuration| configuration.cloud(network_broker.clone())).transpose() {
             Ok(cloud) => cloud.flatten().map(|(transport, credentials)| (Some(transport), Some(credentials))).unwrap_or_default(),
             Err(error) => {
@@ -220,19 +213,18 @@ impl BoundDaemon {
             }
         };
         let state = Arc::new(DaemonState {
-            layout, environment, generation_id, supervisor, jobs, library, library_authorization,
+            layout, generation_id, supervisor, jobs, library, library_authorization,
             downloads, transfers, artifacts, network_broker, credential_vault,
-            interactions, interaction_host, source_network, sources: RwLock::new(None),
+            interactions, interaction_host, sources: RwLock::new(None),
             source_generations: RwLock::new(BTreeMap::new()),
             composition_lock: tokio::sync::Mutex::new(()),
             updates, configuration, install, features,
-            backup_codec: RwLock::new(None), backup_pending_codecs: Mutex::new(HashMap::new()),
+            backup_codec: Arc::new(BackupCodec),
             backup_running: Mutex::new(std::collections::HashSet::new()),
             backup_cloud, backup_cloud_credentials, bootstrap_error: parking_lot::Mutex::new(configuration_error),
             backup_startup_blocked: std::sync::atomic::AtomicBool::new(false), recovered,
         });
         state.features.bind_state(&state).map_err(|error| DaemonError::Composition(format!("{}: {}", error.code, error.message_key)))?;
-        composition::register_owners(&state).map_err(DaemonError::Composition)?;
         Ok(Self { server, state })
     }
 
@@ -263,17 +255,7 @@ impl BoundDaemon {
             let state = startup_state;
             let result: Result<(), String> = async {
                 if state.bootstrap_error.lock().is_some() { return Ok(()); }
-                let fixture = cfg!(any(test, feature = "fixtures")) && state.environment == RuntimeEnvironment::Test && state.configuration.is_none();
-                if fixture {
-                    let state = state.clone();
-                    tokio::task::spawn_blocking(move || {
-                        state.library.recover_download_operations(&state.generation_id).map_err(|error| error.to_string())?;
-                        replay_library_outbox(&state.library, &state.jobs).map_err(|error| error.to_string())?;
-                        Ok(())
-                    }).await.map_err(|error| error.to_string()).and_then(|result: Result<(), String>| result)?;
-                } else {
-                    composition::bootstrap(&state).await?;
-                }
+                composition::bootstrap(&state).await?;
                 state.features.resume_recovered().await.map_err(|error| format!("{}: {}", error.code, error.message_key))?;
                 composition::resume_downloads(&state)?;
                 Ok(())
@@ -284,8 +266,7 @@ impl BoundDaemon {
             }
             ready.send_replace(true);
         });
-        // Handshake immediately; business requests wait for exact signed startup or rescue.
-        // A large baseline must not consume the client's shorter handshake deadline.
+        // Authenticate immediately; business requests wait for startup recovery or rescue.
         let state = Arc::clone(&self.state);
         let serve = self.server.run(
             Arc::new(move |request| {
@@ -302,7 +283,6 @@ impl BoundDaemon {
         let feature_result = self.state.features.shutdown().await
             .map_err(|error| DaemonError::Composition(format!("{}: {}", error.code, error.message_key)));
         let supervisor_result = self.state.supervisor.shutdown_all().await;
-        let source_result = sources::shutdown(&self.state).await.map_err(DaemonError::Composition);
         let update_result = match &self.state.updates {
             Some(updates) => updates.shutdown().await.map_err(|error| DaemonError::Composition(error.to_string())),
             None => Ok(()),
@@ -311,7 +291,6 @@ impl BoundDaemon {
         server_result?;
         feature_result?;
         supervisor_result?;
-        source_result?;
         update_result?;
         Ok(())
     }
@@ -936,12 +915,6 @@ fn library_value<T: serde::Serialize>(
 
 fn library_error(request_id: &str, error: LibraryError) -> AppError {
     let (code, message_key, details, retryable) = match error {
-        LibraryError::OwnerUnavailable(reason) => (
-            "MODULE_UNAVAILABLE",
-            "library.owner_unavailable",
-            json!({"reason": reason}),
-            false,
-        ),
         LibraryError::NotFound(resource) => (
             "NOT_FOUND",
             "library.not_found",

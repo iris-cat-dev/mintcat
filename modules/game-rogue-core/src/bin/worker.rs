@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use mintcat_engine_unreal_pak::{game_inputs, RemoteUnrealPakEngine};
+use mintcat_engine_unreal_pak::{game_inputs, UnrealEngineLimits, UnrealPakEngine};
 use mintcat_game_api::{
     RunningProcess, WorkerGameBuildRequest, WorkerGameDeployRequest, GAME_ADAPTER_CONTRACT_ID,
     GAME_ADAPTER_CONTRACT_VERSION,
@@ -43,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
 
 async fn handle(
     request: WorkerRequest,
-    broker: WorkerBroker,
+    _broker: WorkerBroker,
     staging: PathBuf,
     store: ArtifactStore,
 ) -> Result<Value, Box<AppError>> {
@@ -74,10 +74,7 @@ async fn handle(
             let mut request = request;
             let params: WorkerGameBuildRequest =
                 serde_json::from_value(std::mem::take(&mut request.params))?;
-            let engine_package_digest = game_inputs::selected_provider(&params.dependencies)?.to_owned();
-            let engine = RemoteUnrealPakEngine::new(
-                broker, engine_package_digest.clone(), store.clone(),
-            );
+            let engine = UnrealPakEngine::open(store.clone(), staging.join("unreal"), UnrealEngineLimits::default())?;
             if request.method.as_deref() == Some("build.prepare") {
                 return game_inputs::prepare(
                     &request, params, &descriptor(),
@@ -89,14 +86,6 @@ async fn handle(
                 store.clone(), staging, RogueCoreBuildLimits::default(), engine,
             )?;
             let result = mintcat_game_rogue_core::worker_execution::execute(&request, params, &builder, &store)?;
-            for built in &result.outputs {
-                if matches!(built.output.role,
-                    mintcat_game_api::GameOutputRole::ModPak | mintcat_game_api::GameOutputRole::AudioPak)
-                {
-                    eprintln!("engine.unreal-pak provider={} build-artifact={}",
-                        engine_package_digest, built.output.artifact.digest);
-                }
-            }
             serde_json::to_value(result).map_err(RogueCoreError::from)
         }).await.map_err(|error| worker_app_error(
             &request_id, "BUILD_WORKER_FAILED", "game.build.worker_failed",

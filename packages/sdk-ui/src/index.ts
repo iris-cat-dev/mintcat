@@ -1,4 +1,3 @@
-export { validateUiManifest } from './manifest';
 export { mountGameSettings } from './game-settings';
 export type { GameUiDescriptor, GameModuleList } from './game-settings';
 export { getUiTheme, mountReactView, navigateUi, publishUiSelection, setUiTheme } from './react-view';
@@ -96,23 +95,13 @@ export class QueryCache {
     }
   }
 }
-export interface PageContribution { id: string; route: string; title: string; export: string; stateVersion: number }
-export interface NavigationContribution { id: string; pageId: string; order: number; icon?: 'home' | 'search' | 'settings' | 'robot' | 'cloud' | 'install' | 'proxy' | 'local' | 'downloads'; placement?: 'sidebar' | 'titlebar' | 'settings' }
-export interface CommandContribution { id: string; title: string; method: string; params: Record<string, Json>; enableWhen?: { gameId: string } }
-export interface SettingField { key: string; label: string; type: 'string' | 'number' | 'boolean' }
-export interface SettingsContribution { id: string; title: string; gameId: string; fields: SettingField[] }
-export interface GameContribution { gameId: string; displayName: string; adapterContract: string }
-export interface UiManifest {
-  schemaVersion: 1; runtimeVersion: 1; moduleId: string; entry: string; css: string[];
-  pages: PageContribution[]; navigation: NavigationContribution[]; commands: CommandContribution[];
-  settings: SettingsContribution[]; games: GameContribution[];
-}
 export interface UiContext {
+  /** Local page state/cache namespace only; application requests use the authenticated human session. */
   readonly moduleId: string;
   readonly signal: AbortSignal;
   readonly toolbar?: HTMLElement;
   own<T extends Disposable>(disposable: T): T;
-  onGenerationChanged(listener: (generationId: string) => void | Promise<void>): Disposable;
+  onInventoryChanged(listener: () => void | Promise<void>): Disposable;
   call<M extends CommandName>(method: M, params: CommandParams[M], idempotencyKey?: string): Promise<CommandResult[M]>;
   request<T>(method: string, params: Record<string, unknown>, idempotencyKey?: string): Promise<T>;
   query<T>(key: string, load: () => Promise<T>, ttlMs?: number): Promise<T>;
@@ -120,13 +109,11 @@ export interface UiContext {
   state<T extends Json>(key: string, version: number, fallback: T): T;
   saveState(key: string, version: number, value: Json): void;
   dirty(value: boolean): void;
-  resource(path: string): string;
   notify(message: string): void;
   guard<T extends unknown[]>(action: (...args: T) => void | Promise<void>): (...args: T) => void;
   interval(action: () => void | Promise<void>, milliseconds: number): Disposable;
   readonly kit: typeof kit;
 }
-export interface UiModule { activate?(context: UiContext): Disposable | Promise<Disposable>; [entry: string]: unknown }
 export type PageMount = (root: HTMLElement, context: UiContext) => Disposable | Promise<Disposable>;
 export const kit = Object.freeze({
   element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] {
@@ -141,8 +128,7 @@ export const kit = Object.freeze({
   },
 });
 
-// DOM contributions do not load React. React modules must use this single host binding,
-// not bundle a second React/ReactDOM instance; a binding change requires WebView restart.
+// Official pages share the desktop's React, ReactDOM and UI kit binding.
 const runtimeSlot = Symbol.for('mintcat.shared-ui-runtime.v1');
 export interface SharedRuntime {
   React: typeof ReactRuntime;

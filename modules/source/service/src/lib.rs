@@ -1,11 +1,7 @@
-mod local_binding;
-pub use local_binding::LocalInputProvider;
-mod network_host;
-pub use network_host::{SourceNetworkHost, SourceNetworkPolicy};
-mod native;
-pub use native::{NativeSourceProvider, SourcePackageBinding};
+mod builtin;
+pub use builtin::register_builtin_sources;
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{collections::BTreeMap, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
 use mintcat_feature_backup::{BackupError, MaintenanceGate};
 use mintcat_runtime_kernel::RuntimeLayout;
 use mintcat_library_service::{LibraryAuthorization, LibraryError, LibraryStore, SourceAddMetadata, SourceAddRequest, SourceAddResult, SourceAddTarget, SourceAddVersion};
@@ -81,12 +77,13 @@ pub struct SourceApplication {
     jobs: JobStore,
     catalog: DownloadCatalog,
     local: LocalSource,
+    local_games: Arc<BTreeMap<String, SourceGameBinding>>,
     module_lock_digest: String,
     layout: RuntimeLayout,
 }
 impl SourceApplication {
-    pub fn new(library: LibraryStore, authorization: LibraryAuthorization, jobs: JobStore, download_catalog: DownloadCatalog, local: LocalSource, module_lock_digest: String, layout: RuntimeLayout) -> Self {
-        Self { library, authorization, jobs, catalog: download_catalog, local, module_lock_digest, layout }
+    pub fn new(library: LibraryStore, authorization: LibraryAuthorization, jobs: JobStore, download_catalog: DownloadCatalog, local: LocalSource, local_games: BTreeMap<String, SourceGameBinding>, module_lock_digest: String, layout: RuntimeLayout) -> Self {
+        Self { library, authorization, jobs, catalog: download_catalog, local, local_games: Arc::new(local_games), module_lock_digest, layout }
     }
     pub async fn search(&self, request: &SourceSearchRequest, cancellation: &CancellationToken) -> Result<SourceSearchResult, SourceApplicationError> {
         if request.page_size == 0 || request.page_size > 100 { return Err(SourceApplicationError::Invalid("pageSize must be between 1 and 100".into())); }
@@ -154,10 +151,10 @@ impl SourceApplication {
         let _admission = MaintenanceGate::enter_mutation(&self.layout)?;
         let source_request = SourceAddRequest { profile_id:request.profile_id.clone(),reference:ModRef { source_id:"local".into(),remote_game_key:request.remote_game_key.clone(),remote_mod_id:"selection-pending".into(),version_id:None,remote_file_id:None },expected_content_revision:request.expected_content_revision };
         let target = self.library.source_add_target(&self.authorization,&source_request)?;
-        // Local must also have an exact signed game descriptor, never a guessed slug.
-        let (_, _, lock) = self.catalog.lookup("local",&target.game_id,Some(&request.remote_game_key))?;
-        if lock != self.module_lock_digest { return Err(SourceApplicationError::Invalid("local source module lock differs".into())); }
-        let registration = self.jobs.register_job(RegisterJob { command:"mods.importLocal".into(),owner_scope:self.authorization.owner_scope().into(),idempotency_key:key.into(),request_hash:hash.clone(),target:json!({"request":&request,"target":&target,"moduleLockDigest":&lock}),confirmation_policy:ConfirmationPolicy::Required })?;
+        self.local_games.get(&target.game_id)
+            .filter(|binding| binding.remote_game_key == request.remote_game_key)
+            .ok_or_else(|| SourceApplicationError::Invalid("game has no matching local input binding".into()))?;
+        let registration = self.jobs.register_job(RegisterJob { command:"mods.importLocal".into(),owner_scope:self.authorization.owner_scope().into(),idempotency_key:key.into(),request_hash:hash.clone(),target:json!({"request":&request,"target":&target,"moduleLockDigest":&self.module_lock_digest}),confirmation_policy:ConfirmationPolicy::Required })?;
         if registration.created {
             self.start(&registration.job.job_id)?;
             let context = InteractionContext { operation_id:registration.job.job_id.clone(),target_revision:request.expected_content_revision,plan_hash:hash,module_lock_digest:self.module_lock_digest.clone(),expires_at_ms:now_ms()+15*60*1000 };

@@ -9,6 +9,7 @@ use mintcat_runtime_jobs::{
 };
 use mintcat_runtime_kernel::RuntimeLayout;
 use mintcat_runtime_supervisor::ModuleSupervisor;
+use mintcat_runtime_updates::{LeaseKind, UpdatesCoordinator};
 use mintcat_sdk::{ActionRequired, AppError, InstallApplyParams, InstallPlanParams, InstallUninstallParams, JobRef, JobState};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -54,9 +55,9 @@ impl GameCatalog {
 
     /// Called only after scoped activation commits. Pinned historical versions
     /// remain usable by receipts and jobs, independently of this current view.
-    pub fn publish(&self, adapter: Arc<WorkerGameAdapter>) {
-        self.current.write().expect("game catalog poisoned")
-            .insert(adapter.descriptor().game_id.clone(), adapter);
+    pub fn publish(&self, adapters: Vec<Arc<WorkerGameAdapter>>) {
+        *self.current.write().expect("game catalog poisoned") = adapters.into_iter()
+            .map(|adapter| (adapter.descriptor().game_id.clone(), adapter)).collect();
     }
 
     pub fn current(&self, game_id: &str) -> Result<Arc<WorkerGameAdapter>, InstallError> {
@@ -125,12 +126,13 @@ pub struct InstallCoordinator {
     catalog: GameCatalog,
     layout: RuntimeLayout,
     owner: String,
+    updates: Option<UpdatesCoordinator>,
     running: Arc<Mutex<BTreeMap<String, FileCancellation>>>,
 }
 
 impl InstallCoordinator {
-    pub fn new(service: InstallService, jobs: JobStore, catalog: GameCatalog, layout: RuntimeLayout, owner: impl Into<String>) -> Self {
-        Self { service: Arc::new(service), jobs, catalog, layout, owner: owner.into(), running: Arc::default() }
+    pub fn new(service: InstallService, jobs: JobStore, catalog: GameCatalog, layout: RuntimeLayout, owner: impl Into<String>, updates: Option<UpdatesCoordinator>) -> Self {
+        Self { service: Arc::new(service), jobs, catalog, layout, owner: owner.into(), updates, running: Arc::default() }
     }
     pub fn catalog(&self) -> &GameCatalog { &self.catalog }
     pub fn service(&self) -> &InstallService { &self.service }
@@ -219,6 +221,11 @@ impl InstallCoordinator {
                 continue;
             }
             recoverable.push(record);
+            if let Some(updates) = &self.updates {
+                updates.restore_artifact_lease(&format!("install-job:{}", record.snapshot.job_id), LeaseKind::Task,
+                    &request.module_closure.entries.iter().map(|entry| entry.package_digest.clone()).collect::<Vec<_>>(), None,
+                    record.snapshot.state != JobState::AwaitingApproval).map_err(|error| InstallError::InvalidRequest(error.to_string()))?;
+            }
         }
         let service = self.service.clone();
         tokio::task::spawn_blocking(move || service.recover_file_transactions()).await
@@ -246,12 +253,14 @@ impl InstallCoordinator {
     }
 
     fn register(&self, command: &str, key: &str, hash: &str, target: &InstallJobTarget) -> Result<JobRef, InstallError> {
+        let _admission = MaintenanceGate::enter_mutation(&self.layout).map_err(|error| InstallError::InvalidRequest(error.to_string()))?;
         let registration = self.jobs.register_job(RegisterJob {
             command: command.to_owned(), owner_scope: self.owner.clone(), idempotency_key: key.to_owned(),
             request_hash: hash.to_owned(), target: serde_json::to_value(target)?,
             confirmation_policy: if command == "mods.pack" { ConfirmationPolicy::None } else { ConfirmationPolicy::Required },
         })?;
         if registration.created {
+            self.pin_job(&registration.job.job_id, target, false)?;
             let snapshot = self.jobs.get_job(&self.owner, &registration.job.job_id)?;
             self.jobs.save_checkpoint(&registration.job.job_id, snapshot.last_seq, &WorkerCheckpoint {
                 step: "install-inputs-pinned".to_owned(), payload: serde_json::to_value(target)?,
@@ -260,6 +269,56 @@ impl InstallCoordinator {
             self.spawn(registration.job.job_id.clone(), None);
         }
         Ok(registration.job)
+    }
+
+    fn build_request(&self, target: &InstallJobTarget) -> Result<BuildRequest, InstallError> {
+        match target {
+            InstallJobTarget::Build { request, .. } => Ok(request.clone()),
+            InstallJobTarget::Apply { params } => self.service.recovery_build_request(&params.plan_id),
+            InstallJobTarget::Uninstall { request } => self.service.recovery_build_request_for_receipt(&request.receipt_id),
+        }
+    }
+
+    fn pin_job(&self, job_id: &str, target: &InstallJobTarget, saved: bool) -> Result<(), InstallError> {
+        let Some(updates) = &self.updates else { return Ok(()); };
+        let request = self.build_request(target)?;
+        request.module_closure.verify()?;
+        let digests: Vec<_> = request.module_closure.entries.iter().map(|entry| entry.package_digest.clone()).collect();
+        let owner = format!("install-job:{job_id}");
+        if saved || !matches!(target, InstallJobTarget::Build { .. }) {
+            updates.retain_install_artifacts(&owner, &digests, true)
+        } else { updates.pin_artifacts(&owner, LeaseKind::Task, &digests, None, true) }
+            .map_err(|error| InstallError::InvalidRequest(error.to_string()))?;
+        Ok(())
+    }
+
+    fn park_job_lease(&self, job_id: &str) -> Result<(), InstallError> {
+        let Some(updates) = &self.updates else { return Ok(()); };
+        let snapshot = self.jobs.get_job(&self.owner, job_id)?;
+        let owner = format!("install-job:{job_id}");
+        if matches!(snapshot.state, JobState::Succeeded | JobState::Failed | JobState::Cancelled) {
+            // Saved plans, receipts and unresolved journals retain their own bytes.
+            // A completed job must not pin executable packages indefinitely.
+            for lease in updates.leases().map_err(|error| InstallError::InvalidRequest(error.to_string()))?
+                .into_iter().filter(|lease| lease.owner_id == owner) {
+                updates.release_lease(&lease.lease_id).map_err(|error| InstallError::InvalidRequest(error.to_string()))?;
+            }
+        } else if snapshot.state == JobState::AwaitingApproval {
+            let target = target_from_record(&self.jobs, &self.owner, job_id)?;
+            let request = self.build_request(&target)?;
+            let digests: Vec<_> = request.module_closure.entries.iter().map(|entry| entry.package_digest.clone()).collect();
+            let lease = updates.retain_install_artifacts(&owner, &digests, false)
+                .map_err(|error| InstallError::InvalidRequest(error.to_string()))?;
+            let action = self.jobs.get_job_action(&self.owner, job_id)?.ok_or_else(|| InstallError::Approval("parked install has no human action".into()))?;
+            let expires_at_ms = action.expires_at.strip_prefix("unix-ms:")
+                .and_then(|value| value.parse::<u64>().ok())
+                .ok_or_else(|| InstallError::Approval("invalid human action expiry".into()))?;
+            // JobStore serializes absolute Unix milliseconds; leases use Unix seconds.
+            // Round upward so package retention never ends before human approval expires.
+            let expires_at = expires_at_ms.div_ceil(1000);
+            updates.renew_lease(&lease.lease_id, expires_at).map_err(|error| InstallError::InvalidRequest(error.to_string()))?;
+        }
+        Ok(())
     }
 
     fn spawn(&self, job_id: String, action_id: Option<String>) {
@@ -272,6 +331,7 @@ impl InstallCoordinator {
         tokio::task::spawn_blocking(move || {
             let result = coordinator.execute(&job_id, action_id.as_deref(), &cancellation);
             if let Err(error) = result { coordinator.record_failure(&job_id, &error); }
+            if let Err(error) = coordinator.park_job_lease(&job_id) { coordinator.record_failure(&job_id, &error); }
             coordinator.running.lock().expect("install running map poisoned").remove(&job_id);
         });
     }
@@ -282,6 +342,7 @@ impl InstallCoordinator {
         if self.jobs.cancellation_requested(&self.owner, job_id)? { cancellation.request(); }
         if cancellation.is_requested() { self.jobs.cancel_at_safe_point(job_id)?; return Ok(()); }
         let target = target_from_record(&self.jobs, &self.owner, job_id)?;
+        self.pin_job(job_id, &target, true)?;
         if action_id.is_none() {
             self.jobs.append_event(job_id, EventUpdate::state("install-preparing", JobState::Preparing))?;
             self.jobs.append_event(job_id, EventUpdate::state("install-running", JobState::Running))?;
@@ -341,7 +402,10 @@ impl InstallCoordinator {
                 let binding = ActionBinding { target, target_revision: request.expected_profile_revision,
                     plan_hash: canonical_digest(&receipt)?, module_lock_digest: receipt.module_lock_digest.clone() };
                 if let Some(action_id) = action_id {
-                    self.jobs.consume_action(action_id, &binding)?;
+                    let consumed = self.jobs.consume_action(action_id, &binding)?;
+                    if consumed.response.get("approved") != Some(&Value::Bool(true)) {
+                        return Err(InstallError::Approval("human action did not approve uninstall".to_owned()));
+                    }
                     let snapshot = self.jobs.get_job(&self.owner, job_id)?;
                     self.jobs.save_checkpoint(job_id, snapshot.last_seq, &WorkerCheckpoint {
                         step: "uninstall-before-commit".to_owned(), payload: serde_json::to_value(&request)?,

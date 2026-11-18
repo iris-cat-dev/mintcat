@@ -47,6 +47,30 @@ pub struct GameResourceRequirement {
     pub purpose: String,
 }
 
+/// Data embedded in the same signed service package; versions belong to the
+/// resource format, independently of the game worker's package version.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BundledGameResource {
+    pub resource_id: String,
+    pub version: String,
+    #[serde(default)] pub archive_path: Option<String>,
+    #[serde(default)] pub deployment_bindings: Vec<GameResourceFileBinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GameResourceFileBinding {
+    pub package_path: String,
+    pub target_relative_path: String,
+    #[serde(default)] pub media_type: Option<String>,
+}
+
+pub fn bundled_resources(manifest: &mintcat_sdk::ModuleManifest) -> Result<Vec<BundledGameResource>, GameContractError> {
+    manifest.contributes.get("bundledResources").cloned().map(serde_json::from_value)
+        .transpose().map(|resources| resources.unwrap_or_default()).map_err(Into::into)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GameVariantDescriptor {

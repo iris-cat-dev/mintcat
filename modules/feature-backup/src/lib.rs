@@ -1,9 +1,13 @@
 mod maintenance;
 mod cloud;
-mod native;
 mod owners;
 pub use owners::{OwnerSnapshot, PortableSnapshot, PortableOwners};
-pub use native::{NativeBackupCodec, module_manifest, execute_codec, worker_workspace, BACKUP_CONTRACT_ID, BACKUP_CONTRACT_VERSION};
+pub struct BackupCodec;
+impl BackupCodec {
+    pub fn encode(&self, snapshot: &PortableSnapshot, modules: &BTreeMap<String, ModuleVersion>) -> Result<(Vec<u8>, BackupResult), BackupError> { encode_archive(snapshot, modules.clone()) }
+    pub fn decode(&self, bytes: &[u8], modules: &BTreeMap<String, ModuleVersion>) -> Result<(BackupManifest, PortableSnapshot), BackupError> { decode(bytes, modules) }
+    pub fn validate(&self, bytes: &[u8], modules: &BTreeMap<String, ModuleVersion>) -> Result<BackupResult, BackupError> { BackupService::validate_bytes(bytes, modules) }
+}
 pub use maintenance::{MaintenanceAdmission, MaintenanceGate, MaintenanceMarker, MaintenancePhase};
 pub use cloud::{CloudBackupRecord, CloudBackupTransport, CloudMetadata, CloudCredentialProvider};
 
@@ -79,18 +83,13 @@ impl BackupBlockers {
 /// It reads owner APIs for jobs, journals, install state and the installed module closure.
 #[derive(Debug, Clone)]
 pub struct BackupRuntimeState { pub blockers: BackupBlockers, pub modules: BTreeMap<String, ModuleVersion> }
-pub struct BackupService { layout: RuntimeLayout, library: LibraryStore, codec: Option<std::sync::Arc<NativeBackupCodec>>, owners: Option<std::sync::Arc<dyn PortableOwners>> }
+pub struct BackupService { layout: RuntimeLayout, library: LibraryStore, owners: Option<std::sync::Arc<dyn PortableOwners>> }
 impl BackupService {
     pub fn new(layout: RuntimeLayout, library: LibraryStore) -> Result<Self, BackupError> {
         if library.database_path() != layout.state_dir.join("mintcat.library/library.sqlite") {
             return Err(BackupError::Invalid("Library owner belongs to a different data directory".into()));
         }
-        Ok(Self { layout, library, codec: None, owners: None })
-    }
-    pub fn with_native_backend(layout: RuntimeLayout, library: LibraryStore, codec: std::sync::Arc<NativeBackupCodec>) -> Result<Self, BackupError> {
-        let mut service = Self::new(layout,library)?;
-        service.codec = Some(codec);
-        Ok(service)
+        Ok(Self { layout, library, owners: None })
     }
     pub fn with_owners(mut self, owners: std::sync::Arc<dyn PortableOwners>) -> Self { self.owners=Some(owners); self }
     fn snapshot(&self)->Result<PortableSnapshot,BackupError> {
@@ -112,10 +111,7 @@ impl BackupService {
         let state = inspect()?;
         state.blockers.ensure_quiescent(false)?;
         let snapshot = self.snapshot()?;
-        match &self.codec {
-            Some(codec) => codec.encode(&snapshot,&state.modules),
-            None => encode_archive(&snapshot,state.modules),
-        }
+        encode_archive(&snapshot, state.modules)
     }
     pub fn restore(&self, request: RestoreBackupRequest, inspect: impl FnOnce() -> Result<BackupRuntimeState, BackupError>) -> Result<BackupResult, BackupError> {
         self.restore_bytes(&fs::read(request.source_path)?, inspect)
@@ -128,10 +124,7 @@ impl BackupService {
         let state = inspect()?;
         state.blockers.ensure_quiescent(true)?;
         self.library.ensure_backup_quiescent()?;
-        let (manifest, mut snapshot) = match &self.codec {
-            Some(codec) => codec.decode(bytes,&state.modules)?,
-            None => decode(bytes,&state.modules)?,
-        };
+        let (manifest, mut snapshot) = decode(bytes, &state.modules)?;
         // References are not portable authentication authority on a new installation.
         snapshot.clear_credentials();
         // Reject newer writes even if they are only settings/credentials, not profiles.
@@ -176,7 +169,6 @@ impl BackupService {
         Ok(true)
     }
     fn evidence_digest(&self,snapshot:&PortableSnapshot,imported:bool)->Result<String,BackupError> {
-        if self.codec.is_none() {return Ok(digest(&serde_json::to_vec(snapshot)?));}
         let mut epochs=match &self.owners {Some(owners)=>owners.write_epochs()?,None=>BTreeMap::new()};
         epochs.insert("mintcat.library".into(),self.library.write_epoch()?);
         if imported {
@@ -194,7 +186,7 @@ impl BackupService {
 }
 fn encode_archive(snapshot: &PortableSnapshot, modules: BTreeMap<String, ModuleVersion>) -> Result<(Vec<u8>, BackupResult), BackupError> {
     validate_portable_bundle(snapshot, &modules)?;
-    validate_modules(&modules)?;
+    validate_modules(&modules, LIBRARY_SCHEMA_VERSION)?;
     let content = serde_json::to_string(snapshot)?;
     let archive = BackupArchive { manifest: BackupManifest {
         format_version: BACKUP_FORMAT_VERSION, owner_id: "mintcat.backup.portable".into(), owner_schema_version: BACKUP_FORMAT_VERSION,
@@ -216,19 +208,27 @@ fn decode(bytes: &[u8], modules: &BTreeMap<String, ModuleVersion>) -> Result<(Ba
     if manifest.content_size != archive.content.len() as u64 || manifest.content_digest != digest(archive.content.as_bytes()) {
         return Err(BackupError::Invalid("content digest/size mismatch".into()));
     }
-    for (id, required) in &manifest.module_versions {
-        if modules.get(id) != Some(required) { return Err(BackupError::Module(id.clone())); }
+    // SQL migration 5 only adds profile content guards, which are never part of
+    // LibrarySnapshot. Format 2/schema 4 therefore has the same logical payload
+    // as schema 5; only this migration is accepted into the current owner.
+    let library_schema = manifest.module_versions.get("mintcat.library").ok_or_else(|| BackupError::Module("mintcat.library".into()))?.schema_version;
+    if !matches!(library_schema, 4 | LIBRARY_SCHEMA_VERSION) { return Err(BackupError::Module("mintcat.library".into())); }
+    // Stateless archived packages are metadata, not dependencies of data restore.
+    for id in std::iter::once("mintcat.library").chain(manifest.owner_schemas.keys().filter(|id| id.as_str() != "mintcat.library").map(String::as_str)) {
+        let required = manifest.module_versions.get(id).ok_or_else(|| BackupError::Module(id.into()))?;
+        let target_schema = if id == "mintcat.library" { LIBRARY_SCHEMA_VERSION } else { required.schema_version };
+        if modules.get(id).map(|available| available.schema_version) != Some(target_schema) { return Err(BackupError::Module(id.into())); }
     }
     let snapshot: PortableSnapshot = serde_json::from_str(&archive.content)?;
     validate_portable_bundle(&snapshot, &manifest.module_versions)?;
-    let owner_schemas:BTreeMap<_,_>=std::iter::once(("mintcat.library".into(),LIBRARY_SCHEMA_VERSION)).chain(snapshot.owners.iter().map(|(id,owner)|(id.clone(),owner.schema_version))).collect();
+    let owner_schemas:BTreeMap<_,_>=std::iter::once(("mintcat.library".into(),library_schema)).chain(snapshot.owners.iter().map(|(id,owner)|(id.clone(),owner.schema_version))).collect();
     if manifest.owner_schemas!=owner_schemas || manifest.consistency!="per-owner-logical-snapshots-under-common-maintenance-admission" {return Err(BackupError::Invalid("owner scope or consistency mismatch".into()));}
-    validate_modules(&manifest.module_versions)?;
+    validate_modules(&manifest.module_versions, library_schema)?;
     Ok((manifest, snapshot))
 }
-fn validate_modules(modules: &BTreeMap<String, ModuleVersion>) -> Result<(), BackupError> {
+fn validate_modules(modules: &BTreeMap<String, ModuleVersion>, library_schema: u32) -> Result<(), BackupError> {
     let library = modules.get("mintcat.library").ok_or_else(|| BackupError::Module("mintcat.library".into()))?;
-    if library.schema_version != LIBRARY_SCHEMA_VERSION || library.version.is_empty() { return Err(BackupError::Module("mintcat.library".into())); }
+    if library.schema_version != library_schema || library.version.is_empty() { return Err(BackupError::Module("mintcat.library".into())); }
     if modules.values().any(|module| module.version.is_empty() || module.schema_version == 0) { return Err(BackupError::Invalid("invalid module metadata".into())); }
     Ok(())
 }

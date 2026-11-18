@@ -14,7 +14,9 @@ mintcat-runtime-artifacts.workspace = true
 mintcat-runtime-file-transactions.workspace = true
 mintcat-runtime-kernel.workspace = true
 mintcat-runtime-jobs.workspace = true
+mintcat-runtime-release.workspace = true
 mintcat-runtime-supervisor.workspace = true
+mintcat-runtime-updates.workspace = true
 mintcat-sdk.workspace = true
 rusqlite.workspace = true
 semver.workspace = true
@@ -27,7 +29,7 @@ tokio.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-mintcat-library-service = { workspace = true, features = ["fixtures"] }
+mintcat-library-service.workspace = true
 base64.workspace = true
 ed25519-dalek.workspace = true
 mintcat-engine-unreal-pak.workspace = true

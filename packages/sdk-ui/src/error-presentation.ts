@@ -37,7 +37,11 @@ export function presentUiError(cause: unknown, context: UiErrorContext = 'host')
   let title = '操作未完成';
   let description = '请稍后重试；如果仍然失败，请展开技术详情并联系支持。';
   let retryable = failure?.retryable ?? true;
-  if (code === 'SOURCE_UNAUTHORIZED' || reason === 'credential_missing_or_invalid') {
+  if (code === 'CLOUD_PREREQUISITE') {
+    title = '云备份未配置';
+    description = '需要维护者配置 HTTPS 备份服务与下载域名；离线备份仍可使用。';
+    retryable = false;
+  } else if (code === 'SOURCE_UNAUTHORIZED' || reason === 'credential_missing_or_invalid') {
     title = '来源授权失败';
     description = '此来源缺少有效凭据，或凭据已失效。需要提供有效的来源凭据后才能访问；有其他已启用来源时，可手动切换浏览。';
     retryable = false;

@@ -37,7 +37,7 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
     const descriptor = descriptors.find(item => item.gameId === gameId);
     const currentGame = gameId, desiredProfile = profileId || saved.profileId, desiredSource = sourceId || saved.sourceId;
     profileId = ''; sourceId = descriptor?.sourceBindings.find(item => item.sourceId === desiredSource)?.sourceId ?? descriptor?.sourceBindings[0]?.sourceId ?? '';
-    bindingsLoading = Boolean(descriptor); status = descriptor ? '' : '没有启用的已签名游戏模块。';
+    bindingsLoading = Boolean(descriptor); status = descriptor ? '' : '尚未安装游戏支持插件；备份和 Agent 仍可使用。';
     persist(); selection(); update();
     if (!descriptor) return;
     try {
@@ -67,7 +67,7 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
     }
   };
   const search = async (next = false): Promise<void> => {
-    if (!gameId || !sourceId) throw new Error('所选游戏没有可用的已签名来源绑定。');
+    if (!gameId || !sourceId) throw new Error('所选游戏没有已配置的在线来源绑定。');
     if (loading || (next && !cursor)) return;
     const generation = ++requestGeneration;
     const binding = descriptors.find(item => item.gameId === gameId)?.sourceBindings.find(item => item.sourceId === sourceId);
@@ -112,13 +112,14 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
         error.diagnostics.length ? h('details', null, h('summary', null, '技术详情'), h('pre', null, error.diagnostics.join('\n'))) : null),
       action: h('div', null,
         error.retryable && errorContext !== 'add' ? h(Antd.Button, { disabled: loading || bindingsLoading, onClick: () => {
-          context.invalidate(''); if (errorContext === 'bindings') run(loadBindings, 'bindings'); else run(() => search());
+          context.invalidate(''); if (errorContext === 'bindings') run(refreshModules, 'bindings'); else run(() => search());
         } }, errorContext === 'bindings' ? '重新读取配置' : '重试') : null,
         errorContext === 'search' ? alternatives.map(binding => h(Antd.Button, { key: binding.sourceId, onClick: () => switchSource(binding.sourceId) }, `切换到 ${binding.sourceId === 'modcat' ? 'ModCat' : binding.sourceId}`)) : null),
     }) : null;
     const toolbar = h('div', { className: `mintcat-search-header${context.toolbar ? ' mintcat-search-header--portal' : ''}` },
-        h(Antd.Button, { type: 'text', icon: h(Icons.HomeOutlined), title: '浏览首页', disabled: loading, onClick: () => { query = ''; clearResults(); run(() => search()); } }),
+        h(Antd.Button, { type: 'text', icon: h(Icons.HomeOutlined), title: '浏览首页', disabled: loading || !sourceId, onClick: () => { query = ''; clearResults(); run(() => search()); } }),
         h(Antd.Select<string>, { value: gameId || undefined, placeholder: '选择游戏', 'aria-label': '游戏', options: descriptors.map(item => ({ value: item.gameId, label: item.displayName })), style: { width: 160 }, onChange: (value: string) => { gameId = value; run(loadBindings); } }),
+        h(Antd.Button, { type: 'text', icon: h(Icons.SyncOutlined), title: '重新读取游戏与来源', disabled: loading || bindingsLoading, onClick: () => run(refreshModules, 'bindings') }),
         h(Antd.Input.Search, { value: query, placeholder: '搜索模组名称或关键词', allowClear: true, loading, disabled: !sourceId, onChange: (event: { target: { value: string } }) => { query = event.target.value; clearResults(); persist(); }, onSearch: () => run(() => search()), style: { flex: 1, minWidth: 140 } }),
         h(Antd.Select<string>, { value: profileId || undefined, placeholder: '选择添加到的配置', 'aria-label': '目标配置', loading: bindingsLoading, disabled: bindingsLoading || !profiles.length, options: profiles.map(item => ({ value: item.profileId, label: item.displayName })), style: { width: 160 }, onChange: (value: string) => { profileId = value; persist(); selection(); update(); } }),
         h(Antd.Button, { type: 'text', icon: h(Icons.ReloadOutlined, { spin: loading }), title: '刷新搜索', disabled: loading || !sourceId, onClick: () => { context.invalidate(''); run(() => search()); } }));
@@ -130,7 +131,7 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
         h(Antd.Typography.Text, { type: 'secondary' }, `${visible.length} / ${items.length} 个结果`)),
       errorContext !== 'add' ? errorAlert : null,
       profileHint ? h(Antd.Alert, { type: 'info', showIcon: true, title: profileHint }) : null,
-      !sourceId ? h(Antd.Empty, { description: '没有可用来源，请启用有来源绑定的已签名游戏模块。' }) : null,
+      !sourceId && !bindingsLoading ? h(Antd.Empty, { description: descriptors.length ? '所选游戏没有已配置的在线来源。请配置支持此游戏的来源；本地文件可从本地导入添加。' : '尚未安装游戏支持插件。安装游戏支持后即可浏览在线模组；备份和 Agent 仍可使用。' }) : null,
       loading && !items.length ? h(Antd.Skeleton, { active: true, paragraph: { rows: 3 } }) : null,
       !loading && !error && sourceId && !visible.length ? h(Antd.Empty, { description: searched ? '没有找到模组' : '输入关键词搜索，或点击首页浏览来源。' }) : null,
       h('div', { className: 'mintcat-search-results' }, ...visible.map((item, index) => h('article', { key: `${JSON.stringify(item.reference)}:${index}`, className: 'mintcat-search-card' },
@@ -153,11 +154,13 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
     const generation = ++bindingGeneration;
     bindingsLoading = true; update();
     try {
-      const current = await context.request<GameModuleList>('modules.list', {});
+      const [current, sources] = await Promise.all([
+        context.request<GameModuleList>('modules.list', {}), context.call('sources.list', {}),
+      ]);
       if (!active() || generation !== bindingGeneration) return;
       const previous = JSON.stringify(descriptors.find(item => item.gameId === gameId));
-      descriptors = current.modules.flatMap(module => module.enabled && module.game?.descriptor ? [module.game.descriptor] : []);
-      availableSources = new Set(current.modules.filter(module => module.enabled && module.moduleId.startsWith('source-')).map(module => module.moduleId.slice('source-'.length)));
+      availableSources = new Set(sources.sources.map(source => source.sourceId));
+      descriptors = current.modules.flatMap(module => module.enabled && module.game?.descriptor ? [{ ...module.game.descriptor, sourceBindings: module.game.descriptor.sourceBindings.filter(binding => availableSources.has(binding.sourceId)) }] : []);
       gameId = descriptors.some(item => item.gameId === gameId) ? gameId : descriptors[0]?.gameId ?? '';
       if (previous !== JSON.stringify(descriptors.find(item => item.gameId === gameId)) || !profiles.length) { context.invalidate(''); await loadBindings(); } else update();
     } catch (cause) {
@@ -166,7 +169,7 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
       if (active() && generation === bindingGeneration) { bindingsLoading = false; update(); }
     }
   };
-  const subscription = context.onGenerationChanged(() => { run(refreshModules); });
+  const subscription = context.onInventoryChanged(() => { run(refreshModules); });
   run(refreshModules);
   return { dispose() { persist(); alive = false; ++requestGeneration; ++bindingGeneration; subscription.dispose(); view.dispose(); } };
 }

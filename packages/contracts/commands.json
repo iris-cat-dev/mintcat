@@ -1,7 +1,7 @@
 {
   "$schema": "./schema/command-catalog.schema.json",
   "schemaVersion": 1,
-  "contractSetVersion": "1.6.0",
+  "contractSetVersion": "2.0.0",
   "commands": [
     {
       "method": "system.status",
@@ -859,6 +859,21 @@
       "agentExposed": false
     },
     {
+      "method": "sources.list",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/SourcesListParams",
+      "resultSchema": "#/$defs/SourcesListResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "source.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": ["PERMISSION_DENIED", "RECOVERY_REQUIRED"],
+      "summary": "List configured built-in remote sources without network requests.",
+      "cli": ["sources", "list"],
+      "agentExposed": true
+    },
+    {
       "method": "sources.search",
       "contractVersion": 1,
       "paramsSchema": "#/$defs/SourceSearchParams",
@@ -1017,33 +1032,6 @@
       "cli": [
         "modules",
         "list"
-      ],
-      "agentExposed": false
-    },
-    {
-      "method": "modules.setEnabled",
-      "contractVersion": 1,
-      "paramsSchema": "#/$defs/ModulesSetEnabledParams",
-      "resultSchema": "#/$defs/ModuleInventory",
-      "classification": "mutation",
-      "execution": "sync",
-      "permission": "modules.ui.write",
-      "idempotency": "required",
-      "confirmation": "none",
-      "errorCodes": [
-        "INVALID_ARGUMENT",
-        "NOT_FOUND",
-        "REVISION_CONFLICT",
-        "PERMISSION_DENIED",
-        "MODULE_UNAVAILABLE",
-        "RESOURCE_BUSY",
-        "RECOVERY_REQUIRED",
-        "INCOMPATIBLE_CONTRACT"
-      ],
-      "summary": "Execute modules.setEnabled through the authoritative Application service.",
-      "cli": [
-        "modules",
-        "setEnabled"
       ],
       "agentExposed": false
     },
@@ -1260,116 +1248,6 @@
       "cli": [
         "updates",
         "gc"
-      ],
-      "agentExposed": false
-    },
-    {
-      "method": "ui.session.open",
-      "contractVersion": 1,
-      "paramsSchema": "#/$defs/UiSessionOpenParams",
-      "resultSchema": "#/$defs/UiSessionOpenResult",
-      "classification": "mutation",
-      "execution": "sync",
-      "permission": "ui.session",
-      "idempotency": "optional",
-      "confirmation": "none",
-      "errorCodes": [
-        "INVALID_ARGUMENT",
-        "NOT_FOUND",
-        "REVISION_CONFLICT",
-        "PERMISSION_DENIED",
-        "MODULE_UNAVAILABLE",
-        "RESOURCE_BUSY",
-        "RECOVERY_REQUIRED",
-        "INCOMPATIBLE_CONTRACT"
-      ],
-      "summary": "Execute ui.session.open through the authoritative Application service.",
-      "cli": [
-        "ui",
-        "session",
-        "open"
-      ],
-      "agentExposed": false
-    },
-    {
-      "method": "ui.session.close",
-      "contractVersion": 1,
-      "paramsSchema": "#/$defs/UiSessionCloseParams",
-      "resultSchema": "#/$defs/UiSessionCloseResult",
-      "classification": "mutation",
-      "execution": "sync",
-      "permission": "ui.session",
-      "idempotency": "optional",
-      "confirmation": "none",
-      "errorCodes": [
-        "INVALID_ARGUMENT",
-        "NOT_FOUND",
-        "REVISION_CONFLICT",
-        "PERMISSION_DENIED",
-        "MODULE_UNAVAILABLE",
-        "RESOURCE_BUSY",
-        "RECOVERY_REQUIRED",
-        "INCOMPATIBLE_CONTRACT"
-      ],
-      "summary": "Execute ui.session.close through the authoritative Application service.",
-      "cli": [
-        "ui",
-        "session",
-        "close"
-      ],
-      "agentExposed": false
-    },
-    {
-      "method": "ui.prepare",
-      "contractVersion": 1,
-      "paramsSchema": "#/$defs/UiPrepareParams",
-      "resultSchema": "#/$defs/UiPrepareResult",
-      "classification": "read",
-      "execution": "sync",
-      "permission": "ui.prepare",
-      "idempotency": "none",
-      "confirmation": "none",
-      "errorCodes": [
-        "INVALID_ARGUMENT",
-        "NOT_FOUND",
-        "REVISION_CONFLICT",
-        "PERMISSION_DENIED",
-        "MODULE_UNAVAILABLE",
-        "RESOURCE_BUSY",
-        "RECOVERY_REQUIRED",
-        "INCOMPATIBLE_CONTRACT"
-      ],
-      "summary": "Execute ui.prepare through the authoritative Application service.",
-      "cli": [
-        "ui",
-        "prepare"
-      ],
-      "agentExposed": false
-    },
-    {
-      "method": "ui.ack",
-      "contractVersion": 1,
-      "paramsSchema": "#/$defs/UiAckParams",
-      "resultSchema": "#/$defs/UiAckResult",
-      "classification": "mutation",
-      "execution": "sync",
-      "permission": "ui.session",
-      "idempotency": "optional",
-      "confirmation": "none",
-      "errorCodes": [
-        "INVALID_ARGUMENT",
-        "NOT_FOUND",
-        "REVISION_CONFLICT",
-        "PERMISSION_DENIED",
-        "MODULE_UNAVAILABLE",
-        "RESOURCE_BUSY",
-        "RECOVERY_REQUIRED",
-        "INCOMPATIBLE_CONTRACT"
-      ],
-      "summary": "Execute ui.ack through the authoritative Application service.",
-      "cli": [
-        "ui",
-        "ack"
       ],
       "agentExposed": false
     },
@@ -1849,57 +1727,6 @@
       "cli": [
         "games",
         "discover"
-      ],
-      "agentExposed": false
-    },
-    {
-      "method": "ui.artifacts.authority",
-      "contractVersion": 1,
-      "paramsSchema": "#/$defs/UiArtifactsAuthorityParams",
-      "resultSchema": "#/$defs/UiArtifactsAuthorityResult",
-      "classification": "read",
-      "execution": "sync",
-      "permission": "ui.session",
-      "idempotency": "none",
-      "confirmation": "none",
-      "errorCodes": [
-        "MODULE_UNAVAILABLE",
-        "STALE_SESSION",
-        "INCOMPATIBLE_CONTRACT",
-        "INVALID_PARAMS",
-        "CONFLICT",
-        "PERMISSION_DENIED"
-      ],
-      "summary": "Read exact enabled UI package records and frozen verified roots from the protected admitted active environment; this is not release admission.",
-      "cli": [
-        "ui",
-        "artifacts",
-        "authority"
-      ],
-      "agentExposed": false
-    },
-    {
-      "method": "ui.request",
-      "contractVersion": 1,
-      "paramsSchema": "#/$defs/UiRequestParams",
-      "resultSchema": "#/$defs/UiRequestResult",
-      "classification": "mutation",
-      "execution": "sync",
-      "permission": "ui.session",
-      "idempotency": "optional",
-      "confirmation": "none",
-      "errorCodes": [
-        "MODULE_UNAVAILABLE",
-        "STALE_SESSION",
-        "INCOMPATIBLE_CONTRACT",
-        "INVALID_PARAMS",
-        "CONFLICT",
-        "PERMISSION_DENIED"
-      ],
-      "summary": "Admit a nested standard Application request under the live UI session and exact enabled module/environment binding before dispatch.",
-      "cli": [
-        "ui",
-        "request"
       ],
       "agentExposed": false
     }

@@ -116,6 +116,20 @@ impl TrustStore {
         Ok(())
     }
 
+    fn signing_key(&self, environment: RuntimeEnvironment, metadata: &ModuleSignature, digest: &[u8; 32]) -> Result<&VerifyingKey, ArtifactError> {
+        if let Some(modules) = &self.modules {
+            let receipt = modules.get(digest).ok_or(ArtifactError::SignatureVerification)?;
+            if receipt.signature != *metadata { return Err(ArtifactError::SignatureVerification); }
+            return Ok(&receipt.key);
+        }
+        let identity = (metadata.publisher.clone(), metadata.key_id.clone());
+        self.production.get(&identity).or_else(|| {
+            (environment == RuntimeEnvironment::Development).then(|| self.development.get(&identity)).flatten()
+        }).ok_or_else(|| ArtifactError::UntrustedSigner {
+            publisher: metadata.publisher.clone(), key_id: metadata.key_id.clone(), environment,
+        })
+    }
+
     fn verify(
         &self,
         environment: RuntimeEnvironment,
@@ -132,21 +146,7 @@ impl TrustStore {
         {
             return Err(ArtifactError::SignaturePublisherMismatch);
         }
-        let identity = (metadata.publisher.clone(), metadata.key_id.clone());
-        let key = if let Some(modules) = &self.modules {
-            let receipt = modules.get(digest).ok_or(ArtifactError::SignatureVerification)?;
-            if receipt.signature != *metadata { return Err(ArtifactError::SignatureVerification); }
-            Some(&receipt.key)
-        } else {
-            self.production.get(&identity).or_else(|| {
-                (environment == RuntimeEnvironment::Development).then(|| self.development.get(&identity)).flatten()
-            })
-        };
-        let key = key.ok_or_else(|| ArtifactError::UntrustedSigner {
-            publisher: metadata.publisher.clone(),
-            key_id: metadata.key_id.clone(),
-            environment,
-        })?;
+        let key = self.signing_key(environment, metadata, digest)?;
         let signature_bytes = BASE64
             .decode(metadata.signature.as_bytes())
             .map_err(|_| ArtifactError::InvalidSignatureEncoding)?;
@@ -1073,6 +1073,30 @@ mod tests {
         let store =
             ArtifactStore::from_layout(&layout, environment, "test-target", "1", trust).unwrap();
         (sandbox, store, manifest, signature)
+    }
+
+    #[test]
+    fn scoped_worker_grants_transport_only_the_exact_signed_package() {
+        let (sandbox, store, manifest, signature) = signed_fixture(RuntimeEnvironment::Test, false);
+        let source = sandbox.path().join("source");
+        let installed = store.publish_module(&source, &manifest, &signature).unwrap();
+        let mut lease = store.acquire_module(&installed.digest).unwrap();
+        let scoped = store.with_trust(store.trust.restrict_to_modules([(&manifest, &signature)]).unwrap());
+        let grant = scoped.module_worker_grant(&lease).unwrap();
+        let worker_lease = super::ModuleLease::from_worker_grant(grant).unwrap();
+        assert_eq!(fs::read(worker_lease.module().entry_path("worker").unwrap()).unwrap(), b"worker-binary");
+
+        let mut other_manifest = manifest.clone();
+        other_manifest.version = "2.0.0".into();
+        let other_digest = module_signing_digest(&source, &other_manifest).unwrap();
+        let mut other_signature = signature.clone();
+        other_signature.signature = BASE64.encode(SigningKey::from_bytes(&[7_u8; 32]).sign(&other_digest).to_bytes());
+        let other = store.publish_module(&source, &other_manifest, &other_signature).unwrap();
+        let other_lease = store.acquire_module(&other.digest).unwrap();
+        assert!(matches!(scoped.module_worker_grant(&other_lease), Err(ArtifactError::SignatureVerification)));
+
+        lease.module.signature.key_id = "different-receipt".into();
+        assert!(matches!(scoped.module_worker_grant(&lease), Err(ArtifactError::SignatureVerification)));
     }
 
     #[test]

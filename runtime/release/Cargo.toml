@@ -11,6 +11,7 @@ base64.workspace = true
 ed25519-dalek.workspace = true
 fs2.workspace = true
 mintcat-runtime-artifacts.workspace = true
+mintcat-game-api.workspace = true
 mintcat-sdk.workspace = true
 serde.workspace = true
 serde_json.workspace = true

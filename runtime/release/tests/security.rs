@@ -38,17 +38,34 @@ fn package(base: &Path, name: &str, bytes: &[u8]) -> (std::path::PathBuf, Packag
 fn plan(package: &PackageRecord, scope: &str, sequence: u64) -> ScopePlan {
     ScopePlan { scope_id: scope.into(), release_id: format!("{scope}-r{sequence}"), sequence, channel: "stable".into(), target: policy().target, min_host_api: "1".into(), roots: vec![package.digest.clone()], provider_bindings: vec![], singleton_requirements: vec![], resource_dependencies: BTreeMap::new(), cohort: CohortPolicy { salt: "stable-installation-cohort".into(), basis_points: 1500 } }
 }
-fn contract_package(base: &Path, name: &str, requirement: mintcat_sdk::RequiredContract, host: &VerificationPolicy) -> Result<PackageRecord> {
-    let source = base.join(format!("{name}-source"));
-    fs::create_dir(&source).unwrap();
-    fs::write(source.join("data.bin"), name.as_bytes()).unwrap();
-    let mut descriptor = manifest(name.as_bytes());
-    descriptor.id = name.into();
-    descriptor.requires.push(requirement);
-    pack(&source, descriptor, "package-key", &keys()[0], host, &base.join(name))
-}
 fn bundle(record: &PackageRecord, scope: &str, sequence: u64, version: u64, previous: Option<&RepositoryBundle>) -> RepositoryBundle {
-    compose_bundle(previous, plan(record, scope, sequence), vec![record.clone()], &policy(), &root(), &keys(), version, 9000, 100).unwrap()
+    legacy_bundle(previous, plan(record, scope, sequence), vec![record.clone()], &policy(), &root(), &keys(), version, 9000, 100).unwrap()
+}
+
+// Historical schema1 fixtures are constructed directly. Production composition
+// deliberately cannot issue these old resource/platform/source closures anymore.
+fn legacy_targets(plan: ScopePlan, available: Vec<PackageRecord>, _policy: &VerificationPolicy, expires: u64) -> Result<TargetsMetadata> {
+    let signature_metadata_ref = scope_metadata_key(&plan.scope_id, &plan.channel, &plan.target)?;
+    Ok(TargetsMetadata { header: MetadataHeader { kind: "targets".into(), schema_version: 1, version: plan.sequence, expires },
+        release: mintcat_sdk::ScopeReleaseSet { schema_version: 1, scope_id: plan.scope_id, release_id: plan.release_id, sequence: plan.sequence, channel: plan.channel, target: plan.target, min_host_api: plan.min_host_api,
+            packages: available.iter().map(|record| mintcat_sdk::ReleasePackage { module_id: record.manifest.id.clone(), version: record.manifest.version.clone(), target: record.manifest.target.clone(), digest: record.digest.clone(), schema_version: record.manifest.schema_version }).collect(),
+            provider_bindings: plan.provider_bindings, singleton_requirements: plan.singleton_requirements, signature_metadata_ref },
+        cohort: plan.cohort, roots: plan.roots, resource_dependencies: plan.resource_dependencies,
+        packages: available.into_iter().map(|record| (record.digest.clone(), record)).collect() })
+}
+
+fn legacy_bundle(previous: Option<&RepositoryBundle>, plan: ScopePlan, available: Vec<PackageRecord>, policy: &VerificationPolicy, root: &TrustedRoot, keys: &[SigningKey], version: u64, expires: u64, now: u64) -> Result<RepositoryBundle> {
+    let scope = plan.scope_id.clone(); let channel = plan.channel.clone();
+    let metadata = legacy_targets(plan, available, policy, expires)?;
+    let mut targets = previous.map(|bundle| bundle.targets.clone()).unwrap_or_default();
+    targets.insert(metadata.release.signature_metadata_ref.clone(), sign(metadata, keys)?);
+    let references = targets.iter().map(|(name, value)| Ok((name.clone(), MetadataRef::new(value.signed.header.version, value)?))).collect::<Result<BTreeMap<_, _>>>()?;
+    let snapshot = sign(SnapshotMetadata { header: MetadataHeader { kind: "snapshot".into(), schema_version: 1, version, expires }, targets: references }, keys)?;
+    let timestamp = sign(TimestampMetadata { header: MetadataHeader { kind: "timestamp".into(), schema_version: 1, version, expires }, snapshot: MetadataRef::new(version, &snapshot)? }, keys)?;
+    let bundle = RepositoryBundle { root_rotations: previous.map(|bundle| bundle.root_rotations.clone()).unwrap_or_default(), targets, snapshot, timestamp };
+    let sandbox = tempfile::tempdir()?;
+    RepositoryVerifier::new(sandbox.path().join("state.json"), root.clone()).verify_scope(&bundle, &scope, &channel, policy, now)?;
+    Ok(bundle)
 }
 
 #[test]
@@ -124,7 +141,7 @@ fn signed_wrong_metadata_lengths_and_package_lengths_are_rejected() {
     assert!(verifier.verify(&bad, &policy(), 100).is_err());
     let mut bad_record = record;
     bad_record.length += 1;
-    assert!(compose_bundle(None, plan(&bad_record, "game:drg", 1), vec![bad_record], &policy(), &root(), &keys(), 1, 9000, 100).is_err());
+    assert!(legacy_bundle(None, plan(&bad_record, "game:drg", 1), vec![bad_record], &policy(), &root(), &keys(), 1, 9000, 100).is_err());
     verifier.verify(&first, &policy(), 100).unwrap();
 }
 
@@ -168,10 +185,10 @@ fn exact_dependency_closure_rejects_missing_or_foreign_scope_resources() {
     let (_, record) = package(sandbox.path(), "pack", b"trusted payload");
     let mut plan = plan(&record, "game:drg", 1);
     plan.resource_dependencies.insert(record.digest.clone(), vec![format!("sha256:{}", "0".repeat(64))]);
-    assert!(compose_scope(plan, vec![record.clone()], &policy(), 9000).is_err());
+    assert!(legacy_bundle(None, plan, vec![record.clone()], &policy(), &root(), &keys(), 1, 9000, 100).is_err());
     let mut foreign = record.clone();
     foreign.manifest.contributes = serde_json::json!({"scopeId": "game:rogue-core"});
-    assert!(compose_scope(plan_for_foreign(&foreign), vec![foreign], &policy(), 9000).is_err());
+    assert!(legacy_bundle(None, plan_for_foreign(&foreign), vec![foreign], &policy(), &root(), &keys(), 1, 9000, 100).is_err());
 }
 fn plan_for_foreign(record: &PackageRecord) -> ScopePlan { plan(record, "game:drg", 1) }
 
@@ -179,10 +196,10 @@ fn plan_for_foreign(record: &PackageRecord) -> ScopePlan { plan(record, "game:dr
 fn expired_unrelated_scope_does_not_block_selected_game_update() {
     let sandbox = tempfile::tempdir().unwrap();
     let (path, record) = package(sandbox.path(), "pack", b"trusted payload");
-    let rc = compose_bundle(None, plan(&record, "game:rogue-core", 1), vec![record.clone()], &policy(), &root(), &keys(), 1, 200, 100).unwrap();
+    let rc = legacy_bundle(None, plan(&record, "game:rogue-core", 1), vec![record.clone()], &policy(), &root(), &keys(), 1, 200, 100).unwrap();
     let repository = LocalRepository::open(&sandbox.path().join("repository")).unwrap();
     repository.publish_bundle(&rc, &[path.clone()], &root(), &policy(), 100).unwrap();
-    let drg = compose_bundle(Some(&rc), plan(&record, "game:drg", 1), vec![record], &policy(), &root(), &keys(), 2, 9000, 300).unwrap();
+    let drg = legacy_bundle(Some(&rc), plan(&record, "game:drg", 1), vec![record], &policy(), &root(), &keys(), 2, 9000, 300).unwrap();
     let rc_name = scope_metadata_key("game:rogue-core", "stable", &policy().target).unwrap();
     assert_eq!(drg.targets[&rc_name], rc.targets[&rc_name]);
     let published = repository.publish_bundle(&drg, &[path], &root(), &policy(), 300).unwrap();
@@ -205,7 +222,7 @@ fn development_origin_is_rejected_even_with_an_authorized_package_key() {
     let output = sandbox.path().join("development");
     let record = pack(&source, manifest, "package-key", &keys()[0], &policy(), &output).unwrap();
     assert!(verify_package(&output, &root(), &policy()).is_err());
-    assert!(compose_bundle(None, plan(&record, "game:drg", 1), vec![record], &policy(), &root(), &keys(), 1, 9000, 100).is_err());
+    assert!(legacy_bundle(None, plan(&record, "game:drg", 1), vec![record], &policy(), &root(), &keys(), 1, 9000, 100).is_err());
 }
 
 #[test]
@@ -232,10 +249,10 @@ fn role_keys_are_not_interchangeable_and_rotated_root_persists() {
     let online_ids = online.iter().map(|key| key_id(&key.verifying_key())).collect::<std::collections::BTreeSet<_>>();
     for role in ["targets", "snapshot", "timestamp"] { spec.roles.get_mut(role).unwrap().key_ids = online_ids.clone(); }
     let pinned = trust_pinned_root(sign(spec, &old).unwrap(), 100).unwrap();
-    let metadata = compose_scope(plan(&record, "game:drg", 1), vec![record.clone()], &policy(), 9000).unwrap();
+    let metadata = legacy_targets(plan(&record, "game:drg", 1), vec![record.clone()], &policy(), 9000).unwrap();
     assert!(pinned.verify("targets", &sign(metadata.clone(), &old).unwrap()).is_err());
     pinned.verify("targets", &sign(metadata, &online).unwrap()).unwrap();
-    let first = compose_bundle(None, plan(&record, "game:drg", 1), vec![record.clone()], &policy(), &pinned, &online, 1, 9000, 100).unwrap();
+    let first = legacy_bundle(None, plan(&record, "game:drg", 1), vec![record.clone()], &policy(), &pinned, &online, 1, 9000, 100).unwrap();
     let next_keys = vec![SigningKey::from_bytes(&[77; 32]), SigningKey::from_bytes(&[88; 32])];
     let mut next_spec = root_spec(2, &next_keys);
     next_spec.publishers = pinned.envelope().signed.publishers.clone();
@@ -243,7 +260,7 @@ fn role_keys_are_not_interchangeable_and_rotated_root_persists() {
     rotation_signers.extend(next_keys.iter().cloned());
     let rotation = sign(next_spec, &rotation_signers).unwrap();
     let rotated = pinned.rotate(rotation.clone(), 100).unwrap();
-    let mut second = compose_bundle(Some(&first), plan(&record, "game:drg", 2), vec![record], &policy(), &rotated, &next_keys, 2, 9000, 100).unwrap();
+    let mut second = legacy_bundle(Some(&first), plan(&record, "game:drg", 2), vec![record], &policy(), &rotated, &next_keys, 2, 9000, 100).unwrap();
     second.root_rotations.push(rotation);
     let state = sandbox.path().join("trust.json");
     let verifier = RepositoryVerifier::new(&state, pinned.clone());
@@ -264,7 +281,7 @@ fn expired_bootstrap_pin_recovers_only_through_an_authenticated_current_root() {
     spec.header.expires = 150;
     let original = sign(spec, &keys()).unwrap();
     let pinned = trust_pinned_root(original.clone(), 100).unwrap();
-    let first = compose_bundle(None, plan(&record, "game:drg", 1), vec![record.clone()], &policy(), &pinned, &keys(), 1, 140, 100).unwrap();
+    let first = legacy_bundle(None, plan(&record, "game:drg", 1), vec![record.clone()], &policy(), &pinned, &keys(), 1, 140, 100).unwrap();
     let next_keys = vec![SigningKey::from_bytes(&[99; 32]), SigningKey::from_bytes(&[111; 32])];
     let mut next_spec = root_spec(2, &next_keys);
     next_spec.publishers = pinned.envelope().signed.publishers.clone();
@@ -272,7 +289,7 @@ fn expired_bootstrap_pin_recovers_only_through_an_authenticated_current_root() {
     rotation_keys.extend(next_keys.iter().cloned());
     let rotation = sign(next_spec, &rotation_keys).unwrap();
     let rotated = pinned.rotate(rotation.clone(), 200).unwrap();
-    let mut second = compose_bundle(Some(&first), plan(&record, "game:drg", 2), vec![record], &policy(), &rotated, &next_keys, 2, 9000, 200).unwrap();
+    let mut second = legacy_bundle(Some(&first), plan(&record, "game:drg", 2), vec![record], &policy(), &rotated, &next_keys, 2, 9000, 200).unwrap();
     second.root_rotations.push(rotation);
     let pin_path = sandbox.path().join("root.json");
     fs::write(&pin_path, serde_json::to_vec(&original).unwrap()).unwrap();
@@ -313,7 +330,7 @@ fn scope_minimum_host_does_not_relax_exact_package_host_abi() {
     let mut host = policy();
     host.host_api = "2".into();
     let record = pack(&source, descriptor, "package-key", &keys()[0], &host, &sandbox.path().join("package")).unwrap();
-    let metadata = compose_bundle(None, plan(&record, "game:drg", 1), vec![record.clone()], &host, &root(), &keys(), 1, 9000, 100).unwrap();
+    let metadata = legacy_bundle(None, plan(&record, "game:drg", 1), vec![record.clone()], &host, &root(), &keys(), 1, 9000, 100).unwrap();
     let state = sandbox.path().join("state.json");
     let verifier = RepositoryVerifier::new(&state, root());
     verifier.verify_scope(&metadata, "game:drg", "stable", &host, 100).unwrap();
@@ -324,128 +341,58 @@ fn scope_minimum_host_does_not_relax_exact_package_host_abi() {
 }
 
 #[test]
-fn exact_contract_binding_selects_only_its_provider_and_rejects_identity_spoofing() {
+fn self_contained_game_release_issues_exact_data_and_rejects_obsolete_runtime_packages() {
+    use mintcat_game_api::{GAME_ADAPTER_CONTRACT_ID, GAME_ADAPTER_CONTRACT_VERSION};
+    use mintcat_sdk::{ProvidedContract, ScopedProviderBinding};
     let sandbox = tempfile::tempdir().unwrap();
-    let mut policy = policy();
-    policy.contracts.insert("example.assets".into(), std::collections::BTreeSet::from([1]));
-    let make = |id: &str, provides, requires| {
-        let source = sandbox.path().join(format!("{id}-source"));
-        fs::create_dir(&source).unwrap();
-        fs::write(source.join("data.bin"), id.as_bytes()).unwrap();
-        let mut manifest = manifest(id.as_bytes());
-        manifest.id = id.into();
-        manifest.provides = provides;
-        manifest.requires = requires;
-        pack(&source, manifest, "package-key", &keys()[0], &policy, &sandbox.path().join(id)).unwrap()
-    };
-    let provided = mintcat_sdk::ProvidedContract { contract_id: "example.assets".into(), version: 1, cardinality: Some("multi".into()) };
-    let first = make("assets.first", vec![provided.clone()], vec![]);
-    let unrelated = make("assets.second", vec![provided], vec![]);
-    let consumer = make("assets.consumer", vec![], vec![mintcat_sdk::RequiredContract { contract_id: "example.assets".into(), version_range: "1".into(), optional: false, binding_scope: Some("scope".into()) }]);
-    let mut exact = plan(&consumer, "game:drg", 1);
-    exact.provider_bindings.push(mintcat_sdk::ScopedProviderBinding { scope_id: "game:drg".into(), contract_id: "example.assets".into(), contract_version: 1, provider_module_id: first.manifest.id.clone(), provider_digest: first.digest.clone() });
-    let available = vec![consumer, first, unrelated.clone()];
-    let targets = compose_scope(exact.clone(), available.clone(), &policy, 9000).unwrap();
-    let ids = targets.release.packages.iter().map(|p| p.module_id.as_str()).collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(ids, std::collections::BTreeSet::from(["assets.consumer", "assets.first"]));
-    let mut missing = exact.clone();
-    missing.provider_bindings.clear();
-    assert!(compose_scope(missing, available.clone(), &policy, 9000).is_err());
-    exact.provider_bindings[0].provider_digest = unrelated.digest;
-    assert!(compose_scope(exact, available, &policy, 9000).is_err());
-}
-
-#[test]
-fn signed_host_dependency_uses_approved_builtin_without_a_module_provider() {
-    let sandbox = tempfile::tempdir().unwrap();
-    let mut host = policy();
-    host.contracts.insert("source.network".into(), [1].into());
-    let requirement = mintcat_sdk::RequiredContract { contract_id: "source.network".into(), version_range: "=1".into(), optional: false, binding_scope: Some("host".into()) };
-    let record = contract_package(sandbox.path(), "source.consumer", requirement.clone(), &host).unwrap();
-    verify_package(&sandbox.path().join("source.consumer"), &root(), &host).unwrap();
-    let metadata = compose_bundle(None, plan(&record, "game:drg", 1), vec![record.clone()], &host, &root(), &keys(), 1, 9000, 100).unwrap();
-    let verifier = RepositoryVerifier::new(sandbox.path().join("trust.json"), root());
-    let verified = verifier.verify_scope(&metadata, "game:drg", "stable", &host, 100).unwrap();
-    assert_eq!(verified.package_records().keys().cloned().collect::<Vec<_>>(), vec![record.digest.clone()]);
-    assert_eq!(verified.package_records()[&record.digest].manifest.requires, vec![requirement]);
-    assert!(verified.release().provider_bindings.is_empty());
-    assert!(verified.release().singleton_requirements.is_empty());
-
-    for (name, versions) in [("unapproved", None), ("missing", Some(std::collections::BTreeSet::new())), ("incompatible", Some([2].into()))] {
-        let mut unavailable = policy();
-        if let Some(versions) = versions { unavailable.contracts.insert("source.network".into(), versions); }
-        assert!(verify_package(&sandbox.path().join("source.consumer"), &root(), &unavailable).is_err(), "{name}");
-        assert!(compose_scope(plan(&record, "game:drg", 1), vec![record.clone()], &unavailable, 9000).is_err(), "{name}");
-        assert!(RepositoryVerifier::new(sandbox.path().join(format!("{name}-trust.json")), root()).verify_scope(&metadata, "game:drg", "stable", &unavailable, 100).is_err(), "{name}");
-    }
-}
-
-#[test]
-fn optional_missing_host_dependencies_do_not_add_module_providers() {
-    let sandbox = tempfile::tempdir().unwrap();
-    let mut host = policy();
-    host.contracts.insert("example.assets".into(), [1].into());
-    host.contracts.insert("source.network".into(), [2].into());
-    for (name, contract_id, version_range) in [
-        ("optional.unapproved", "source.network", "=1"),
-        ("optional.incompatible", "source.network", "=2"),
-        ("optional.unknown", "example.assets", "=1"),
-    ] {
-        let requirement = mintcat_sdk::RequiredContract { contract_id: contract_id.into(), version_range: version_range.into(), optional: true, binding_scope: Some("host".into()) };
-        let record = contract_package(sandbox.path(), name, requirement.clone(), &host).unwrap();
-        let metadata = compose_bundle(None, plan(&record, "game:drg", 1), vec![record.clone()], &host, &root(), &keys(), 1, 9000, 100).unwrap();
-        let verified = RepositoryVerifier::new(sandbox.path().join(format!("{name}-trust.json")), root()).verify_scope(&metadata, "game:drg", "stable", &host, 100).unwrap();
-        assert_eq!(verified.package_records()[&record.digest].manifest.requires, vec![requirement]);
-        assert!(verified.release().provider_bindings.is_empty());
-    }
-    for (name, contract_id, version_range, optional) in [
-        ("required.unknown", "example.assets", "=1", false),
-        ("required.incompatible", "source.network", "=2", false),
-        ("optional.malformed", "source.network", "invalid range", true),
-    ] {
-        let requirement = mintcat_sdk::RequiredContract { contract_id: contract_id.into(), version_range: version_range.into(), optional, binding_scope: Some("host".into()) };
-        assert!(contract_package(sandbox.path(), name, requirement, &host).is_err(), "{name}");
-    }
-}
-
-#[test]
-fn host_approval_does_not_satisfy_scope_or_arbitrary_cross_scope_dependencies() {
-    let sandbox = tempfile::tempdir().unwrap();
-    let mut host = policy();
-    host.contracts.insert("source.network".into(), [1].into());
-    for (name, binding_scope, optional) in [
-        ("scope.required", "scope", false),
-        ("foreign.required", "game:rogue-core", false),
-        ("foreign.optional", "game:rogue-core", true),
-    ] {
-        let requirement = mintcat_sdk::RequiredContract { contract_id: "source.network".into(), version_range: "=1".into(), optional, binding_scope: Some(binding_scope.into()) };
-        let record = contract_package(sandbox.path(), name, requirement, &host).unwrap();
-        assert!(compose_scope(plan(&record, "game:drg", 1), vec![record], &host, 9000).is_err(), "{name}");
-    }
-}
-
-#[test]
-fn host_dependency_cannot_authorize_an_unused_signed_module_binding() {
-    let sandbox = tempfile::tempdir().unwrap();
-    let mut host = policy();
-    host.contracts.insert("source.network".into(), [1].into());
-    let consumer = contract_package(sandbox.path(), "host.consumer", mintcat_sdk::RequiredContract {
-        contract_id: "source.network".into(), version_range: "=1".into(), optional: false, binding_scope: Some("host".into()),
-    }, &host).unwrap();
-    let source = sandbox.path().join("provider-source");
+    let source = sandbox.path().join("game-source");
     fs::create_dir(&source).unwrap();
-    fs::write(source.join("data.bin"), b"resource payload").unwrap();
-    let mut descriptor = manifest(b"resource payload");
-    descriptor.id = "module.network".into();
-    descriptor.provides.push(mintcat_sdk::ProvidedContract { contract_id: "source.network".into(), version: 1, cardinality: Some("single".into()) });
-    let provider = pack(&source, descriptor, "package-key", &keys()[0], &host, &sandbox.path().join("provider")).unwrap();
-    let mut exact = plan(&consumer, "game:drg", 1);
-    exact.resource_dependencies.insert(consumer.digest.clone(), vec![provider.digest.clone()]);
-    let available = vec![consumer, provider.clone()];
-    compose_scope(exact.clone(), available.clone(), &host, 9000).unwrap();
-    exact.provider_bindings.push(mintcat_sdk::ScopedProviderBinding {
-        scope_id: "game:drg".into(), contract_id: "source.network".into(), contract_version: 1,
-        provider_module_id: provider.manifest.id, provider_digest: provider.digest,
-    });
-    assert!(compose_scope(exact, available, &host, 9000).is_err());
+    let data = b"TEST ONLY signed resource data";
+    fs::write(source.join("data.bin"), data).unwrap();
+    fs::copy(std::env::current_exe().unwrap(), source.join("worker")).unwrap();
+    let worker = fs::read(source.join("worker")).unwrap();
+    let mut policy = policy();
+    policy.target = target_lexicon::HOST.to_string();
+    policy.contracts.insert(GAME_ADAPTER_CONTRACT_ID.into(), [GAME_ADAPTER_CONTRACT_VERSION].into());
+    let mut game = manifest(data);
+    game.id = "example.game".into();
+    game.target = policy.target.clone();
+    game.components = vec![ModuleComponent { kind: "service".into(), runtime: "worker".into(), state_model: "stateless".into(), entry: "worker".into() }];
+    game.provides = vec![ProvidedContract { contract_id: GAME_ADAPTER_CONTRACT_ID.into(), version: GAME_ADAPTER_CONTRACT_VERSION, cardinality: Some("multi".into()) }];
+    game.files.push(ModuleFile { path: "worker".into(), size: worker.len() as u64, sha256: sha256(&worker), executable: true });
+    // This native executable is a test harness, never an installable game artifact.
+    game.contributes = serde_json::json!({"testOnly": true, "scopeId":"game:fixture", "games":[{
+        "schemaVersion":1,"gameId":"game:fixture","displayName":"Fixture","adapterVersion":"1.0.0",
+        "settingsSchemaVersion":1,"settingsSchema":{"type":"object"},
+        "variants":[{"variantId":"fixture","displayName":"Fixture","store":"fixture","storeAppId":null,
+            "target":"x86_64-pc-windows-msvc","mainPakRelativePath":"Content/base.pak","paksRelativePath":"Content",
+            "binariesRelativePath":"Binaries","modPakRelativePath":"Content/mods.pak","processNames":["Fixture.exe"]}],
+        "inputFormats":["pak"],"sourceBindings":[],"capabilities":["create-build-plan"],
+        "resources":[{"resourceId":"fixture.data","versionRange":"1","optional":false,"purpose":"test data"}]
+    }],"bundledResources":[{"resourceId":"fixture.data","version":"1.0.0","archivePath":"data.bin"}]});
+    validate_game_manifest(&game).unwrap();
+    let record = pack(&source, game.clone(), "package-key", &keys()[0], &policy, &sandbox.path().join("game-package")).unwrap();
+    let mut plan = plan(&record, "game:fixture", 1);
+    plan.target = policy.target.clone();
+    plan.provider_bindings = vec![ScopedProviderBinding { scope_id: "game:fixture".into(), contract_id: GAME_ADAPTER_CONTRACT_ID.into(), contract_version: GAME_ADAPTER_CONTRACT_VERSION, provider_module_id: record.manifest.id.clone(), provider_digest: record.digest.clone() }];
+    let signed = compose_bundle(None, plan.clone(), vec![record.clone()], &policy, &root(), &keys(), 1, 9000, 100).unwrap();
+    let release = RepositoryVerifier::new(sandbox.path().join("state.json"), root()).verify_scope(&signed, "game:fixture", "stable", &policy, 100).unwrap();
+    assert_eq!(release.release().schema_version, 2);
+    assert_eq!(release.package_records().len(), 1);
+    assert_eq!(release.package_records()[&record.digest].manifest, game);
+    let mut missing = game.clone();
+    missing.files.retain(|file| file.path != "data.bin");
+    assert!(validate_game_manifest(&missing).unwrap_err().to_string().contains("archive data.bin missing"));
+    let mut missing = game.clone();
+    missing.contributes["bundledResources"] = serde_json::json!([]);
+    assert!(validate_game_manifest(&missing).unwrap_err().to_string().contains("required game resource"));
+    let mut obsolete = game.clone();
+    obsolete.components.push(ModuleComponent { kind: "ui".into(), runtime: "webview".into(), state_model: "stateless".into(), entry: "data.bin".into() });
+    assert!(validate_game_manifest(&obsolete).is_err());
+    obsolete = game.clone();
+    obsolete.requires.push(mintcat_sdk::RequiredContract { contract_id: "unreal.engine".into(), version_range: "1".into(), optional: false, binding_scope: Some("scope".into()) });
+    assert!(validate_game_manifest(&obsolete).is_err());
+    let mut obsolete_plan = plan;
+    obsolete_plan.resource_dependencies.insert(record.digest.clone(), vec![record.digest.clone()]);
+    assert!(compose_scope(obsolete_plan, vec![record], &policy, 9000).is_err());
 }

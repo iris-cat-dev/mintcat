@@ -596,20 +596,16 @@ fn validate_patch_package(
     limits: RogueCoreBuildLimits,
 ) -> Result<PathBuf, RogueCoreError> {
     let installed = package.package.module();
-    if installed.digest != expected_digest
-        || installed.manifest.id != ROGUE_CORE_PATCH_RESOURCE_ID
-        || installed.manifest.files.len() != 1
-    {
-        return Err(RogueCoreError::InvalidRequest(
-            "Rogue Core patch package identity, digest, or file set differs from plan".to_owned(),
-        ));
+    let bundled = mintcat_game_api::bundled_resources(&installed.manifest)?
+        .into_iter().find(|resource| resource.resource_id == ROGUE_CORE_PATCH_RESOURCE_ID);
+    let identity_matches = if let Some(resource) = bundled {
+        installed.manifest.id == crate::ROGUE_CORE_MODULE_ID && resource.archive_path.as_deref() == Some(package.archive_path.as_str())
+    } else { installed.manifest.id == ROGUE_CORE_PATCH_RESOURCE_ID && installed.manifest.files.len() == 1 };
+    if installed.digest != expected_digest || !identity_matches {
+        return Err(RogueCoreError::InvalidRequest("Rogue Core patch signed identity or archive differs from plan".to_owned()));
     }
-    let signed_file = installed.manifest.files.first().expect("length checked");
-    if signed_file.path != package.archive_path || signed_file.executable {
-        return Err(RogueCoreError::InvalidRequest(
-            "Rogue Core patch archive must be the package's sole non-executable signed file"
-                .to_owned(),
-        ));
+    if !installed.manifest.files.iter().any(|file| file.path == package.archive_path && !file.executable) {
+        return Err(RogueCoreError::InvalidRequest("Rogue Core patch archive must be a non-executable signed payload file".to_owned()));
     }
     let path = installed.entry_path(&package.archive_path)?;
     validate_patch_archive(&path, limits)?;

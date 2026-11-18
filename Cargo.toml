@@ -41,36 +41,7 @@ members = [
 default-members = [
     "apps/desktop/src-tauri",
     "apps/cli",
-    "algorithms/unreal-pak",
-    "algorithms/mintcat-integrator-api",
-    "algorithms/mintcat-integrator-core",
-    "modules/source/api",
-    "modules/source/service",
-    "modules/engine-unreal-pak",
-    "modules/source-modio",
-    "modules/loader-ue4ss",
-    "modules/game/api",
-    "modules/game-drg",
-    "modules/game-rogue-core",
-    "modules/install",
-    "modules/feature-backup",
-    "modules/feature-agent",
-    "modules/feature-proxy",
-    "modules/source-modcat",
-    "modules/source-nexusmods",
-    "modules/source-local",
-    "runtime/transfers",
-    "runtime/downloads",
-    "runtime/file-transactions",
-    "modules/library/service",
     "runtime/daemon",
-    "runtime/release",
-    "runtime/updates",
-    "runtime/broker",
-    "runtime/ipc",
-    "runtime/kernel",
-    "runtime/jobs",
-    "runtime/supervisor",
 ]
 
 [workspace.package]
@@ -131,6 +102,8 @@ mintcat-runtime-file-transactions = { path = "runtime/file-transactions" }
 mintcat-runtime-jobs = { path = "runtime/jobs" }
 mintcat-source-api = { path = "modules/source/api" }
 mintcat-source-service = { path = "modules/source/service" }
+mintcat-source-modio = { path = "modules/source-modio" }
+mintcat-source-modcat = { path = "modules/source-modcat" }
 mintcat-source-nexusmods = { path = "modules/source-nexusmods" }
 mintcat-source-local = { path = "modules/source-local" }
 mintcat-library-service = { path = "modules/library/service" }

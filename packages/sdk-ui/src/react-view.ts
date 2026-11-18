@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 import type { ThemeConfig } from 'antd';
-import type { Disposable, NavigationContribution } from './index';
+import type { Disposable } from './index';
 import { getSharedRuntime } from './index';
 
 export type UiThemeName = 'Light' | 'Dark' | 'Pink' | 'Blue';
-export type UiNavigationIcon = NonNullable<NavigationContribution['icon']>;
+export type UiNavigationIcon = 'home' | 'search' | 'settings' | 'robot' | 'cloud' | 'install' | 'proxy' | 'local' | 'downloads';
 export interface UiSelection { gameId: string; gameName: string; profileId?: string }
 const themes: readonly UiThemeName[] = ['Light', 'Dark', 'Pink', 'Blue'];
 
@@ -70,7 +70,7 @@ export function mountReactView(root: HTMLElement, node: ReactNode): Disposable {
       failure = error;
       queueMicrotask(() => { if (!closed) window.dispatchEvent(new CustomEvent('mintcat-ui-render-error', { detail: { root, error } })); });
     }
-    render(): ReactNode { return this.state.error ? React.createElement(Antd.Result, { status: 'error', title: '模块界面加载失败', subTitle: this.state.error.message }) : this.props.children; }
+    render(): ReactNode { return this.state.error ? React.createElement(Antd.Result, { status: 'error', title: '页面加载失败', subTitle: this.state.error.message }) : this.props.children; }
   }
   const render = (): void => {
     if (!closed) renderer.render(React.createElement(Antd.ConfigProvider, { theme: themeConfig(getUiTheme()) }, React.createElement(Antd.App, { className: 'mintcat-ui-view' }, React.createElement(ViewBoundary, null, node))));
@@ -81,7 +81,7 @@ export function mountReactView(root: HTMLElement, node: ReactNode): Disposable {
   const dispose = (): void => { if (closed) return; closed = true; window.removeEventListener('mintcat-ui-theme', themeChanged); renderer.unmount(); };
   window.addEventListener('mintcat-ui-theme', themeChanged);
   try {
-    // Admission must observe the initial React commit, not merely a queued render.
+    // Report initial render failures synchronously to the page owner.
     flushSync(render);
     if (failure) throw failure;
   } catch (error) { dispose(); throw error; }

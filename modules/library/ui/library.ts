@@ -8,7 +8,7 @@ import { canEditProfileContent, shouldRefreshLibrary } from './library-model';
 import { LibraryView } from './library-view';
 import type { LibraryPage } from './library-view';
 
-export interface SignedGame {
+export interface AvailableGame {
   gameId: string;
   displayName: string;
   variants: Array<{ variantId: string; displayName: string }>;
@@ -16,7 +16,7 @@ export interface SignedGame {
 }
 export interface LibraryTask { profileId: string; job: JobSnapshot; action?: ActionRequired }
 export interface LibraryState {
-  games: SignedGame[]; installations: GameSummary['installations']; profiles: ProfileSummary[];
+  games: AvailableGame[]; installations: GameSummary['installations']; profiles: ProfileSummary[];
   gameId: string; profileId: string; installationId: string; variantId: string; query: string;
   mods?: ModsListResult; groups: GroupSummary[]; content?: ProfilesContentStateResult;
   versions: Record<string, ModDetails>; candidates: GameInstallationCandidate[];
@@ -153,13 +153,27 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       ? state.installationId : installations[0]?.installationId ?? '' });
     const profile = profiles.find(item => item.profileId === desiredProfileId) ?? profiles.find(item => item.active) ?? profiles[0];
     await selectProfile(profile?.profileId ?? '');
-    if (!profile && alive()) update({ message: installations.length ? '请选择或新建配置。' : '请在游戏设置中发现并注册真实安装目录，再创建配置。' });
+    if (!alive() || session !== epoch || generation !== profileGeneration || gameId !== state.gameId) return;
+    const support = state.games.find(item => item.gameId === gameId);
+    if (!support?.variants.length && alive()) update({ message: '此游戏的支持插件不可用；已有配置和模组元数据仍可浏览、编辑。发现安装目录、安装与本地导入需先安装游戏支持。' });
+    else if (!profile && alive()) update({ message: installations.length ? '请选择或新建配置。' : '请在游戏设置中发现并注册真实安装目录，再创建配置。' });
   };
   const loadInventory = async (): Promise<void> => {
     const generation = ++inventoryGeneration, session = epoch;
-    const inventory = await context.call('modules.list', {});
+    const [inventory, first] = await Promise.all([
+      context.call('modules.list', {}), context.call('games.list', { pageSize: 100 }),
+    ]);
     if (!alive() || session !== epoch || generation !== inventoryGeneration) return;
-    const games: SignedGame[] = [];
+    const registered = [...first.items];
+    let cursor = first.nextCursor;
+    while (cursor) {
+      const page = await context.call('games.list', { pageSize: 100, cursor });
+      if (!alive() || session !== epoch || generation !== inventoryGeneration) return;
+      registered.push(...page.items); cursor = page.nextCursor;
+    }
+    const games = new Map<string, AvailableGame>(registered.map(game => [game.gameId, {
+      gameId: game.gameId, displayName: game.displayName, variants: [],
+    }]));
     for (const entry of inventory.modules) {
       if (!entry.enabled || !entry.game || !Array.isArray(entry.game.descriptor.variants)) continue;
       const variants = entry.game.descriptor.variants.flatMap(value => {
@@ -170,12 +184,14 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       const rawBindings = entry.game.descriptor.sourceBindings;
       const local = Array.isArray(rawBindings) ? rawBindings.find(value => value && typeof value === 'object'
         && !Array.isArray(value) && value.sourceId === 'local' && typeof value.remoteGameKey === 'string') : undefined;
-      if (variants.length) games.push({ gameId: entry.game.gameId, displayName: entry.game.displayName, variants,
+      games.set(entry.game.gameId, { gameId: entry.game.gameId, displayName: entry.game.displayName, variants,
         ...(local ? { localRemoteGameKey: local.remoteGameKey as string } : {}) });
     }
-    const game = games.find(item => item.gameId === state.gameId) ?? games[0];
-    update({ games, gameId: game?.gameId ?? '', variantId: game?.variants.some(item => item.variantId === state.variantId)
-      ? state.variantId : game?.variants[0]?.variantId ?? '', candidates: [] });
+    const available = [...games.values()];
+    const game = games.get(state.gameId) ?? available[0];
+    update({ games: available, gameId: game?.gameId ?? '', variantId: game?.variants.some(item => item.variantId === state.variantId)
+      ? state.variantId : game?.variants[0]?.variantId ?? '', candidates: [],
+      message: available.length ? '' : '尚未安装游戏支持插件。安装游戏支持后可注册游戏并创建配置；备份和 Agent 仍可使用。' });
     publish();
   };
   const writable = (): { profileId: string; revision: number } => {
@@ -410,7 +426,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     getSnapshot: () => state, actions, page, toolbar: context.toolbar,
   }));
   const polling = context.interval(() => run(poll), 750);
-  const generationSubscription = context.onGenerationChanged(async () => {
+  const inventorySubscription = context.onInventoryChanged(async () => {
     epoch++; renderGeneration++; inventoryGeneration++; profileGeneration++; cache.clear();
     context.invalidate('mods/');
     for (const task of tracked.values()) { task.afterSeq = 0; task.actionId = undefined; task.refreshed = false; }
@@ -420,7 +436,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
   run(async () => { await loadInventory(); await loadProfiles(); await poll(); });
   return { dispose() {
     persist(); closed = true; epoch++; renderGeneration++; inventoryGeneration++; profileGeneration++;
-    polling.dispose(); generationSubscription.dispose(); clearTimeout(searchTimer); listeners.clear(); view.dispose();
+    polling.dispose(); inventorySubscription.dispose(); clearTimeout(searchTimer); listeners.clear(); view.dispose();
     root.classList.remove('library');
   } };
 }

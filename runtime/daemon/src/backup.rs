@@ -25,7 +25,8 @@ struct Target {
     library_revision: Option<u64>,
     owner_epochs: Option<Value>,
     module_lock_digest: Option<String>,
-    codec_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    codec_digest: Option<String>,
     lease_id: Option<String>,
 }
 
@@ -54,7 +55,7 @@ pub(super) async fn handle(state: Arc<DaemonState>, method: &str, params: Value,
     let approved = requires_approval(method);
     let admitted_codec=codec(&state,request_id)?;
     let operation_id = Uuid::new_v4().to_string();
-    let mut target = Target { method: method.into(), params, operation_id, frozen_source: None, source_digest: None, library_digest: None, library_revision:None,owner_epochs:None,module_lock_digest: None,codec_digest:admitted_codec.provider_digest().into(),lease_id:None };
+    let mut target = Target { method: method.into(), params, operation_id, frozen_source: None, source_digest: None, library_digest: None, library_revision:None,owner_epochs:None,module_lock_digest: None,codec_digest:None,lease_id:None };
     // Freeze the explicitly selected input before asking for approval. Approval is never
     // authority over a pathname whose content can change while a human reads the prompt.
     if approved {
@@ -94,32 +95,15 @@ pub(super) async fn handle(state: Arc<DaemonState>, method: &str, params: Value,
         Ok::<_,Box<AppError>>(target)
         }).await.map_err(|e|Box::new(super::internal_error(request_id,e.to_string())))??;
     }
-    let updates=state.updates.as_ref().ok_or_else(||error(request_id,BackupError::Module("updates owner unavailable".into())))?;
-    if method!="backup.recover" {
-        let environment=updates.environment().map_err(|e|Box::new(super::internal_error(request_id,e.to_string())))?;
-        let generation=environment.scopes.get(admitted_codec.scope_id()).ok_or_else(||error(request_id,BackupError::Module("backup scope generation unavailable".into())))?;
-        if !generation.targets.signed.packages.values().any(|package|package.digest==admitted_codec.provider_digest()) {
-            if let Some(source)=&target.frozen_source {let _=fs::remove_file(source);}
-            return Err(error(request_id,BackupError::Invalid("backup codec no longer belongs to admitted signed closure".into())));
-        }
-        let lease=updates.acquire_lease(Some(admitted_codec.scope_id()),&generation.generation_id,&format!("backup:{}",target.operation_id),mintcat_runtime_updates::LeaseKind::Task,None)
-            .map_err(|e|{
-                if let Some(source)=&target.frozen_source {let _=fs::remove_file(source);}
-                Box::new(super::internal_error(request_id,e.to_string()))
-            })?;
-        target.lease_id=Some(lease.lease_id);
-    }
     let registration = state.jobs.register_job(RegisterJob {
         command: method.into(), owner_scope: LOCAL_OWNER_SCOPE.into(), idempotency_key: key.into(), request_hash: hash,
         target: serde_json::to_value(&target).map_err(|e| error(request_id, e.into()))?,
         confirmation_policy: if approved { ConfirmationPolicy::Required } else { ConfirmationPolicy::None },
     }).map_err(|e| {
-        if let Some(lease)=&target.lease_id {let _=updates.release_lease(lease);}
         if let Some(source)=&target.frozen_source {let _=fs::remove_file(source);}
         Box::new(super::job_error(request_id,e))
     })?;
     if !registration.created {
-        if let Some(lease)=&target.lease_id {let _=updates.release_lease(lease);}
         if let Some(path) = target.frozen_source { let _ = fs::remove_file(path); }
         return Ok(json!(registration.job));
     }
@@ -143,7 +127,6 @@ pub(super) async fn handle(state: Arc<DaemonState>, method: &str, params: Value,
             let _=release_terminal_lease(&state,&registration.job.job_id);
             return Err(failure);
         }
-        state.backup_pending_codecs.lock().expect("backup pending registry poisoned").insert(registration.job.job_id.clone(),admitted_codec);
     } else {
         spawn(state, registration.job.clone(), target, None,admitted_codec);
     }
@@ -162,14 +145,12 @@ pub(super) fn resume_action(state: Arc<DaemonState>, action: &ActionRequired) ->
     if !requires_approval(&target.method) || action.operation_id != target.operation_id || snapshot.command != target.method {
         return Err(error("backup-action", BackupError::Invalid("action operation mismatch".into())));
     }
-    let admitted=state.backup_pending_codecs.lock().expect("backup pending registry poisoned").get(&job.job_id).cloned().map(Ok)
-        .unwrap_or_else(||codec(&state,"backup-action"))?;
-    if admitted.provider_digest()!=target.codec_digest {return Err(error("backup-action",BackupError::Invalid("approved backup codec package changed".into())));}
+    let admitted = codec(&state, "backup-action")?;
     spawn(state, job, target, Some(action.action_id.clone()),admitted);
     Ok(())
 }
 
-fn spawn(state: Arc<DaemonState>, job: JobRef, target: Target, action: Option<String>,admitted_codec:Arc<mintcat_feature_backup::NativeBackupCodec>) {
+fn spawn(state: Arc<DaemonState>, job: JobRef, target: Target, action: Option<String>,admitted_codec:Arc<mintcat_feature_backup::BackupCodec>) {
     let mut running = state.backup_running.lock().expect("backup running registry poisoned");
     if !running.insert(job.job_id.clone()) { return; }
     drop(running);
@@ -199,7 +180,7 @@ fn spawn(state: Arc<DaemonState>, job: JobRef, target: Target, action: Option<St
     });
 }
 
-async fn execute(state: Arc<DaemonState>, job_id: &str, target: &Target, action: Option<&str>,admitted_codec:Arc<mintcat_feature_backup::NativeBackupCodec>) -> Result<(), Box<AppError>> {
+async fn execute(state: Arc<DaemonState>, job_id: &str, target: &Target, action: Option<&str>,admitted_codec:Arc<mintcat_feature_backup::BackupCodec>) -> Result<(), Box<AppError>> {
     let request_id = job_id;
     let service = service(&state,request_id,admitted_codec.clone())?;
     if requires_approval(&target.method) {
@@ -260,7 +241,7 @@ async fn execute(state: Arc<DaemonState>, job_id: &str, target: &Target, action:
     Ok(())
 }
 
-fn import(state: &DaemonState, job_id: &str, target: &Target, action_id: &str,admitted_codec:Arc<mintcat_feature_backup::NativeBackupCodec>) -> Result<Value, Box<AppError>> {
+fn import(state: &DaemonState, job_id: &str, target: &Target, action_id: &str,admitted_codec:Arc<mintcat_feature_backup::BackupCodec>) -> Result<Value, Box<AppError>> {
     if legacy(target) {
         let gate = MaintenanceGate::exclusive(&state.layout, false).map_err(|e| error(job_id, e))?;
         let runtime = inspect(state, Some(job_id)).map_err(|e| error(job_id, e))?;
@@ -431,7 +412,6 @@ pub(super) fn release_terminal_lease(state:&DaemonState,job_id:&str)->Result<(),
     if !matches!(snapshot.state,JobState::Succeeded | JobState::Cancelled | JobState::Failed) {return Ok(());}
     if !matches!(snapshot.command.as_str(),"backup.export" | "backup.restore" | "backup.recover" | "backup.cloud.upload" | "backup.cloud.download" | "library.import-legacy" | "library.config-import") {return Ok(());}
     let target:Target=serde_json::from_value(state.jobs.get_job_target(LOCAL_OWNER_SCOPE,job_id).map_err(|e|Box::new(super::job_error(job_id,e)))?).map_err(|e|error(job_id,e.into()))?;
-    state.backup_pending_codecs.lock().expect("backup pending registry poisoned").remove(job_id);
     if let Some(lease)=target.lease_id {
         if let Some(updates)=&state.updates {
             if updates.leases().map_err(|e|Box::new(super::internal_error(job_id,e.to_string())))?.iter().any(|known|known.lease_id==lease) {
@@ -470,37 +450,17 @@ fn verify_binding(state: &DaemonState, target: &Target, current: &ActionBinding)
     Ok(())
 }
 
-fn codec(state:&DaemonState,request_id:&str)->Result<Arc<mintcat_feature_backup::NativeBackupCodec>,Box<AppError>> {
-    state.backup_codec.read().expect("backup codec registry poisoned").clone().ok_or_else(||error(request_id,BackupError::Module("signed mintcat-backup-worker backup.worker@2 provider unavailable".into())))
+fn codec(state:&DaemonState,_request_id:&str)->Result<Arc<mintcat_feature_backup::BackupCodec>,Box<AppError>> {
+    Ok(state.backup_codec.clone())
 }
-fn service(state:&DaemonState,request_id:&str,codec:Arc<mintcat_feature_backup::NativeBackupCodec>)->Result<BackupService,Box<AppError>> {
-    BackupService::with_native_backend(state.layout.clone(),state.library.clone(),codec).map(|service|service.with_owners(state.features.clone())).map_err(|e|error(request_id,e))
+fn service(state:&DaemonState,request_id:&str,_codec:Arc<mintcat_feature_backup::BackupCodec>)->Result<BackupService,Box<AppError>> {
+    BackupService::new(state.layout.clone(),state.library.clone()).map(|service|service.with_owners(state.features.clone())).map_err(|e|error(request_id,e))
 }
 
-/// Only called on the blocking recovery path. A durable task lease, not current
-/// routing or a caller-selected digest, authorizes reconstruction of a prior codec.
-fn retained_codec(state:&DaemonState,job_id:&str,target:&Target)->Result<Arc<mintcat_feature_backup::NativeBackupCodec>,Box<AppError>> {
-    if let Some(codec)=state.backup_pending_codecs.lock().expect("backup pending registry poisoned").get(job_id).cloned() {
-        if codec.provider_digest()==target.codec_digest {return Ok(codec);}
-    }
-    if let Ok(current)=codec(state,job_id) {
-        if current.provider_digest()==target.codec_digest {return Ok(current);}
-    }
-    let updates=state.updates.as_ref().ok_or_else(||error(job_id,BackupError::RecoveryRequired))?;
-    let lease_id=target.lease_id.as_deref().ok_or_else(||error(job_id,BackupError::RecoveryRequired))?;
-    let lease=updates.leases().map_err(|e|Box::new(super::internal_error(job_id,e.to_string())))?
-        .into_iter().find(|lease|lease.lease_id==lease_id && lease.owner_id==format!("backup:{}",target.operation_id))
-        .ok_or_else(||error(job_id,BackupError::RecoveryRequired))?;
-    for (scope,generation) in lease.environment.scopes {
-        if generation.targets.signed.packages.values().any(|package|package.digest==target.codec_digest && package.manifest.id=="mintcat.feature.backup") {
-            let supervisor=updates.supervisor_for_generation(&scope,&generation.generation_id).map_err(|e|Box::new(super::internal_error(job_id,e.to_string())))?
-                .ok_or_else(||error(job_id,BackupError::Module("retained backup realm is not activated; keep read-only rescue until its verified generation is restored".into())))?;
-            let codec=Arc::new(mintcat_feature_backup::NativeBackupCodec::new(supervisor,scope,target.codec_digest.clone()).map_err(|e|error(job_id,e))?);
-            state.backup_pending_codecs.lock().expect("backup pending registry poisoned").insert(job_id.into(),codec.clone());
-            return Ok(codec);
-        }
-    }
-    Err(error(job_id,BackupError::RecoveryRequired))
+// Archives retain format/schema validation; historical codec package IDs are not
+// needed to decode their portable data with the daemon-owned codec.
+fn retained_codec(state:&DaemonState,job_id:&str,_target:&Target)->Result<Arc<mintcat_feature_backup::BackupCodec>,Box<AppError>> {
+    codec(state, job_id)
 }
 
 /// Called only by BackupService after it owns exclusive admission (or while our import owns it).
@@ -576,27 +536,30 @@ fn portable_snapshot(state:&DaemonState)->Result<PortableSnapshot,BackupError> {
 }
 
 fn modules(state: &DaemonState) -> Result<BTreeMap<String, ModuleVersion>, BackupError> {
-    let updates = state.updates.as_ref().ok_or_else(|| BackupError::Module("signed installed module closure unavailable".into()))?;
-    let environment = updates.environment().map_err(|e| BackupError::Invalid(e.to_string()))?;
-    let mut modules = BTreeMap::new();
-    for generation in environment.scopes.values() {
-        for package in generation.targets.signed.packages.values() {
-            let version = ModuleVersion { version: package.manifest.version.clone(), schema_version: package.manifest.state.schema_version.try_into().map_err(|_| BackupError::Invalid("schema version overflow".into()))? };
-            if let Some(previous) = modules.insert(package.manifest.id.clone(), version.clone()) {
-                if previous != version { return Err(BackupError::Module(format!("multiple incompatible owner versions: {}", package.manifest.id))); }
+    let mut modules = BTreeMap::from([
+        ("mintcat.library".into(), ModuleVersion { version: env!("CARGO_PKG_VERSION").into(), schema_version: 5 }),
+        ("mintcat.feature.agent".into(), ModuleVersion { version: env!("CARGO_PKG_VERSION").into(), schema_version: 1 }),
+        ("mintcat.feature.backup".into(), ModuleVersion { version: env!("CARGO_PKG_VERSION").into(), schema_version: 1 }),
+    ]);
+    if let Some(updates) = &state.updates {
+        for generation in updates.environment().map_err(|e| BackupError::Invalid(e.to_string()))?.scopes.values() {
+            for package in generation.targets.signed.packages.values().filter(|package| package.manifest.id.starts_with("mintcat.game.")) {
+                let schema_version = package.manifest.state.schema_version.try_into().map_err(|_| BackupError::Invalid("schema version overflow".into()))?;
+                if schema_version != 0 { modules.insert(package.manifest.id.clone(), ModuleVersion { version: package.manifest.version.clone(), schema_version }); }
             }
         }
     }
-    // Stateless packages legitimately use zero; the archive's owner-version map
-    // includes only stateful modules. The approval lock below binds every package.
-    modules.retain(|_, version| version.schema_version != 0);
-    if !modules.contains_key("mintcat.library") { return Err(BackupError::Module("mintcat.library signed owner unavailable".into())); }
+    if cfg!(feature = "experimental-proxy") || state.features.proxy_data_present().map_err(|e| BackupError::Invalid(e.to_string()))? {
+        modules.insert("mintcat.feature.proxy".into(), ModuleVersion { version: env!("CARGO_PKG_VERSION").into(), schema_version: 1 });
+    }
     Ok(modules)
 }
 
 fn module_lock(state: &DaemonState) -> Result<String, BackupError> {
-    let updates = state.updates.as_ref().ok_or_else(|| BackupError::Module("signed module closure unavailable".into()))?;
-    digest_json(&updates.environment().map_err(|e| BackupError::Invalid(e.to_string()))?)
+    match &state.updates {
+        Some(updates) => digest_json(&updates.environment().map_err(|e| BackupError::Invalid(e.to_string()))?),
+        None => digest_json(&modules(state)?),
+    }
 }
 fn ensure_quiescent(blockers: &BackupBlockers) -> Result<(), Box<AppError>> {
     if !blockers.active_jobs.is_empty() || !blockers.unfinished_install_jobs.is_empty() || !blockers.file_journals.is_empty() || !blockers.module_transitions.is_empty() || !blockers.nonempty_owners.is_empty() {
@@ -671,37 +634,3 @@ fn error(request_id: &str, failure: BackupError) -> Box<AppError> {
     Box::new(AppError { code: code.into(), message_key: key.into(), details: json!({"reason":failure.to_string()}), request_id: request_id.into(), job_id: None, retryable, recovery_actions: vec![] })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use mintcat_runtime_kernel::{RuntimeEnvironment,RuntimePaths};
-    use std::{sync::mpsc,time::Duration};
-
-    #[tokio::test]
-    async fn unavailable_signed_owner_inspection_returns_error_for_empty_and_own_recovery_job() {
-        let sandbox=tempfile::tempdir().unwrap();
-        let paths=RuntimePaths::new(sandbox.path().join("data")).unwrap();
-        let daemon=crate::BoundDaemon::bind(&paths,RuntimeEnvironment::Test).unwrap();
-        let (sender,receiver)=mpsc::channel();
-        let worker=std::thread::spawn(move|| {
-            let empty=inspect(&daemon.state,None);
-            let job=daemon.state.jobs.register_job(RegisterJob {
-                command:"backup.recover".into(),owner_scope:LOCAL_OWNER_SCOPE.into(),
-                idempotency_key:"inspector-recovery".into(),request_hash:request_hash(&json!({})).unwrap(),
-                target:json!({}),confirmation_policy:ConfirmationPolicy::None,
-            }).unwrap().job;
-            let recovery=inspect(&daemon.state,Some(&job.job_id));
-            let state=daemon.state.jobs.get_job(LOCAL_OWNER_SCOPE,&job.job_id).unwrap().state;
-            sender.send((empty,recovery,state)).unwrap();
-        });
-        let (empty,recovery,state)=receiver.recv_timeout(Duration::from_secs(5))
-            .expect("backup inspection must release Kernel admission before consulting its owners");
-        worker.join().unwrap();
-        for outcome in [empty,recovery] {
-            let failure=outcome.expect_err("a fixture without signed owners must reject portable backup");
-            assert!(matches!(failure,BackupError::Module(_)));
-            assert_eq!(error("inspection",failure).code,"INCOMPATIBLE_CONTRACT");
-        }
-        assert_eq!(state,JobState::Queued,"inspection must not resume a recovery job");
-    }
-}

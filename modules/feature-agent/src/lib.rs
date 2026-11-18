@@ -1,13 +1,8 @@
 mod tools;
 pub use tools::{agent_allowed, decode_tool, tool_descriptors};
-mod client;
-mod native;
-pub mod update_owner;
-pub use client::NativeAgentSessions;
-pub use native::{run_native_owner, AGENT_CONTRACT_ID, AGENT_CONTRACT_VERSION};
-pub use update_owner::NativeAgentStateOwner;
+mod state;
 
-use std::{path::Path, sync::{Arc, Mutex}, time::Duration};
+use std::{path::{Path, PathBuf}, sync::{Arc, Mutex, Condvar}, time::Duration};
 use async_trait::async_trait;
 use mintcat_runtime_broker::{CancellationToken, CredentialBinding, CredentialPlacement, CredentialRef, HttpMethod, NetworkBroker, NetworkRequest, Origin};
 use mintcat_sdk::{AppError, ValidatedRequest};
@@ -22,7 +17,6 @@ const SYSTEM_PROMPT: &str = "You are MintCat's mod assistant. Use Application to
 
 #[derive(Error, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentError {
-    #[error("agent native module unavailable")] ModuleUnavailable,
     #[error("agent storage unavailable")] Storage,
     #[error("agent session not found")] NotFound,
     #[error("agent session revision changed")] StaleRevision,
@@ -39,7 +33,6 @@ pub enum AgentError {
 impl AgentError {
     pub fn code(self) -> &'static str {
         match self {
-            Self::ModuleUnavailable => "MODULE_UNAVAILABLE",
             Self::Storage => "AGENT_STORAGE", Self::NotFound => "NOT_FOUND", Self::StaleRevision => "STALE_REVISION", Self::Busy => "SESSION_BUSY",
             Self::InvalidRequest => "INVALID_ARGUMENT", Self::Provider => "AGENT_PROVIDER", Self::InvalidResponse => "AGENT_RESPONSE",
             Self::PermissionDenied => "PERMISSION_DENIED", Self::InvalidTool => "INVALID_ARGUMENT", Self::TargetMismatch => "TARGET_MISMATCH", Self::TurnLimit => "AGENT_TURN_LIMIT",
@@ -99,17 +92,6 @@ pub trait ApplicationGateway: Send + Sync {
     async fn execute(&self, request: ValidatedRequest) -> Result<Value, AppError>;
 }
 
-#[async_trait]
-pub(crate) trait CompletionProvider: Send + Sync {
-    async fn complete(&self, configuration: &AgentConfiguration, body: Vec<u8>) -> Result<Value, AgentError>;
-}
-struct HostCompletion(NetworkBroker);
-#[async_trait]
-impl CompletionProvider for HostCompletion {
-    async fn complete(&self, configuration: &AgentConfiguration, body: Vec<u8>) -> Result<Value, AgentError> {
-        complete_with_broker(&self.0, configuration, body, &CancellationToken::default()).await
-    }
-}
 pub(crate) async fn complete_with_broker(broker: &NetworkBroker, configuration: &AgentConfiguration, body: Vec<u8>, cancellation: &CancellationToken) -> Result<Value, AgentError> {
     if body.len() > 2 * 1024 * 1024 { return Err(AgentError::TurnLimit); }
     let url = endpoint(configuration)?;
@@ -122,29 +104,45 @@ pub(crate) async fn complete_with_broker(broker: &NetworkBroker, configuration: 
     if !(200..300).contains(&response.status) { return Err(AgentError::Provider); }
     serde_json::from_slice(&response.body).map_err(|_| AgentError::InvalidResponse)
 }
-pub struct AgentSessions { db: Arc<Mutex<Connection>>, completion: Arc<dyn CompletionProvider>, gateway: Arc<dyn ApplicationGateway> }
+pub struct AgentSessions {
+    db: Arc<Mutex<Connection>>, broker: NetworkBroker, gateway: Arc<dyn ApplicationGateway>,
+    path: PathBuf, _writer_lock: std::fs::File,
+    active: Arc<(Mutex<Option<ActiveTurn>>, Condvar)>,
+}
+struct ActiveTurn { session_id: String, job_id: String, cancellation: CancellationToken, started: bool }
 impl AgentSessions {
     pub fn open(path: impl AsRef<Path>, broker: NetworkBroker, gateway: Arc<dyn ApplicationGateway>) -> Result<Self, AgentError> {
-        Self::open_with_completion(path.as_ref(), Arc::new(HostCompletion(broker)), gateway)
+        Self::open_state(path.as_ref(), broker, gateway, true)
     }
-    pub(crate) fn open_with_completion(path: &Path, completion: Arc<dyn CompletionProvider>, gateway: Arc<dyn ApplicationGateway>) -> Result<Self, AgentError> {
+    /// Open existing state without repairing turns while backup evidence is unresolved.
+    pub fn open_for_recovery(path: impl AsRef<Path>, broker: NetworkBroker, gateway: Arc<dyn ApplicationGateway>) -> Result<Self, AgentError> {
+        Self::open_state(path.as_ref(), broker, gateway, false)
+    }
+    fn open_state(path: &Path, broker: NetworkBroker, gateway: Arc<dyn ApplicationGateway>, recover: bool) -> Result<Self, AgentError> {
+        let writer_lock = state::writer_lock(path)?;
+        let existed = path.try_exists().map_err(|_| AgentError::Storage)?;
+        let initialize = state::prepare_database(path)?;
         let db = Connection::open(path).map_err(|_| AgentError::Storage)?;
         db.busy_timeout(Duration::from_secs(5)).map_err(|_| AgentError::Storage)?;
-        db.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS agent_sessions(session_id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS agent_operations(command TEXT NOT NULL, operation_key TEXT NOT NULL, request_hash TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(command,operation_key));").map_err(|_| AgentError::Storage)?;
+        if recover || !existed {
+            db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS agent_sessions(session_id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS agent_operations(command TEXT NOT NULL, operation_key TEXT NOT NULL, request_hash TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(command,operation_key));").map_err(|_| AgentError::Storage)?;
+        }
         let mut interrupted = Vec::new();
         {
             let mut query = db.prepare("SELECT data FROM agent_sessions").map_err(|_| AgentError::Storage)?;
             let rows = query.query_map([], |row| row.get::<_, String>(0)).map_err(|_| AgentError::Storage)?;
             for row in rows {
                 let mut stored: StoredSession = serde_json::from_str(&row.map_err(|_| AgentError::Storage)?).map_err(|_| AgentError::Storage)?;
-                if stored.session.state == "sending" {
+                if recover && stored.session.state == "sending" {
                     stored.session.state = "failed".into(); stored.session.error_code = Some("TURN_INTERRUPTED".into()); stored.session.revision += 1;
                     repair_history(&mut stored.history); interrupted.push(stored);
                 }
             }
         }
+        if recover && (initialize || !interrupted.is_empty()) { state::advance_epoch(path)?; }
+        if recover || !existed { db.execute_batch("PRAGMA user_version=1;").map_err(|_| AgentError::Storage)?; }
         for stored in interrupted { persist(&db, &stored)?; }
-        Ok(Self { db: Arc::new(Mutex::new(db)), completion, gateway })
+        Ok(Self { db: Arc::new(Mutex::new(db)), broker, gateway, path: path.to_owned(), _writer_lock: writer_lock, active: Arc::new((Mutex::new(None), Condvar::new())) })
     }
     pub fn create(&self, request: CreateSession) -> Result<AgentSession, AgentError> {
         validate_configuration_target(&request.configuration, &request.target)?;
@@ -152,7 +150,9 @@ impl AgentSessions {
             session_id: format!("agent-session:{}", Uuid::new_v4()), revision: 1, state: "idle".into(), configuration: request.configuration,
             target: request.target, timeline: Vec::new(), bindings: Vec::new(), error_code: None,
         }, history: Vec::new() };
-        persist(&*self.db.lock().map_err(|_| AgentError::Storage)?, &stored)?;
+        let db = self.db.lock().map_err(|_| AgentError::Storage)?;
+        self.advance_epoch()?;
+        persist(&db, &stored)?;
         Ok(stored.session)
     }
     /// Session mutation and its exact replay receipt commit together in the owner database.
@@ -167,6 +167,7 @@ impl AgentSessions {
             session_id: format!("agent-session:{}", Uuid::new_v4()), revision: 1, state: "idle".into(), configuration: request.configuration,
             target: request.target, timeline: Vec::new(), bindings: Vec::new(), error_code: None,
         }, history: Vec::new() };
+        self.advance_epoch()?;
         persist(&tx, &stored)?;
         let result = serde_json::to_string(&stored.session).map_err(|_| AgentError::Storage)?;
         record_operation(&tx, "create", key, request_hash, &result)?;
@@ -179,6 +180,7 @@ impl AgentSessions {
         if replay_operation(&tx, "delete", key, request_hash)?.is_some() { return Ok(()); }
         let stored = load(&tx, session_id)?;
         check_revision(&stored.session, expected_revision)?;
+        self.advance_epoch()?;
         tx.execute("DELETE FROM agent_sessions WHERE session_id=?1", [session_id]).map_err(|_| AgentError::Storage)?;
         record_operation(&tx, "delete", key, request_hash, "null")?;
         tx.commit().map_err(|_| AgentError::Storage)
@@ -192,6 +194,7 @@ impl AgentSessions {
         let db = self.db.lock().map_err(|_| AgentError::Storage)?;
         let stored = load(&db, session_id)?;
         check_revision(&stored.session, expected_revision)?;
+        self.advance_epoch()?;
         db.execute("DELETE FROM agent_sessions WHERE session_id=?1", [session_id]).map_err(|_| AgentError::Storage)?;
         Ok(())
     }
@@ -204,51 +207,78 @@ impl AgentSessions {
     /// Reserve a revision synchronously before acknowledging the daemon job.
     pub fn prepare_send(&self, request: SendMessage, job_id: &str) -> Result<(), AgentError> {
         if request.content.trim().is_empty() || request.content.len() > 32 * 1024 { return Err(AgentError::InvalidRequest); }
+        let mut active = self.active.0.lock().map_err(|_| AgentError::Storage)?;
+        if active.is_some() { return Err(AgentError::Busy); }
         let db = self.db.lock().map_err(|_| AgentError::Storage)?;
         let mut stored = load(&db, &request.session_id)?;
         check_revision(&stored.session, request.expected_revision)?;
+        self.advance_epoch()?;
         stored.session.state = "sending".into(); stored.session.revision += 1; stored.session.error_code = None;
         repair_history(&mut stored.history);
         stored.history.push(json!({"role":"user", "content":request.content}));
         timeline(&mut stored.session, "user", request.content, None);
         stored.session.bindings.push(TaskBinding { job_id: Some(job_id.into()), action_id: None });
-        persist(&db, &stored)
+        persist(&db, &stored)?;
+        *active = Some(ActiveTurn { session_id: request.session_id, job_id: job_id.into(), cancellation: CancellationToken::default(), started: false });
+        Ok(())
     }
     pub async fn run_turn(&self, session_id: &str, job_id: &str, generation: &str) -> Result<AgentSession, AgentError> {
+        let cancellation = {
+            let mut active = self.active.0.lock().map_err(|_| AgentError::Storage)?;
+            let turn = active.as_mut().filter(|turn| turn.session_id == session_id && turn.job_id == job_id && !turn.started).ok_or(AgentError::Busy)?;
+            turn.started = true;
+            turn.cancellation.clone()
+        };
+        let mut guard = TurnGuard { db: self.db.clone(), session_id: session_id.into(), finished: false, active: self.active.clone(), path: self.path.clone() };
         let mut stored = load(&*self.db.lock().map_err(|_| AgentError::Storage)?, session_id)?;
         if stored.session.state != "sending" || stored.session.bindings.last().and_then(|binding| binding.job_id.as_deref()) != Some(job_id) { return Err(AgentError::Busy); }
-        let mut guard = TurnGuard { db: self.db.clone(), session_id: stored.session.session_id.clone(), finished: false };
-        let outcome = self.continue_turn(&mut stored, generation).await;
+        let outcome = self.continue_turn(&mut stored, generation, &cancellation).await;
         stored.session.revision += 1;
         match &outcome {
             Ok(()) => stored.session.state = "idle".into(),
             Err(error) => { stored.session.state = "failed".into(); stored.session.error_code = Some(error.code().into()); timeline(&mut stored.session, "error", error.to_string(), None); repair_history(&mut stored.history); }
         }
-        persist(&*self.db.lock().map_err(|_| AgentError::Storage)?, &stored)?;
+        {
+            let db = self.db.lock().map_err(|_| AgentError::Storage)?;
+            self.advance_epoch()?;
+            persist(&db, &stored)?;
+        }
         guard.finished = true;
         outcome?;
         Ok(stored.session)
     }
     pub fn interrupt_turn(&self, session_id: &str, job_id: &str) -> Result<(), AgentError> {
+        let mut active = self.active.0.lock().map_err(|_| AgentError::Storage)?;
+        if active.as_ref().is_some_and(|turn| turn.session_id == session_id && turn.job_id == job_id) {
+            active.as_ref().unwrap().cancellation.cancel();
+            if active.as_ref().unwrap().started {
+                while active.as_ref().is_some_and(|turn| turn.session_id == session_id && turn.job_id == job_id) {
+                    active = self.active.1.wait(active).map_err(|_| AgentError::Storage)?;
+                }
+            } else { *active = None; self.active.1.notify_all(); }
+        }
+        drop(active);
         let db = self.db.lock().map_err(|_| AgentError::Storage)?;
         let mut stored = load(&db, session_id)?;
         if stored.session.state == "sending" && stored.session.bindings.iter().any(|binding| binding.job_id.as_deref() == Some(job_id)) {
             stored.session.state = "failed".into(); stored.session.error_code = Some("TURN_INTERRUPTED".into()); stored.session.revision += 1;
             repair_history(&mut stored.history);
+            self.advance_epoch()?;
             persist(&db, &stored)?;
         }
         Ok(())
     }
-    async fn continue_turn(&self, stored: &mut StoredSession, generation: &str) -> Result<(), AgentError> {
+    async fn continue_turn(&self, stored: &mut StoredSession, generation: &str, cancellation: &CancellationToken) -> Result<(), AgentError> {
         let mut tool_count = 0;
         for _ in 0..8 {
+            if cancellation.is_cancelled() { return Err(AgentError::Provider); }
             let prefix = [json!({"role":"system", "content":SYSTEM_PROMPT}), json!({"role":"system", "content":format!("Explicit session target: {}", serde_json::to_string(&stored.session.target).map_err(|_| AgentError::Storage)?)})];
             let body = serde_json::to_vec(&CompletionRequest {
                 model: &stored.session.configuration.model,
                 messages: prefix.iter().chain(stored.history.iter()).collect(),
                 tools: tool_descriptors(), tool_choice: "auto",
             }).map_err(|_| AgentError::Storage)?;
-            let response = self.completion.complete(&stored.session.configuration, body).await?;
+            let response = complete_with_broker(&self.broker, &stored.session.configuration, body, cancellation).await?;
             let assistant = response.pointer("/choices/0/message").filter(|message| message.get("role").and_then(Value::as_str) == Some("assistant")).ok_or(AgentError::InvalidResponse)?;
             let content = assistant.get("content").and_then(Value::as_str).unwrap_or("");
             let calls = match assistant.get("tool_calls") { None | Some(Value::Null) => Vec::new(), Some(Value::Array(calls)) => calls.clone(), _ => return Err(AgentError::InvalidResponse) };
@@ -266,6 +296,7 @@ impl AgentSessions {
             stored.history.push(json!({"role":"assistant","content":content,"tool_calls":calls}));
             if !content.trim().is_empty() { timeline(&mut stored.session, "assistant", content.into(), None); }
             for call in calls {
+                if cancellation.is_cancelled() { return Err(AgentError::Provider); }
                 tool_count += 1;
                 let id = call["id"].as_str().ok_or(AgentError::InvalidResponse)?;
                 let name = call["function"]["name"].as_str().ok_or(AgentError::InvalidResponse)?;
@@ -288,7 +319,9 @@ impl AgentSessions {
                 let result_text = serde_json::to_string(&result).map_err(|_| AgentError::Storage)?;
                 timeline(&mut stored.session, "tool", result_text.clone(), Some(tools::display_tool_name(name).into()));
                 stored.history.push(json!({"role":"tool","tool_call_id":id,"content":result_text}));
-                persist(&*self.db.lock().map_err(|_| AgentError::Storage)?, stored)?;
+                let db = self.db.lock().map_err(|_| AgentError::Storage)?;
+                self.advance_epoch()?;
+                persist(&db, stored)?;
             }
         }
         Err(AgentError::TurnLimit)
@@ -361,18 +394,23 @@ fn trim_history(history: &mut Vec<Value>) {
     let users: Vec<usize> = history.iter().enumerate().filter_map(|(index, message)| (message["role"] == "user").then_some(index)).collect();
     if users.len() > 20 { history.drain(..users[users.len() - 20]); }
 }
-struct TurnGuard { db: Arc<Mutex<Connection>>, session_id: String, finished: bool }
+struct TurnGuard { db: Arc<Mutex<Connection>>, session_id: String, finished: bool, active: Arc<(Mutex<Option<ActiveTurn>>, Condvar)>, path: PathBuf }
 impl Drop for TurnGuard {
     fn drop(&mut self) {
-        if self.finished { return; }
+        if self.finished {
+            if let Ok(mut active) = self.active.0.lock() { *active = None; self.active.1.notify_all(); }
+            return;
+        }
         if let Ok(db) = self.db.lock() {
             if let Ok(mut stored) = load(&db, &self.session_id) {
                 if stored.session.state == "sending" {
                     stored.session.state = "failed".into(); stored.session.error_code = Some("TURN_INTERRUPTED".into()); stored.session.revision += 1;
-                    repair_history(&mut stored.history); let _ = persist(&db, &stored);
+                    repair_history(&mut stored.history);
+                    if state::advance_epoch(&self.path).is_ok() { let _ = persist(&db, &stored); }
                 }
             }
         }
+        if let Ok(mut active) = self.active.0.lock() { *active = None; self.active.1.notify_all(); }
     }
 }
 

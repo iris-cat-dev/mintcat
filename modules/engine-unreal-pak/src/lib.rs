@@ -1,16 +1,9 @@
 mod input;
 mod backend;
-mod manifest;
-pub mod worker_api;
 pub mod game_inputs;
 
-pub use backend::{RemoteUnrealPakEngine, UnrealEngineBackend};
-pub use manifest::module_manifest;
+pub use backend::UnrealEngineBackend;
 
-pub const ENGINE_CONTRACT_ID: &str = "engine.unreal-pak";
-pub const ENGINE_CONTRACT_VERSION: u64 = 1;
-pub const ENGINE_MODULE_ID: &str = "mintcat.engine.unreal-pak";
-pub const ENGINE_MODULE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use std::{
     collections::{BTreeMap, BTreeSet},

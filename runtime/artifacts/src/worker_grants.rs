@@ -18,14 +18,12 @@ pub struct WorkerModuleGrant {
 impl ArtifactStore {
     pub fn module_worker_grant(&self, lease: &ModuleLease) -> Result<WorkerModuleGrant, ArtifactError> {
         let module = lease.module();
-        let identity = (module.signature.publisher.clone(), module.signature.key_id.clone());
-        let key = self.trust.production.get(&identity).or_else(|| {
-            (self.environment == RuntimeEnvironment::Development)
-                .then(|| self.trust.development.get(&identity))
-                .flatten()
-        }).ok_or_else(|| ArtifactError::UntrustedSigner {
-            publisher: identity.0.clone(), key_id: identity.1.clone(), environment: self.environment,
-        })?;
+        let hex = digest_hex(&module.digest)?;
+        let mut digest = [0_u8; 32];
+        for (index, byte) in digest.iter_mut().enumerate() {
+            *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).expect("validated module digest");
+        }
+        let key = self.trust.signing_key(self.environment, &module.signature, &digest)?;
         Ok(WorkerModuleGrant {
             digest: module.digest.clone(), root: module.root.clone(),
             manifest: module.manifest.clone(), signature: module.signature.clone(),

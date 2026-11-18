@@ -1,4 +1,4 @@
-import type { Disposable, Json, SettingField, UiContext } from './index';
+import type { Disposable, Json, UiContext } from './index';
 export interface GameUiDescriptor {
   gameId: string; displayName: string;
   settingsSchemaVersion: number;
@@ -6,16 +6,16 @@ export interface GameUiDescriptor {
   variants: Array<{ variantId: string; displayName: string }>;
   sourceBindings: Array<{ sourceId: string; remoteGameKey: string }>;
 }
-export interface GameModuleList { generationId: string; modules: Array<{ moduleId: string; enabled: boolean; game?: { gameId: string; displayName: string; descriptor?: GameUiDescriptor } }> }
-export async function mountGameSettings(root: HTMLElement, context: UiContext, gameId?: string, presentation: readonly SettingField[] = []): Promise<Disposable> {
+export interface GameModuleList { generationId: string; modules: Array<{ moduleId: string; digest?: string; enabled: boolean; game?: { gameId: string; displayName: string; descriptor?: GameUiDescriptor } }> }
+export async function mountGameSettings(root: HTMLElement, context: UiContext, gameId: string): Promise<Disposable> {
   const list = await context.request<GameModuleList>('modules.list', {});
-  const binding = list.modules.find(module => module.enabled && (gameId ? module.game?.gameId === gameId : module.moduleId === context.moduleId))?.game;
-  if (!binding?.descriptor) throw new Error('Signed game settings descriptor unavailable');
+  const binding = list.modules.find(module => module.enabled && module.game?.gameId === gameId)?.game;
+  if (!binding?.descriptor) throw new Error('Game settings descriptor unavailable');
   const descriptor = binding.descriptor;
   const scope = { kind: 'game', gameId: binding.gameId };
   const result = await context.request<{ values: Record<string, Json>; revision: number }>('settings.get', { scope, section: 'game' });
   const stateVersion = descriptor.settingsSchemaVersion;
-  if (!Number.isSafeInteger(stateVersion) || stateVersion < 1) throw new Error('Signed settings schema version is invalid');
+  if (!Number.isSafeInteger(stateVersion) || stateVersion < 1) throw new Error('Game settings schema version is invalid');
   const saved = context.state<{ values: Record<string, Json>; revision: number; dirty: boolean }>(`settings/${binding.gameId}`, stateVersion, { values: result.values, revision: result.revision, dirty: false });
   const values = saved.dirty ? saved.values : result.values;
   let revision = saved.dirty ? saved.revision : result.revision;
@@ -28,11 +28,7 @@ export async function mountGameSettings(root: HTMLElement, context: UiContext, g
   const form = context.kit.element('form');
   root.classList.add('game-settings');
   root.append(context.kit.element('h2', `${binding.displayName} settings`), context.kit.element('p', `Game scope: ${binding.gameId}`), form);
-  const fields = presentation.length ? presentation.map(field => {
-    const property = descriptor.settingsSchema.properties[field.key];
-    if (!property || property.type !== field.type) throw new Error(`Contributed setting does not match signed game schema: ${field.key}`);
-    return [field.key, { ...property, title: field.label }] as const;
-  }) : Object.entries(descriptor.settingsSchema.properties);
+  const fields = Object.entries(descriptor.settingsSchema.properties);
   for (const [key, field] of fields) {
     const label = context.kit.element('label', field.title ?? key);
     if (field.enum || field.type === 'boolean') {

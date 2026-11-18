@@ -59,13 +59,12 @@ impl WorkerGameAdapter {
         let mut dependencies = Vec::with_capacity(game.module().manifest.requires.len());
         for requirement in &game.module().manifest.requires {
             if requirement.binding_scope.as_deref() == Some("host") { continue; }
-            let range = requirement.version_range.trim();
             let mut selected = None;
             for provider in &modules {
                 for contract in &provider.module().manifest.provides {
                     if contract.contract_id != requirement.contract_id
-                        || !(range == "*" || range.strip_prefix('=').unwrap_or(range)
-                            .parse::<u64>().is_ok_and(|version| version == contract.version)) {
+                        || !mintcat_runtime_release::version_matches(&requirement.version_range, contract.version)
+                            .map_err(|error| error.to_string())? {
                         continue;
                     }
                     if selected.is_some() {
@@ -160,9 +159,13 @@ impl WorkerGameAdapter {
         if required.next().is_some() {
             return Err("game adapter must identify one required patch resource".to_owned());
         }
-        let package = self.modules.iter().find(|package| package.module().manifest.id == requirement.resource_id);
+        let package = self.modules.iter().find(|package| package.module().manifest.id == requirement.resource_id
+            || mintcat_game_api::bundled_resources(&package.module().manifest)
+                .is_ok_and(|resources| resources.iter().any(|resource| resource.resource_id == requirement.resource_id)));
         if let Some(package) = package {
-            let version = semver::Version::parse(&package.module().manifest.version).map_err(|error| error.to_string())?;
+            let bundled = mintcat_game_api::bundled_resources(&package.module().manifest).map_err(|error| error.to_string())?
+                .into_iter().find(|resource| resource.resource_id == requirement.resource_id);
+            let version = semver::Version::parse(bundled.as_ref().map_or(package.module().manifest.version.as_str(), |resource| resource.version.as_str())).map_err(|error| error.to_string())?;
             let range = semver::VersionReq::parse(&requirement.version_range).map_err(|error| error.to_string())?;
             if !range.matches(&version) { return Err("signed patch version is outside the game descriptor range".to_owned()); }
         }
@@ -246,15 +249,21 @@ impl GameInstallAdapter for WorkerGameAdapter {
         let patch_package = patch.map(|package| self.artifacts.module_worker_grant(package)).transpose()
             .map_err(|error| error.to_string())?;
         let patch_archive_path = patch.map(|package| {
-            if package.module().manifest.files.len() != 1 {
-                return Err("signed patch package must contain exactly one archive".to_owned());
+            let resources = mintcat_game_api::bundled_resources(&package.module().manifest).map_err(|error| error.to_string())?;
+            if let Some(resource) = resources.into_iter().find(|resource| self.descriptor.resources.iter().any(|requirement| !requirement.optional && requirement.resource_id == resource.resource_id)) {
+                return resource.archive_path.ok_or_else(|| "bundled patch requires an exact signed archive path".to_owned());
             }
+            if package.module().manifest.files.len() != 1 { return Err("historical patch package must contain exactly one archive".to_owned()); }
             Ok(package.module().manifest.files[0].path.clone())
         }).transpose()?;
-        let resources = self.modules.iter().filter(|package| self.descriptor.resources.iter()
-            .any(|resource| resource.optional && resource.resource_id == package.module().manifest.id))
-            .map(|package| self.artifacts.module_worker_grant(package))
-            .collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?;
+        let mut resources = Vec::new();
+        for package in &self.modules {
+            let bundled = mintcat_game_api::bundled_resources(&package.module().manifest).map_err(|error| error.to_string())?;
+            if self.descriptor.resources.iter().any(|resource| resource.optional && (resource.resource_id == package.module().manifest.id
+                || bundled.iter().any(|bundled| bundled.resource_id == resource.resource_id))) {
+                resources.push(self.artifacts.module_worker_grant(package).map_err(|error| error.to_string())?);
+            }
+        }
         let params = serde_json::to_value(WorkerGameBuildRequest {
             plan: build_plan.clone(), base_grant_id: grants[0].descriptor.grant_id.clone(),
             dependencies: self.dependencies.clone(),

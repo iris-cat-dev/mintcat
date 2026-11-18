@@ -13,7 +13,7 @@ use mintcat_sdk::{
     DIRECTORY_SNAPSHOT_MAGIC,
 };
 use mintcat_unreal_pak::{PakBuildTarget, PakBundleWriter};
-use sha2::{Digest as _, Sha256};
+use sha2::Sha256;
 use tempfile::{tempdir, TempDir};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 
@@ -72,6 +72,7 @@ impl Fixture {
         &self,
         version: &str,
         files: &[(&str, &[u8], bool)],
+        game_id: Option<&str>,
     ) -> mintcat_runtime_artifacts::ModuleLease {
         let source = self.source_root.join(version.replace('.', "-"));
         fs::create_dir(&source).unwrap();
@@ -91,7 +92,7 @@ impl Fixture {
             .collect::<Vec<_>>();
         let manifest = ModuleManifest {
             schema_version: 1,
-            id: "resource.ue4ss".to_owned(),
+            id: game_id.map_or("resource.ue4ss", |_| "fixture.game.bundle").to_owned(),
             version: version.to_owned(),
             publisher: PUBLISHER.to_owned(),
             target: "test-target".to_owned(),
@@ -100,7 +101,11 @@ impl Fixture {
             provides: Vec::new(),
             requires: Vec::new(),
             permissions: Vec::new(),
-            contributes: serde_json::json!({"kind": "ue4ss-resource"}),
+            contributes: game_id.map_or_else(|| serde_json::json!({"kind": "ue4ss-resource"}), |game_id| serde_json::json!({
+                "testOnly": true, "scopeId": game_id, "bundledResources": [{
+                    "resourceId": "resource.ue4ss", "version": "3.1.0", "deploymentBindings": resource_bindings()
+                }]
+            })),
             state: ModuleState {
                 schema_version: 1,
                 readable_range: "1".to_owned(),
@@ -207,8 +212,8 @@ fn read_artifact(store: &ArtifactStore, artifact: &mintcat_sdk::ArtifactRef) -> 
 #[test]
 fn signed_resources_lock_versions_and_apply_game_specific_settings() {
     let fixture = Fixture::new();
-    let drg_package = fixture.resource_package("3.0.1", &resource_files());
-    let rc_package = fixture.resource_package("3.1.0", &resource_files());
+    let drg_package = fixture.resource_package("3.0.1", &resource_files(), None);
+    let rc_package = fixture.resource_package("3.1.0", &resource_files(), None);
 
     let drg = fixture
         .loader
@@ -422,6 +427,7 @@ fn rejects_unsigned_resource_expansion_invalid_dlls_and_non_audio_game_state() {
             ("payload/UE4SS.dll", b"dll", true),
             ("payload/undeclared.bin", b"hidden", false),
         ],
+        None,
     );
     let resource_error = fixture
         .loader
@@ -507,4 +513,28 @@ fn merge_rejects_case_colliding_targets_and_cross_game_manifests() {
         manifest("game-a", "a").merge(manifest("game-b", "b")),
         Err(LoaderError::InvalidRequest(_))
     ));
+}
+
+#[test]
+fn bundled_loader_deploys_only_its_signed_files_and_preserves_human_risks() {
+    let fixture = Fixture::new();
+    // TEST ONLY signed data: these bytes exercise authorization, not Windows installation.
+    let mut files = resource_files();
+    files.extend([("worker", &b"TEST ONLY worker bytes"[..], true), ("resources/patch.zip", &b"TEST ONLY patch data"[..], false)]);
+    let package = fixture.resource_package("9.0.0", &files, Some("game:rogue-core"));
+    let build = |game_id: &str, bindings| fixture.loader.plan_resource_package(ResourceDeploymentRequest {
+        game_id: game_id.into(), owner: "game:rogue-core/loader-resource".into(),
+        package: &package, files: bindings, settings: Ue4ssSettings::rogue_core(),
+    });
+    let manifest = build("game:rogue-core", resource_bindings()).unwrap();
+    assert_eq!(manifest.files.len(), 3);
+    assert_eq!(manifest.resource_locks[0].resource_id, "resource.ue4ss");
+    assert_eq!(manifest.resource_locks[0].version, "3.1.0");
+    assert_eq!(manifest.resource_locks[0].package_digest, package.module().digest);
+    assert_eq!(manifest.approval_requirements.len(), 2);
+    assert!(manifest.approval_requirements.iter().all(|approval| approval.risk == DeploymentRisk::ExecutableResource));
+    let mut modified = resource_bindings();
+    modified[0].target_relative_path = "other.dll".into();
+    assert!(matches!(build("game:rogue-core", modified), Err(LoaderError::ResourceVerification(_))));
+    assert!(matches!(build("game:drg", resource_bindings()), Err(LoaderError::ResourceVerification(_))));
 }

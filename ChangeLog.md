@@ -1,5 +1,18 @@
 ## 模块化重构（工作区）
 
+### 2026-11-18：内置业务与独立游戏插件
+
+- 官方 UI/CSS、Library、ModCat/mod.io/Nexus 来源、Agent 与备份随应用构建；删除业务 worker、签名 UI/ESM、UI generation/session/barrier 及 platform 激活入口。Proxy 改为显式 `experimental-proxy`。
+- 仅 DRG、Rogue Core 作为自包含签名游戏包独立安装、更新和回滚。Unreal PAK/UE4SS 为共享 Rust 库或包内资源；保留宿主人工审批、原子文件事务、历史任务/receipt 闭包和卸载恢复。游戏路由在确认后原子发布。
+- 来源任务冻结精确应用 executable digest、配置和已验证游戏描述；旧 worker/异构 executable 的远端下载进入恢复状态，需取消重提，不借当前代码偷偷续跑。来源仍经真实 NetworkBroker、凭据/Origin 与文件身份校验。
+- 默认 Cargo/应用构建只包含 Desktop、CLI、daemon；`pnpm dev` 启原生宿主，`pnpm game check/pack` 只构建目标游戏，`pnpm package:app` 默认无需游戏或签名基线。Node native optional 锁记录补全并保留既有版本。
+- 保留旧库元数据的无插件读取/编辑与 format2/Library4→5 备份恢复。审批前不写、目标变化/非空目标拒绝、完整数据与 Agent owner 恢复及重启持久化已由真实 CLI 验证；不复制凭据或任务执行权限。
+- 修正打包 CLI 遗留 Schema1 校验与精确签名 receipt 的 worker grant 查找。真实双游戏 worker 握手、描述、发现、验证、规划、准备及权限拒绝通过；TEST-ONLY marker archive 在执行输出/部署前明确拒绝。
+- 备份与 Agent 的 Application API 错误复用安全 UI 呈现；云服务未配置显示明确的非重试提示，离线备份不受阻。保留 Agent 六字段冻结目标与独立审批契约，不将安装 ID 改为可选。
+- 最新共享 UI 回归 15 项通过，重新组装最终 `.app` 并取得实际原生窗口截图。真实 UI 验证旧库显示、离线导出任务重开、Agent 会话/失败任务持久化、双游戏独立草稿、深浅主题，以及后台诊断、游戏清单、本地恢复集合、Safe mode 与工作台重载。
+- 修正 Safe mode 后工作台已重载却仍显示“已关闭”的恢复状态；成功重载同步终态，旧 shell generation 不覆盖新状态。实际 UI 修复前复现、修复后确认模组恢复且关闭提示消失。
+- 验证真实 ModCat/mod.io HTTP 搜索、元数据、版本和精确字节下载，跨 Origin 与 Nexus 缺凭据拒绝；新完整 ad-hoc 签名 macOS `.app` 已组装并实际显示内置工作台。真实游戏 patch/UE4SS 输入与 Windows 实机验证仍缺；未修改产品版本或正式发布清单。
+
 ### 2026-10-25：新增完整 macOS app 打包脚本
 
 - 新增 `scripts/build-app.mjs` 和 `pnpm package:app`：构建前端及 Desktop、CLI、daemon、模块验证器，生成二进制 digest、immutable stage 和 assembly plan，复用现有验证器与 assembler，仅输出本地 ad-hoc 签名 `.app`，并检查最终签名和内嵌入口。

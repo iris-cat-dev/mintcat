@@ -1,7 +1,5 @@
-mod worker;
-pub use worker::{execute_source_worker, source_module_manifest, source_worker_error, NativeDownload, NativeDownloadResolution, SourceBrowserCallback, SourceWorkerConfig, SourceWorkerParams};
-mod network;
-pub use network::{SourceNetworkClient, SourceNetworkOutcome, SourceNetworkRequest, SourceNetworkResponse, HOST_PROVIDER_DIGEST, SOURCE_NETWORK_CONTRACT};
+mod config;
+pub use config::SourceConfig;
 
 use std::collections::BTreeMap;
 
@@ -255,18 +253,5 @@ pub trait SourceProvider: Send + Sync {
         )))
     }
 
-    /// Callback URL has already been consumed from the authenticated host
-    /// interaction grant; the provider still verifies source/file identity.
-    async fn resume_download_callback(
-        &self,
-        action: &ActionRequired,
-        game: &SourceGameBinding,
-        mod_ref: &ModRef,
-        callback: Url,
-        cancellation: &CancellationToken,
-    ) -> Result<DownloadDescriptor, SourceError> {
-        let _ = (action, game, mod_ref, callback, cancellation);
-        Err(SourceError::Unavailable(format!("source {} has no browser callback contract", self.source_id())))
-    }
 }
 

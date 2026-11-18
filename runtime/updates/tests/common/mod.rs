@@ -7,6 +7,7 @@ use mintcat_runtime_release::*;
 use mintcat_runtime_updates::*;
 use mintcat_sdk::{ModuleActivation, ModuleComponent, ModuleFile, ModuleManifest, ModuleState, ProvidedContract};
 use serde_json::json;
+#[path = "../fixtures/game_worker.rs"] mod game_worker;
 
 pub struct Fixture {
     pub sandbox: tempfile::TempDir,
@@ -27,7 +28,7 @@ impl Fixture {
         let key_id = key_id(&key.verifying_key());
         let public = encode_public_key(&key.verifying_key());
         let root = trust_pinned_root(sign(RootMetadata { header: MetadataHeader { kind: "root".into(), schema_version: 1, version: 1, expires: 10000 }, keys: BTreeMap::from([(key_id.clone(), public.clone())]), roles: ["root", "targets", "snapshot", "timestamp"].into_iter().map(|r| (r.into(), Role { key_ids: [key_id.clone()].into(), threshold: 1 })).collect(), publishers: BTreeMap::from([("fixture.publisher".into(), BTreeMap::from([("package".into(), public)]))]) }, std::slice::from_ref(&key)).unwrap(), 100).unwrap();
-        let policy = VerificationPolicy { target: target_lexicon::HOST.to_string(), host_api: "1".into(), max_data_schema: 2, permissions: vec![], contracts: BTreeMap::from([("fixture.compute".into(), [1].into())]) };
+        let policy = VerificationPolicy { target: target_lexicon::HOST.to_string(), host_api: "1".into(), max_data_schema: 2, permissions: vec![], contracts: BTreeMap::from([(mintcat_game_api::GAME_ADAPTER_CONTRACT_ID.into(), [mintcat_game_api::GAME_ADAPTER_CONTRACT_VERSION].into())]) };
         let artifacts = ArtifactStore::from_layout(&layout, RuntimeEnvironment::Test, &policy.target, "1", root.artifact_trust_store().unwrap()).unwrap();
         let database = KernelDatabase::open(&layout).unwrap();
         let updates = UpdatesCoordinator::open(layout.clone(), database.clone(), artifacts.clone(), RepositoryVerifier::new(layout.state_dir.join("trust-state.json"), root.clone()), policy.clone(), "fixture-installation".into()).unwrap();
@@ -36,41 +37,19 @@ impl Fixture {
         Self { sandbox, layout, database, artifacts, updates, repository, root, key, policy }
     }
     pub fn package(&self, scope: &str, sequence: u64, bytes: &[u8], worker: Option<&Path>, stateful: bool) -> (PathBuf, PackageRecord) {
-        let source = self.sandbox.path().join(format!("source-{scope}-{sequence}")); fs::create_dir(&source).unwrap();
-        let entry = if worker.is_some() { "worker" } else { "data.bin" };
-        if let Some(worker) = worker { fs::copy(worker, source.join(entry)).unwrap(); } else { fs::write(source.join(entry), bytes).unwrap(); }
-        let content = fs::read(source.join(entry)).unwrap();
+        let source = self.sandbox.path().join(format!("source-{}-{sequence}", scope.replace(':', "-"))); fs::create_dir(&source).unwrap();
+        let worker = worker.unwrap_or_else(|| Path::new(option_env!("CARGO_BIN_EXE_mintcat-update-game-fixture").expect("test fixture worker executable required")));
+        fs::copy(worker, source.join("worker")).unwrap();
+        fs::write(source.join("data.bin"), bytes).unwrap();
+        let worker_bytes = fs::read(source.join("worker")).unwrap();
         let manifest = ModuleManifest { schema_version: 1, id: format!("fixture.{scope}"), version: format!("{sequence}.0.0"), publisher: "fixture.publisher".into(), target: self.policy.target.clone(), host_api: "1".into(),
-            components: vec![ModuleComponent { kind: if worker.is_some() { "service" } else { "resource" }.into(), runtime: if worker.is_some() { "worker" } else { "data" }.into(), entry: entry.into(), state_model: if stateful { "single-writer" } else { "stateless" }.into() }],
-            provides: if worker.is_some() { vec![ProvidedContract { contract_id: "fixture.compute".into(), version: 1, cardinality: Some("single".into()) }] } else { vec![] }, requires: vec![], permissions: vec![], contributes: json!({"scopeId":scope}), state: ModuleState { schema_version: if stateful { 2 } else { 1 }, readable_range: "1,2".into(), writable_range: "1,2".into(), rollback_before_write_only: Some(true) }, activation: ModuleActivation { trigger: "on-demand".into(), drain_policy: "finish-requests".into() }, files: vec![ModuleFile { path: entry.into(), size: content.len() as u64, sha256: sha256(&content), executable: worker.is_some() }] };
-        // Schema version ranges are semver major selectors, not a list of exact integers.
-        let mut manifest = manifest; manifest.state.readable_range = ">=1, <=2".into(); manifest.state.writable_range = ">=1, <=2".into();
-        let output = self.sandbox.path().join(format!("package-{scope}-{sequence}"));
+            components: vec![ModuleComponent { kind: "service".into(), runtime: "worker".into(), entry: "worker".into(), state_model: if stateful { "single-writer" } else { "stateless" }.into() }],
+            provides: vec![ProvidedContract { contract_id: mintcat_game_api::GAME_ADAPTER_CONTRACT_ID.into(), version: mintcat_game_api::GAME_ADAPTER_CONTRACT_VERSION, cardinality: Some("multi".into()) }], requires: vec![], permissions: vec![],
+            contributes: json!({"scopeId":scope,"games":[game_worker::descriptor(scope, &format!("{sequence}.0.0"))]}),
+            state: ModuleState { schema_version: 1, readable_range: "1".into(), writable_range: "1".into(), rollback_before_write_only: Some(true) }, activation: ModuleActivation { trigger: "on-demand".into(), drain_policy: "finish-requests".into() },
+            files: vec![ModuleFile { path: "data.bin".into(), size: bytes.len() as u64, sha256: sha256(bytes), executable: false }, ModuleFile { path: "worker".into(), size: worker_bytes.len() as u64, sha256: sha256(&worker_bytes), executable: true }] };
+        let output = self.sandbox.path().join(format!("package-{}-{sequence}", scope.replace(':', "-")));
         let record = pack(&source, manifest, "package", &self.key, &self.policy, &output).unwrap(); (output, record)
-    }
-    pub fn ui_package(&self, scope: &str, sequence: u64) -> (PathBuf, PackageRecord) {
-        let (source, record) = self.package(scope, sequence, b"signed UI fixture data", None, false);
-        let payload = source.join("payload");
-        fs::create_dir(payload.join("ui")).unwrap();
-        let contribution = serde_json::to_vec(&json!({"schemaVersion":1,"runtimeVersion":1,"moduleId":record.manifest.id,"entry":"ui/index.js","css":[],"pages":[],"navigation":[],"commands":[],"settings":[],"games":[]})).unwrap();
-        let entry = b"export {};\n";
-        fs::write(payload.join("ui/contributions.json"), &contribution).unwrap();
-        fs::write(payload.join("ui/index.js"), entry).unwrap();
-        let mut manifest = record.manifest;
-        manifest.files.extend([
-            ModuleFile { path: "ui/contributions.json".into(), size: contribution.len() as u64, sha256: sha256(&contribution), executable: false },
-            ModuleFile { path: "ui/index.js".into(), size: entry.len() as u64, sha256: sha256(entry), executable: false },
-        ]);
-        let output = self.sandbox.path().join(format!("ui-package-{scope}-{sequence}"));
-        let record = pack(&payload, manifest, "package", &self.key, &self.policy, &output).unwrap();
-        (output, record)
-    }
-    pub fn owned_resource(&self, scope: &str, sequence: u64, bytes: &[u8], schema: u64) -> (PathBuf, PackageRecord) {
-        let (source, record) = self.package(scope, sequence, bytes, None, true);
-        let mut manifest = record.manifest; manifest.state.schema_version = schema;
-        let output = self.sandbox.path().join(format!("owned-package-{scope}-{sequence}"));
-        let record = pack(&source.join("payload"), manifest, "package", &self.key, &self.policy, &output).unwrap();
-        (output, record)
     }
     pub fn publish(&self, scope: &str, sequence: u64, record: PackageRecord, source: PathBuf) {
         let previous = self.repository.current_bundle().unwrap();

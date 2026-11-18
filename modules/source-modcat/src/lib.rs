@@ -5,12 +5,12 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{DateTime, NaiveDateTime};
 use mintcat_runtime_broker::{
     BrokerError, CancellationToken, CredentialBinding, CredentialPlacement, CredentialRef,
-    HttpMethod, NetworkRequest, Origin, ProxyPolicy,
+    HttpMethod, NetworkBroker, NetworkRequest, Origin, ProxyPolicy,
 };
 use mintcat_sdk::ModRef;
 use mintcat_source_api::{
     DownloadDescriptor, ReviewStatus, SearchPage, SearchRequest, SourceDependency, SourceError,
-    SourceGameBinding, SourceMod, SourceNetworkClient, SourceProvider, SourceVersion,
+    SourceGameBinding, SourceMod, SourceProvider, SourceVersion,
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value};
@@ -30,19 +30,19 @@ pub struct ModcatConfig {
 
 #[derive(Clone)]
 pub struct ModcatProvider {
-    broker: SourceNetworkClient,
+    broker: NetworkBroker,
     config: ModcatConfig,
     api_origin: Origin,
 }
 
 impl ModcatProvider {
-    pub fn new(broker: impl Into<SourceNetworkClient>, config: ModcatConfig) -> Result<Self, SourceError> {
+    pub fn new(broker: NetworkBroker, config: ModcatConfig) -> Result<Self, SourceError> {
         let api_origin = Origin::from_url(&config.api_base)?;
         if let Some(origin) = &config.download_request_origin {
             Origin::from_url(origin)?;
         }
         Ok(Self {
-            broker: broker.into(),
+            broker,
             config,
             api_origin,
         })

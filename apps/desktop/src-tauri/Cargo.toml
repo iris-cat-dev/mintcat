@@ -25,9 +25,7 @@ tauri-utils = "=2.8.0"
 [dependencies]
 mintcat-runtime-ipc.workspace = true
 mintcat-runtime-kernel.workspace = true
-mintcat-runtime-artifacts.workspace = true
 mintcat-runtime-release.workspace = true
-sha2.workspace = true
 mintcat-sdk.workspace = true
 serde_json.workspace = true
 tauri = { version = "=2.9.1", features = ["macos-private-api"] }
@@ -47,6 +45,6 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }
 
 [dev-dependencies]
-mintcat-daemon = { path = "../../../runtime/daemon", features = ["fixtures"] }
+mintcat-daemon = { path = "../../../runtime/daemon" }
 tempfile.workspace = true
 tokio.workspace = true

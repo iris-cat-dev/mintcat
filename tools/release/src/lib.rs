@@ -74,6 +74,16 @@ fn write_new<T: Serialize>(path: &PathBuf, value: &T) -> Result<()> {
     file.sync_all()?;
     Ok(())
 }
+fn game_bundle(bundle: &RepositoryBundle) -> Result<()> {
+    for targets in bundle.targets.values() {
+        let targets = &targets.signed;
+        if !targets.release.scope_id.starts_with("game:") || targets.packages.len() != 1 {
+            return Err(ReleaseError::Rejected("independent releases contain exactly one game package per game scope".into()));
+        }
+        for package in targets.packages.values() { mintcat_runtime_release::validate_game_manifest(&package.manifest)?; }
+    }
+    Ok(())
+}
 pub fn execute(command: Command) -> Result<()> {
     let time = now()?;
     match command {
@@ -91,6 +101,7 @@ pub fn execute(command: Command) -> Result<()> {
         }
         Command::Pack { source, manifest, policy, key, key_id, output } => {
             let manifest: ModuleManifest = read_json(&manifest)?;
+            mintcat_runtime_release::validate_game_manifest(&manifest)?;
             let policy: VerificationPolicy = read_json(&policy)?;
             print(&pack(&source, manifest, &key_id, &read_signing_key(&key)?, &policy, &output)?)
         }
@@ -105,7 +116,13 @@ pub fn execute(command: Command) -> Result<()> {
             let policy: VerificationPolicy = read_json(&policy)?;
             let previous: Option<RepositoryBundle> = previous.as_ref().map(|path| read_json(path)).transpose()?;
             let packages = package.iter().map(|p| verify_package(p, &root, &policy)).collect::<Result<Vec<_>>>()?;
-            let mut bundle = compose_bundle(previous.as_ref(), read_json::<ScopePlan>(&plan)?, packages, &policy, &root, &keys(&key)?, metadata_version, expires, time)?;
+            for package in &packages { mintcat_runtime_release::validate_game_manifest(&package.manifest)?; }
+            let plan: ScopePlan = read_json(&plan)?;
+            if !plan.scope_id.starts_with("game:") || plan.roots.len() != 1 || !plan.singleton_requirements.is_empty() || !plan.resource_dependencies.is_empty() {
+                return Err(ReleaseError::Rejected("release composition supports one self-contained game only".into()));
+            }
+            let mut bundle = compose_bundle(previous.as_ref(), plan, packages, &policy, &root, &keys(&key)?, metadata_version, expires, time)?;
+            game_bundle(&bundle)?;
             bundle.root_rotations.extend(rotations);
             write_new(&output, &bundle)?;
             print(&bundle)
@@ -131,15 +148,19 @@ pub fn execute(command: Command) -> Result<()> {
         }
         Command::Publish { repository, root, policy, package, bundle } => {
             let policy: VerificationPolicy = read_json(&policy)?;
-            let repository = LocalRepository::open(&repository)?;
             if let Some(bundle) = bundle {
                 let root = load_root_rotation_anchor(&root)?;
                 let bundle: RepositoryBundle = read_json(&bundle)?;
+                game_bundle(&bundle)?;
+                for path in &package { mintcat_runtime_release::validate_game_manifest(&read_json::<mintcat_sdk::ModuleManifest>(&path.join("module.json"))?)?; }
+                let repository = LocalRepository::open(&repository)?;
                 let verified = repository.publish_bundle(&bundle, &package, &root, &policy, time)?;
                 print(&verified.iter().map(|scope| scope.release()).collect::<Vec<_>>())
             } else {
                 let root = load_trust_root(&root, time)?;
                 if package.is_empty() { return Err(ReleaseError::Rejected("publish requires --package or --bundle".into())); }
+                for path in &package { mintcat_runtime_release::validate_game_manifest(&read_json::<mintcat_sdk::ModuleManifest>(&path.join("module.json"))?)?; }
+                let repository = LocalRepository::open(&repository)?;
                 let published = package.iter().map(|path| repository.publish_package(path, &root, &policy)).collect::<Result<Vec<_>>>()?;
                 print(&published)
             }

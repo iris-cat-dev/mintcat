@@ -6,7 +6,7 @@ impl OwnerStore { /// Caller must hold the runtime exclusive maintenance admissi
 /// This owner transaction also detects work admitted before that gate existed.
 pub fn backup_snapshot(&self) -> Result<LibrarySnapshot, LibraryError> {
     let mut connection = self.connection()?;
-    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Deferred)?;
     ensure_quiescent(&transaction)?;
     let snapshot = read_snapshot(&transaction)?;
     transaction.commit()?;
@@ -15,7 +15,7 @@ pub fn backup_snapshot(&self) -> Result<LibrarySnapshot, LibraryError> {
 
 pub fn ensure_backup_quiescent(&self) -> Result<(), LibraryError> {
     let mut connection = self.connection()?;
-    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Deferred)?;
     ensure_quiescent(&transaction)?;
     transaction.commit()?;
     Ok(())

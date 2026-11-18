@@ -1,6 +1,6 @@
 # MintCat 项目分层架构设计
 
-> 已被模块化架构替代：以下为旧 renderer ViewModel/Service/DAO 分层的历史说明。当前 Workbench 仅装配签名贡献；业务执行通过唯一 Application API、独立 daemon、版本化 worker 契约和实际数据 owner 完成，不存在前端业务 SQL 写者。以 [模块化运行时架构](modular-runtime-architecture.md) 和 [当前执行验收](modular-refactor-todo.md) 为准。
+> 历史文档：以下 renderer ViewModel/Service/DAO 分层已退役。当前方案是应用内置 UI、Library、来源、Agent、备份与唯一 Application API；只有游戏适配器作为独立签名插件运行，共享 Unreal PAK/UE4SS 代码或资源不再单独激活。现行入口与构建、恢复边界见 [README](../../README.md)。
 
 ## 架构概览
 

@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 import process from 'node:process';
 
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 const triples = new Map([
   ['darwin-arm64', 'aarch64-apple-darwin'],
   ['darwin-x64', 'x86_64-apple-darwin'],
   ['linux-x64', 'x86_64-unknown-linux-gnu'],
+  ['linux-arm64', 'aarch64-unknown-linux-gnu'],
   ['win32-x64', 'x86_64-pc-windows-msvc'],
 ]);
 
@@ -19,7 +22,7 @@ const result = {
   schemaVersion: 1,
   platformKey,
   targetTriple,
-  cargoTargetDirectory: 'target',
+  cargoTargetDirectory: process.env.CARGO_TARGET_DIR ? resolve(dirname(fileURLToPath(import.meta.url)), '..', process.env.CARGO_TARGET_DIR) : 'target',
   desktopOutputDirectory: 'apps/desktop/dist',
   desktopDevelopmentPort: 1430,
 };

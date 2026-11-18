@@ -1,7 +1,8 @@
+use std::path::PathBuf;
+
 use super::*;
 use mintcat_feature_backup::MaintenanceGate;
-use mintcat_sdk::{ApplicationCommand as Command, JsonRpcResponse};
-use mintcat_runtime_updates::{UiAck, UiCallAdmission};
+use mintcat_sdk::ApplicationCommand as Command;
 use serde::{de::DeserializeOwned, Serialize};
 
 type Result<T, E = Box<AppError>> = std::result::Result<T, E>;
@@ -23,13 +24,12 @@ fn params<T: DeserializeOwned>(request: &ValidatedRequest) -> Result<T> {
     serde_json::from_value(request.envelope.params.clone()).map_err(|error| failure(&rpc_id_string(&request.envelope.id), "INVALID_ARGUMENT", "command.params", json!({"message":error.to_string()})))
 }
 fn updates<'a>(state: &'a DaemonState, id: &str) -> Result<&'a UpdatesCoordinator> {
-    state.updates.as_ref().ok_or_else(|| failure(id, "MODULE_UNAVAILABLE", "updates.unprovisioned", json!({"required":"verified offline baseline and trusted runtime configuration"})))
+    state.updates.as_ref().ok_or_else(|| failure(id, "MODULE_UNAVAILABLE", "updates.unprovisioned", json!({"required":"configured signed game repository"})))
 }
 fn update_error(id: &str, error: mintcat_runtime_updates::UpdateError) -> Box<AppError> {
     use mintcat_runtime_updates::UpdateError;
     let code = match &error {
         UpdateError::Busy(_) | UpdateError::Maintenance(mintcat_feature_backup::BackupError::Busy(_)) => "RESOURCE_BUSY",
-        UpdateError::StaleUiSession(_) => "STALE_SESSION",
         UpdateError::ArtifactRevoked(_) => "ARTIFACT_REVOKED",
         UpdateError::MetadataExpired { .. } => "METADATA_EXPIRED",
         UpdateError::Blocked(_) => "RECOVERY_REQUIRED",
@@ -39,7 +39,7 @@ fn update_error(id: &str, error: mintcat_runtime_updates::UpdateError) -> Box<Ap
 }
 fn source(state: &DaemonState, id: &str) -> Result<SourceApplication> {
     state.sources.read().map_err(|error| Box::new(internal_error(id,error.to_string())))?.as_ref()
-        .map(|source| source.application.clone()).ok_or_else(|| failure(id,"MODULE_UNAVAILABLE","source.unprovisioned",json!({"required":"signed source/game bindings"})))
+        .map(|source| source.application.clone()).ok_or_else(|| failure(id,"SOURCE_UNAVAILABLE","source.unprovisioned",json!({"required":"configured builtin sources"})))
 }
 fn source_error(id: &str, error: mintcat_source_service::SourceApplicationError) -> Box<AppError> {
     use mintcat_source_service::SourceApplicationError;
@@ -66,49 +66,21 @@ fn source_error(id: &str, error: mintcat_source_service::SourceApplicationError)
 }
 
 pub(super) async fn handle_request(state: Arc<DaemonState>, request: ValidatedRequest, principal: Principal) -> Result<Value> {
-    let _source_generation = if matches!(request.descriptor.method, "sources.search" | "mods.add" | "mods.importLocal" | "mods.setVersion") {
+    let _source_generation = if matches!(request.descriptor.method, "sources.list" | "sources.search" | "mods.add" | "mods.importLocal" | "mods.setVersion") {
         Some(state.composition_lock.lock().await)
     } else { None };
-    dispatch(state.clone(), request, principal, None).await
+    dispatch(state.clone(), request, principal).await
 }
-async fn dispatch(state: Arc<DaemonState>, request: ValidatedRequest, principal: Principal, ui_admitted: Option<UiCallAdmission>) -> Result<Value> {
+async fn dispatch(state: Arc<DaemonState>, request: ValidatedRequest, principal: Principal) -> Result<Value> {
     let id = rpc_id_string(&request.envelope.id);
     let method = request.descriptor.method;
     if principal == Principal::Agent && !request.descriptor.agent_exposed {
         return Err(failure(&id,"PERMISSION_DENIED","agent.command_not_exposed",json!({"method":method})));
     }
-    if method == "ui.request" {
-        let packet: mintcat_sdk::UiRequestParams = params(&request)?;
-        if packet.request.method.starts_with("ui.") {
-            return Err(failure(&id,"PERMISSION_DENIED","ui.nested_control",json!({"method":packet.request.method})));
-        }
-        let nested = mintcat_sdk::decode_request_value(serde_json::to_value(&packet.request)
-            .map_err(|error| Box::new(internal_error(&id,error.to_string())))?)
-            .map_err(|error| failure(&id,error.code,"ui.invalid_request",json!({"path":error.path,"message":error.message})))?;
-        if nested.envelope.session_generation != state.generation_id {
-            return Err(failure(&id,"STALE_SESSION","ui.daemon_generation",json!({"generationId":state.generation_id})));
-        }
-        let _serial = state.composition_lock.lock().await;
-        let coordinator = updates(&state,&id)?;
-        let now = unix_seconds().map_err(|error| Box::new(internal_error(&id,error.to_string())))?;
-        let environment_change = matches!(nested.descriptor.method, "modules.setEnabled" | "updates.activate");
-        let admission = coordinator.admit_ui_call(&packet.session_id, &packet.generation_id, &packet.module_id, &packet.digest, now, environment_change)
-            .await.map_err(|error| update_error(&id,error))?;
-        let nested_id = nested.envelope.id.clone();
-        let deadline = std::time::Duration::from_millis(nested.envelope.deadline_ms);
-        let nested_request_id = rpc_id_string(&nested_id);
-        let result = tokio::time::timeout(deadline, Box::pin(dispatch(state.clone(),nested,principal,Some(admission)))).await
-            .unwrap_or_else(|_| Err(failure(&nested_request_id,"DEADLINE_EXCEEDED","request.deadline_exceeded",json!({"deadlineMs":deadline.as_millis()}))));
-        let response = match result {
-            Ok(result) => JsonRpcResponse { jsonrpc:"2.0".into(),id:nested_id,result:Some(result),error:None },
-            Err(error) => JsonRpcResponse { jsonrpc:"2.0".into(),id:nested_id,result:None,error:Some(*error) },
-        };
-        return value(&id,response);
-    }
     let rescue = state.bootstrap_error.lock().clone();
     if let Some(reason) = rescue {
         let readable = request.descriptor.classification == "read";
-        if !readable && !matches!(method,"backup.recover"|"ui.session.open"|"ui.session.close"|"ui.ack"|"updates.rollback") {
+        if !readable && !matches!(method,"backup.recover"|"updates.rollback") {
             return Err(failure(&id,"RECOVERY_REQUIRED","runtime.readonly_rescue",json!({"reason":reason,"method":method})));
         }
     }
@@ -119,7 +91,7 @@ async fn dispatch(state: Arc<DaemonState>, request: ValidatedRequest, principal:
         return backup::handle(state.clone(),method,request.envelope.params.clone(),request.envelope.idempotency_key.as_deref(),&id).await;
     }
     if method.starts_with("updates.") {
-        return update_command(state, &request, ui_admitted).await;
+        return update_command(state, &request).await;
     }
     match &request.command {
         Command::ModulesList(_) => {
@@ -127,7 +99,7 @@ async fn dispatch(state: Arc<DaemonState>, request: ValidatedRequest, principal:
             // Signed inventory hashes package bytes. Keep it off IPC workers so
             // concurrent authenticated handshakes retain their bounded deadline.
             tokio::task::spawn_blocking(move || {
-                let _admission = ui_admitted;
+                if state.updates.is_none() { return Ok(json!({"generationId":state.generation_id,"modules":[]})); }
                 value(&id2, updates(&state, &id2)?.module_inventory().map_err(|error| update_error(&id2, error))?)
             }).await.map_err(|error| Box::new(internal_error(&id, error.to_string())))?
         }
@@ -137,38 +109,9 @@ async fn dispatch(state: Arc<DaemonState>, request: ValidatedRequest, principal:
             let record=environment.scopes.values().flat_map(|scope|scope.targets.signed.packages.values())
                 .find(|record|record.manifest.id==input.module_id)
                 .ok_or_else(||failure(&id,"NOT_FOUND","modules.not_found",json!({"moduleId":input.module_id})))?;
-            value(&id,mintcat_sdk::ModuleInspectResult {manifest:record.manifest.clone(),status:if environment.disabled_ui.contains(&input.module_id){"ui-disabled"}else{"active"}.into(),reason:None})
+            value(&id,mintcat_sdk::ModuleInspectResult {manifest:record.manifest.clone(),status:"active".into(),reason:None})
         }
-        Command::ModulesSetEnabled(input) => {
-            let _serial=if ui_admitted.is_some() {None}else{Some(state.composition_lock.lock().await)};
-            let coordinator=updates(&state,&id)?;
-            let inventory = if let Some(admission) = &ui_admitted {
-                coordinator.set_ui_enabled_with_ui_admission(admission, &input.module_id, input.enabled, &input.expected_generation_id)
-            } else { coordinator.set_ui_enabled(&input.module_id,input.enabled,&input.expected_generation_id) };
-            value(&id, inventory.map_err(|error|update_error(&id,error))?)
-        }
-        Command::UiArtifactsAuthority(input) => value(&id,updates(&state,&id)?.ui_artifact_authority(&input.expected_generation_id).map_err(|error|update_error(&id,error))?),
-        Command::UiSessionOpen(input) => {
-            let lease=updates(&state,&id)?.register_ui_session(&input.session_id,&input.generation_id).map_err(|error|update_error(&id,error))?;
-            value(&id,mintcat_sdk::UiSessionOpenResult {session_id:input.session_id.clone(),generation_id:lease.environment.generation_id,lease_id:lease.lease_id})
-        }
-        Command::UiSessionClose(input) => {
-            updates(&state,&id)?.close_ui_session(&input.session_id).map_err(|error|update_error(&id,error))?;
-            value(&id,mintcat_sdk::UiSessionCloseResult {closed:true})
-        }
-        Command::UiPrepare(input) => {
-            let coordinator=updates(&state,&id)?;
-            let lease=coordinator.leases().map_err(|error|update_error(&id,error))?.into_iter().find(|lease|lease.lease_id==format!("ui:{}",input.session_id))
-                .ok_or_else(||failure(&id,"STALE_SESSION","ui.session_missing",json!({"sessionId":input.session_id})))?;
-            coordinator.heartbeat_ui_session(&input.session_id,&lease.environment.generation_id,unix_seconds().map_err(|error|Box::new(internal_error(&id,error.to_string())))?).map_err(|error|update_error(&id,error))?;
-            value(&id,json!({"barriers":coordinator.ui_barriers(&input.session_id).map_err(|error|update_error(&id,error))?}))
-        }
-        Command::UiAck(input) => {
-            let _serial=state.composition_lock.lock().await;
-            updates(&state,&id)?.acknowledge_ui(UiAck {barrier_id:input.barrier_id.clone(),session_id:input.session_id.clone(),stage:serde_json::from_value(json!(input.stage)).map_err(|error|failure(&id,"INVALID_ARGUMENT","ui.stage",json!({"message":error.to_string()})))?,state:input.state.clone(),error:input.error.clone(),rebuilt:input.rebuilt.unwrap_or(false)}).await.map_err(|error|update_error(&id,error))?;
-            composition::refresh(&state).await.map_err(|error|failure(&id,"RECOVERY_REQUIRED","runtime.composition",json!({"message":error})))?;
-            value(&id,mintcat_sdk::UiAckResult {acknowledged:true})
-        }
+        Command::SourcesList(_) => super::sources::list(&state).map_err(|message|failure(&id,"SOURCE_UNAVAILABLE","source.configuration",json!({"message":message}))),
         Command::GamesRegister(input) => {
             let input=input.clone(); let id2=id.clone(); let key=request.envelope.idempotency_key.clone().expect("validated mutation key");
             let adapter=state.install.catalog().current(&input.game_id).map_err(|error|Box::new(mintcat_install::install_app_error(&id,&error)))?;
@@ -294,7 +237,7 @@ async fn action_command(state:Arc<DaemonState>,request:ValidatedRequest)->Result
     }
 }
 
-async fn update_command(state:Arc<DaemonState>,request:&ValidatedRequest, ui_admitted:Option<UiCallAdmission>)->Result<Value> {
+async fn update_command(state:Arc<DaemonState>,request:&ValidatedRequest)->Result<Value> {
     let id=rpc_id_string(&request.envelope.id);
     let coordinator=updates(&state,&id)?.clone();
     if request.descriptor.method=="updates.operations" {
@@ -302,7 +245,7 @@ async fn update_command(state:Arc<DaemonState>,request:&ValidatedRequest, ui_adm
         return value(&id,json!({"operations":coordinator.operations().map_err(|error|update_error(&id,error))?,"recoveryReason":recovery_reason,"scopeBlockers":scope_blockers}));
     }
     if request.descriptor.method=="updates.gc" {
-        let _serial=if ui_admitted.is_some() {None}else{Some(state.composition_lock.lock().await)};
+        let _serial=state.composition_lock.lock().await;
         sources::collect_obsolete(&state).await.map_err(|message|failure(&id,"RECOVERY_REQUIRED","source.collection",json!({"message":message})))?;
         let now = unix_seconds().map_err(|error| Box::new(internal_error(&id, error.to_string())))?;
         let state2 = state.clone();
@@ -327,8 +270,6 @@ async fn update_command(state:Arc<DaemonState>,request:&ValidatedRequest, ui_adm
         // Keep their synchronous work off the authenticated IPC executor.
         let runtime = tokio::runtime::Handle::current();
         tokio::task::spawn_blocking(move || runtime.block_on(async move {
-            // The fence protects acceptance, not the lifetime of an accepted job.
-            let ui_admitted = if request.descriptor.method == "updates.activate" { ui_admitted } else { drop(ui_admitted); None };
             let _serial = state.composition_lock.lock().await;
             let result:Result<Value>=async {
                 state.jobs.append_event(&job_id,mintcat_runtime_jobs::EventUpdate::state("update-preparing",JobState::Preparing)).map_err(|error|Box::new(job_error(&job_id,error)))?;
@@ -347,10 +288,7 @@ async fn update_command(state:Arc<DaemonState>,request:&ValidatedRequest, ui_adm
                         } else {return Err(failure(&job_id,"INVALID_ARGUMENT","updates.repository_required",json!({"required":"repositoryPath or repositoryUrl"})));}
                     },
                     Command::UpdatesPrepare(input)=>value(&job_id,coordinator.prepare(&input.operation_id,now).await.map_err(|error|update_error(&job_id,error))?)?,
-                    Command::UpdatesActivate(input)=>value(&job_id,match &ui_admitted {
-                        Some(admission) => coordinator.activate_with_ui_admission(admission,&input.operation_id,now),
-                        None => coordinator.activate(&input.operation_id,now),
-                    }.map_err(|error|update_error(&job_id,error))?)?,
+                    Command::UpdatesActivate(input)=>value(&job_id,coordinator.activate(&input.operation_id,now).map_err(|error|update_error(&job_id,error))?)?,
                     Command::UpdatesConfirm(input)=>value(&job_id,coordinator.confirm(&input.operation_id,now).await.map_err(|error|update_error(&job_id,error))?)?,
                     Command::UpdatesRollback(input)=>value(&job_id,coordinator.rollback(&input.operation_id,input.reason.as_deref().unwrap_or("explicit human rollback")).await.map_err(|error|update_error(&job_id,error))?)?,
                     Command::UpdatesChannel(input)=>{coordinator.authorize_channel(&input.scope_id,&input.channel,input.expected_scope_revision).map_err(|error|update_error(&job_id,error))?;json!({"scopeId":input.scope_id,"channel":input.channel})},
