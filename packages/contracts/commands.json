@@ -874,6 +874,52 @@
       "agentExposed": true
     },
     {
+      "method": "sources.credentials.set",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/SourcesCredentialSetParams",
+      "resultSchema": "#/$defs/SourceCredentialResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "source.credential.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "SOURCE_UNAVAILABLE",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Store or replace a remote source credential in the daemon OS credential vault.",
+      "cli": ["sources", "credentials", "set"],
+      "agentExposed": false
+    },
+    {
+      "method": "sources.credentials.clear",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/SourcesCredentialClearParams",
+      "resultSchema": "#/$defs/SourceCredentialResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "source.credential.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "RESOURCE_BUSY",
+        "RECOVERY_REQUIRED",
+        "SOURCE_UNAVAILABLE",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Remove a saved remote source credential from the daemon OS credential vault.",
+      "cli": ["sources", "credentials", "clear"],
+      "agentExposed": false
+    },
+    {
       "method": "sources.search",
       "contractVersion": 1,
       "paramsSchema": "#/$defs/SourceSearchParams",

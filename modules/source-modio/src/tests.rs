@@ -149,7 +149,7 @@ async fn empty_download_scope_allows_read_operations_but_never_authorizes_binary
         if request.contains("/files") {
             (200, json!({"data": [api_file(7, 99, "2.0", "https://downloads.example/file.zip")]}))
         } else if request.starts_with("GET /v1/games/2475/mods/7 ") {
-            (200, api_mod(7, "Available", 1))
+            (403, json!({"error": {"code": 403, "message": "Your personal access token does not grant access to this resource"}}))
         } else {
             (200, json!({"data": [api_mod(7, "Available", 1)], "result_total": 1}))
         }
@@ -182,7 +182,7 @@ async fn empty_download_scope_allows_read_operations_but_never_authorizes_binary
     assert!(matches!(denied, Err(SourceError::InvalidResponse(_))), "{denied:?}");
     for expected_path in [
         "GET /v1/games/2475/mods?",
-        "GET /v1/games/2475/mods/7 ",
+        "GET /v1/games/2475/mods?id=7&_limit=2 ",
         "GET /v1/games/2475/mods/7/files?",
         "GET /v1/games/2475/mods/7/files?",
         "GET /v1/games/2475/mods/7/files?",
@@ -299,7 +299,7 @@ async fn exact_old_file_resolution_never_falls_back_to_latest() {
         } else if request.contains("/dependencies") {
             (200, json!({"data": [api_mod(8, "Dependency", 1)]}))
         } else {
-            (200, api_mod(7, "Main", 1))
+            (200, json!({"data": [api_mod(7, "Main", 1)], "result_total": 1}))
         }
     })
     .await;
@@ -343,7 +343,7 @@ async fn unavailable_mod_and_untrusted_download_are_structured_failures() {
                 json!({"data": [api_file(7, 10, "1.0", "https://evil.example/file.zip")]}),
             )
         } else {
-            (200, api_mod(7, "Pending", 0))
+            (200, json!({"data": [api_mod(7, "Pending", 0)], "result_total": 1}))
         }
     })
     .await;
@@ -436,11 +436,11 @@ async fn metadata_and_files_cannot_cross_the_requested_mod_identity() {
     for case in ["metadata", "latest-file", "version-list"] {
         let server = spawn_server(move |_| {
             let body = match case {
-                "metadata" => api_mod(2, "Wrong identity", 1),
+                "metadata" => json!({"data": [api_mod(2, "Wrong identity", 1)]}),
                 "latest-file" => {
                     let mut item=api_mod(1,"Correct metadata",1);
                     item["modfile"]=api_file(2,99,"2.0","https://downloads.example/latest.zip");
-                    item
+                    json!({"data": [item]})
                 },
                 _ => json!({"data":[api_file(2,99,"2.0","https://downloads.example/latest.zip")]}),
             };
@@ -455,4 +455,199 @@ async fn metadata_and_files_cannot_cross_the_requested_mod_identity() {
         };
         assert!(matches!(result,Err(SourceError::InvalidResponse(_))),"{case}");
     }
+}
+
+#[tokio::test]
+async fn get_mod_uses_list_endpoint_for_pat_compatibility_and_enforces_existence_and_uniqueness() {
+    let long_pat = format!("eyJ{}.{}.{}", "A".repeat(2500), "B".repeat(2500), "C".repeat(1000));
+    let mut server = spawn_server(|request| {
+        if request.starts_with("GET /v1/games/2475/mods/7 ") {
+            (
+                403,
+                json!({"error": {"code": 403, "message": "Your personal access token does not grant access to this resource"}}),
+            )
+        } else if request.starts_with("GET /v1/games/2475/mods?id=7&_limit=2 ") {
+            (200, json!({"data": [api_mod(7, "PAT Compatible", 1)], "result_total": 1}))
+        } else if request.starts_with("GET /v1/games/2475/mods?id=404&_limit=2 ") {
+            (200, json!({"data": [], "result_total": 0}))
+        } else if request.starts_with("GET /v1/games/2475/mods?id=99&_limit=2 ") {
+            (
+                200,
+                json!({"data": [api_mod(99, "Duplicate A", 1), api_mod(99, "Duplicate B", 1)], "result_total": 2}),
+            )
+        } else {
+            (404, json!({"error": "unexpected route"}))
+        }
+    })
+    .await;
+    let vault = CredentialVault::new(Arc::new(MemoryCredentialStore::default()));
+    let credential = vault
+        .store(SecretValue::new(long_pat.as_bytes().to_vec()).unwrap())
+        .unwrap();
+    let broker = NetworkBroker::new(&vault, None).unwrap();
+    let source = ModioProvider::new(
+        broker,
+        ModioConfig {
+            api_base: server.origin.join("v1/").unwrap(),
+            credential: Some(credential),
+            proxy_policy: ProxyPolicy::Direct,
+            download_origins: Vec::new(),
+        },
+    )
+    .unwrap();
+
+    let found = source
+        .get_mod(
+            &game(),
+            &ModRef {
+                source_id: SOURCE_ID.into(),
+                remote_game_key: "drg".into(),
+                remote_mod_id: "7".into(),
+                version_id: None,
+                remote_file_id: None,
+            },
+            &CancellationToken::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(found.name, "PAT Compatible");
+    let captured = server.requests.recv().await.unwrap();
+    assert!(captured.starts_with("GET /v1/games/2475/mods?id=7&_limit=2 "), "{captured}");
+    assert!(captured.contains(&format!("Bearer {long_pat}")));
+
+    assert!(matches!(
+        source
+            .get_mod(
+                &game(),
+                &ModRef {
+                    source_id: SOURCE_ID.into(),
+                    remote_game_key: "drg".into(),
+                    remote_mod_id: "404".into(),
+                    version_id: None,
+                    remote_file_id: None,
+                },
+                &CancellationToken::default(),
+            )
+            .await,
+        Err(SourceError::NotFound(_))
+    ));
+    assert!(matches!(
+        source
+            .get_mod(
+                &game(),
+                &ModRef {
+                    source_id: SOURCE_ID.into(),
+                    remote_game_key: "drg".into(),
+                    remote_mod_id: "99".into(),
+                    version_id: None,
+                    remote_file_id: None,
+                },
+                &CancellationToken::default(),
+            )
+            .await,
+        Err(SourceError::InvalidResponse(_))
+    ));
+}
+
+#[tokio::test]
+async fn nullable_and_empty_object_modio_fields_and_dependency_objects_deserialize_cleanly() {
+    let server = spawn_server(|request| {
+        if request.contains("/dependencies") {
+            (
+                200,
+                json!({
+                    "data": [
+                        {"mod_id": 88, "date_added": 1700000000}
+                    ],
+                    "result_total": 1
+                }),
+            )
+        } else {
+            (
+                200,
+                json!({
+                    "data": [
+                        {
+                            "id": 11,
+                            "game_id": 2475,
+                            "status": 1,
+                            "visible": 1,
+                            "name": "No File Yet",
+                            "name_id": "no-file-yet",
+                            "summary": null,
+                            "description_plaintext": null,
+                            "profile_url": "",
+                            "submitted_by": null,
+                            "logo": {},
+                            "modfile": {},
+                            "tags": null,
+                            "stats": null
+                        },
+                        {
+                            "id": 12,
+                            "game_id": 2475,
+                            "status": 1,
+                            "visible": 1,
+                            "name": "Null File Version",
+                            "name_id": "null-file-version",
+                            "summary": "Real mod.io payload",
+                            "description_plaintext": null,
+                            "profile_url": "https://mod.io/g/drg/m/null-file-version",
+                            "submitted_by": {"username": null},
+                            "logo": {"thumb_640x360": "", "original": "https://images.example/orig.png"},
+                            "modfile": {
+                                "id": 55,
+                                "mod_id": 12,
+                                "date_added": 1700000000,
+                                "virus_status": 1,
+                                "virus_positive": 0,
+                                "filesize": 2048,
+                                "filename": "mod.zip",
+                                "version": null,
+                                "filehash": {},
+                                "download": {}
+                            },
+                            "tags": [{"name": null}, {"name": "Verified"}],
+                            "stats": {"downloads_total": null, "subscribers_total": 5, "ratings_weighted_aggregate": null}
+                        }
+                    ],
+                    "result_total": 2
+                }),
+            )
+        }
+    })
+    .await;
+    let source = provider(&server.origin, Vec::new());
+    let page = source
+        .search(
+            &game(),
+            &SearchRequest {
+                query: String::new(),
+                cursor: None,
+                page_size: 20,
+                sort_field: None,
+                sort_direction: None,
+            },
+            &CancellationToken::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.items.len(), 2);
+    assert_eq!(page.items[0].name, "No File Yet");
+    assert!(page.items[0].latest_file.is_none());
+    assert!(page.items[0].profile_url.is_none());
+    assert!(page.items[0].logo_url.is_none());
+    assert_eq!(page.items[1].name, "Null File Version");
+    assert_eq!(page.items[1].logo_url.as_deref(), Some("https://images.example/orig.png"));
+    assert_eq!(page.items[1].tags, vec!["Verified"]);
+    let latest = page.items[1].latest_file.as_ref().unwrap();
+    assert_eq!(latest.remote_file_id, "55");
+    assert_eq!(latest.display_version, "");
+
+    let dependencies = source
+        .get_dependencies(&game(), &page.items[1].mod_ref, &CancellationToken::default())
+        .await
+        .unwrap();
+    assert_eq!(dependencies.len(), 1);
+    assert_eq!(dependencies[0].mod_ref.remote_mod_id, "88");
 }

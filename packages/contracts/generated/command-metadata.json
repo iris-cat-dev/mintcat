@@ -3143,6 +3143,78 @@
       "confirmation": "none"
     },
     {
+      "command": "sources.credentials.set",
+      "path": [
+        "sources",
+        "credentials",
+        "set"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceId",
+          "secret"
+        ],
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "enum": [
+              "modio",
+              "modcat",
+              "nexusmods"
+            ]
+          },
+          "secret": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32768,
+            "writeOnly": true,
+            "description": "Raw remote source token or API key; stored only in the OS credential vault."
+          }
+        }
+      },
+      "resultSchema": "#/$defs/SourceCredentialResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "source.credential.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "sources.credentials.clear",
+      "path": [
+        "sources",
+        "credentials",
+        "clear"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceId"
+        ],
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "enum": [
+              "modio",
+              "modcat",
+              "nexusmods"
+            ]
+          }
+        }
+      },
+      "resultSchema": "#/$defs/SourceCredentialResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "source.credential.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
       "command": "sources.search",
       "path": [
         "sources",

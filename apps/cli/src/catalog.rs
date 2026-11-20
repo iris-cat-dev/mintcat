@@ -35,15 +35,27 @@ fn node_command(name: &'static str, node: Node) -> Command {
     }
     command
 }
+fn is_write_only(property: &Value) -> bool {
+    property.get("writeOnly").and_then(Value::as_bool) == Some(true)
+        || resolve(property).get("writeOnly").and_then(Value::as_bool) == Some(true)
+}
+fn has_write_only_parameter(spec: &CommandDescriptor) -> bool {
+    parameter_schema(spec)["properties"].as_object()
+        .is_some_and(|properties| properties.values().any(is_write_only))
+}
 fn command_for(command: Command, spec: &'static CommandDescriptor) -> Command {
     let summary = CATALOG["commands"].as_array().and_then(|commands| commands.iter().find(|entry| entry["method"] == spec.method))
         .and_then(|entry| entry["summary"].as_str()).unwrap_or(spec.method);
+    let sensitive_note = if has_write_only_parameter(spec) {
+        "\nSensitive writeOnly parameters are omitted from CLI flags and reject --params; pass them via --params-file - (stdin)."
+    } else { "" };
     let mut command = operation_options(command.about(summary.to_owned()).after_help(format!(
-        "Application API: {} (contract {}). Permission: {}. Confirmation: {}.\nParameter flags are generated from the canonical schema; object/array values take JSON.\nTarget IDs, revisions and approvals are explicit; --yes never invents or bypasses them.",
+        "Application API: {} (contract {}). Permission: {}. Confirmation: {}.\nParameter flags are generated from the canonical schema; object/array values take JSON.\nTarget IDs, revisions and approvals are explicit; --yes never invents or bypasses them.{sensitive_note}",
         spec.method, spec.contract_version, spec.permission, spec.confirmation)));
     let schema = parameter_schema(spec);
     if let Some(properties) = schema["properties"].as_object() {
         for (name, property) in properties {
+            if is_write_only(property) { continue; }
             let resolved = resolve(property);
             let required = schema["required"].as_array().is_some_and(|fields| fields.iter().any(|field| field == name));
             let help = format!("{}{}", description(resolved), if required { " (required, or provide in --params/--params-file)" } else { " (optional)" });
@@ -88,6 +100,9 @@ fn resolve(mut value: &Value) -> &Value {
 }
 pub fn has_parameter(spec: &CommandDescriptor, name: &str) -> bool { parameter_schema(spec)["properties"].get(name).is_some() }
 pub fn validate_operation_options(spec: &CommandDescriptor, matches: &ArgMatches) -> Result<()> {
+    if has_write_only_parameter(spec) && matches.get_one::<String>("params").is_some() {
+        bail!("commands accepting sensitive writeOnly parameters reject --params on the command line; pass JSON via --params-file - (stdin)");
+    }
     if matches.get_flag("all") && (spec.classification != "read" || !has_parameter(spec, "cursor")) {
         bail!("--all requires a paginated read command with a cursor parameter");
     }
@@ -148,6 +163,7 @@ pub fn parameters(spec: &CommandDescriptor, matches: &ArgMatches) -> Result<Valu
     let mut params = super::read_params(matches)?;
     if let Some(properties) = parameter_schema(spec)["properties"].as_object() {
         for (name, schema) in properties {
+            if is_write_only(schema) { continue; }
             if let Some(input) = matches.get_one::<String>(name) {
                 if params.get(name).is_some() { bail!("parameter {name} was supplied both in JSON and as --{}", kebab(name)); }
                 params[name] = parse_parameter(schema, input)?;
@@ -194,5 +210,20 @@ mod tests {
         let matches = command_for(Command::new("approve"), spec)
             .try_get_matches_from(["approve", "--events"]).unwrap();
         validate_operation_options(spec, &matches).unwrap();
+    }
+    #[test]
+    fn write_only_credential_parameters_cannot_be_passed_on_command_line() {
+        let spec = mintcat_sdk::command_spec("sources.credentials.set").unwrap();
+        assert!(command_for(Command::new("set"), spec)
+            .try_get_matches_from(["set", "--source-id", "modio", "--secret", "plaintext"])
+            .is_err());
+        let argv_params = command_for(Command::new("set"), spec)
+            .try_get_matches_from(["set", "--params", "{\"sourceId\":\"modio\",\"secret\":\"plaintext\"}"])
+            .unwrap();
+        assert!(validate_operation_options(spec, &argv_params).is_err());
+        let stdin_params = command_for(Command::new("set"), spec)
+            .try_get_matches_from(["set", "--params-file", "-"])
+            .unwrap();
+        validate_operation_options(spec, &stdin_params).unwrap();
     }
 }

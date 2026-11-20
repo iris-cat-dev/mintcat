@@ -1,9 +1,10 @@
 use std::{
-    io::Read as _,
-    sync::Arc,
+    io::{Read as _, Write as _},
+    sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use flate2::{write::GzEncoder, Compression};
 use mintcat_runtime_jobs::{ConfirmationPolicy, EventUpdate, JobStore, RegisterJob};
 use mintcat_runtime_kernel::{KernelDatabase, RuntimeEnvironment, RuntimePaths};
 use mintcat_sdk::JobState;
@@ -19,8 +20,9 @@ use url::Url;
 use crate::{
     interaction_binding, open_interaction_broker, BrokerError, BrowserAuthorizationRequest,
     BrowserNavigationDecision, CancellationToken, CredentialBinding, CredentialPlacement,
-    CredentialVault, FileSelectionRequest, ForwardProxy, InteractionContext, MemoryCredentialStore,
-    NetworkBroker, NetworkRequest, Origin, ProxyPolicy, RouteKind, SecretValue,
+    CredentialRef, CredentialStore, CredentialVault, FileSelectionRequest, ForwardProxy,
+    InteractionContext, MemoryCredentialStore, NetworkBroker, NetworkRequest, Origin, ProxyPolicy,
+    RouteKind, SecretValue,
 };
 
 async fn bind_server() -> (TcpListener, Url) {
@@ -474,4 +476,279 @@ fn headless_browser_authorization_resumes_only_with_an_allowed_callback() {
             .1,
         "good"
     );
+}
+
+fn serve_once_bytes(listener: TcpListener, response: Vec<u8>) -> tokio::task::JoinHandle<String> {
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 1024];
+        loop {
+            let read = socket.read(&mut buffer).await.unwrap();
+            if read == 0 {
+                break;
+            }
+            request.extend_from_slice(&buffer[..read]);
+            if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+        socket.write_all(&response).await.unwrap();
+        String::from_utf8(request).unwrap()
+    })
+}
+
+fn gzip_bytes(data: &[u8]) -> Vec<u8> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(data).unwrap();
+    encoder.finish().unwrap()
+}
+
+struct BlockingCredentialStore {
+    inner: MemoryCredentialStore,
+    started: Mutex<Option<oneshot::Sender<()>>>,
+    release: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+}
+
+impl CredentialStore for BlockingCredentialStore {
+    fn store(&self, secret: &SecretValue) -> Result<CredentialRef, BrokerError> {
+        self.inner.store(secret)
+    }
+
+    fn resolve(&self, reference: &CredentialRef) -> Result<Option<SecretValue>, BrokerError> {
+        if let Some(started) = self.started.lock().unwrap().take() {
+            let _ = started.send(());
+        }
+        if let Some(release) = self.release.lock().unwrap().take() {
+            let _ = release.recv_timeout(Duration::from_secs(5));
+        }
+        self.inner.resolve(reference)
+    }
+
+    fn delete(&self, reference: &CredentialRef) -> Result<(), BrokerError> {
+        self.inner.delete(reference)
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn blocking_credential_resolution_honors_timeout_without_starving_runtime() {
+    for streaming in [false, true] {
+        let (started_tx, started_rx) = oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let store = Arc::new(BlockingCredentialStore {
+            inner: MemoryCredentialStore::default(),
+            started: Mutex::new(Some(started_tx)),
+            release: Mutex::new(Some(release_rx)),
+        });
+        let vault = CredentialVault::new(store);
+        let credential = vault
+            .store(SecretValue::new("blocked-secret").unwrap())
+            .unwrap();
+        let broker = NetworkBroker::new(&vault, None).unwrap();
+        let url = Url::parse("http://127.0.0.1:1/").unwrap();
+        let mut request = NetworkRequest::get(
+            "blocking-credential-test",
+            url.clone(),
+            vec![Origin::from_url(&url).unwrap()],
+        );
+        request.timeout = Duration::from_millis(120);
+        request.credential = Some(CredentialBinding {
+            reference: credential,
+            placement: CredentialPlacement::Bearer,
+            allowed_origins: vec![Origin::from_url(&url).unwrap()],
+        });
+
+        let broker_task = tokio::spawn(async move {
+            let cancellation = CancellationToken::default();
+            if streaming {
+                broker
+                    .open_stream(&request, &cancellation)
+                    .await
+                    .map(|_| ())
+            } else {
+                broker.execute(&request, &cancellation).await.map(|_| ())
+            }
+        });
+
+        tokio::time::timeout(Duration::from_secs(2), started_rx)
+            .await
+            .expect("credential store resolve should have started")
+            .unwrap();
+
+        // Concurrent timers/tasks on the current_thread runtime must stay responsive.
+        let heartbeat = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            42_u8
+        });
+        assert_eq!(heartbeat.await.unwrap(), 42);
+
+        let result = broker_task.await.unwrap();
+        assert!(
+            matches!(result, Err(BrokerError::Timeout { .. })),
+            "expected Timeout while credential resolution is blocked, got {result:?}"
+        );
+        let _ = release_tx.send(());
+    }
+}
+
+#[tokio::test]
+async fn execute_requests_and_decodes_gzip_responses_and_leaves_open_stream_raw() {
+    // Single-member and multi-member gzip responses.
+    let part1 = br#"{"items":["alpha","beta"],"#;
+    let part2 = br#""total":2}"#;
+    let mut multi_member = gzip_bytes(part1);
+    multi_member.extend_from_slice(&gzip_bytes(part2));
+
+    for (payload, expected) in [
+        (gzip_bytes(br#"{"ok":true}"#), br#"{"ok":true}"#.to_vec()),
+        (multi_member, [part1.as_slice(), part2.as_slice()].concat()),
+    ] {
+        let (listener, url) = bind_server().await;
+        let mut raw_response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            payload.len()
+        )
+        .into_bytes();
+        raw_response.extend_from_slice(&payload);
+        let server = serve_once_bytes(listener, raw_response);
+
+        let vault = memory_vault();
+        let broker = NetworkBroker::new(&vault, None).unwrap();
+        let request = NetworkRequest::get(
+            "gzip-execute-test",
+            url.clone(),
+            vec![Origin::from_url(&url).unwrap()],
+        );
+        let response = broker
+            .execute(&request, &CancellationToken::default())
+            .await
+            .unwrap();
+        assert_eq!(response.body, expected);
+        assert_eq!(
+            response.headers.get("content-type").map(String::as_str),
+            Some("application/json")
+        );
+        assert!(
+            !response.headers.contains_key("content-length"),
+            "compressed Content-Length must be removed after gzip decoding"
+        );
+        let received = server.await.unwrap().to_ascii_lowercase();
+        assert!(
+            received.contains("accept-encoding: gzip"),
+            "expected Accept-Encoding: gzip header in request:\n{received}"
+        );
+    }
+
+    // open_stream must NOT request gzip so binary Range/Content-Length downloads remain intact.
+    let (stream_listener, stream_url) = bind_server().await;
+    let stream_server = serve_once(stream_listener, ok_response("raw-binary"));
+    let vault = memory_vault();
+    let broker = NetworkBroker::new(&vault, None).unwrap();
+    let stream_request = NetworkRequest::get(
+        "stream-no-gzip-test",
+        stream_url.clone(),
+        vec![Origin::from_url(&stream_url).unwrap()],
+    );
+    let cancellation = CancellationToken::default();
+    let mut stream_response = broker
+        .open_stream(&stream_request, &cancellation)
+        .await
+        .unwrap();
+    assert_eq!(
+        stream_response
+            .headers
+            .get("content-length")
+            .map(String::as_str),
+        Some("10")
+    );
+    let mut stream_body = Vec::new();
+    while let Some(chunk) = stream_response.next_chunk(&cancellation).await.unwrap() {
+        stream_body.extend_from_slice(&chunk);
+    }
+    assert_eq!(stream_body, b"raw-binary");
+    let received_stream = stream_server.await.unwrap().to_ascii_lowercase();
+    assert!(!received_stream.contains("accept-encoding"));
+}
+
+#[tokio::test]
+async fn execute_enforces_gzip_bomb_limit_empty_body_and_encoding_validation() {
+    let vault = memory_vault();
+    let broker = NetworkBroker::new(&vault, None).unwrap();
+
+    // 1. Gzip bomb: small compressed payload expanding beyond max_response_bytes.
+    let bomb = gzip_bytes(&vec![0_u8; 64 * 1024]);
+    assert!(bomb.len() < 256);
+    let (listener, url) = bind_server().await;
+    let mut raw = format!(
+        "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        bomb.len()
+    )
+    .into_bytes();
+    raw.extend_from_slice(&bomb);
+    let server = serve_once_bytes(listener, raw);
+    let mut request = NetworkRequest::get(
+        "gzip-bomb-test",
+        url.clone(),
+        vec![Origin::from_url(&url).unwrap()],
+    );
+    request.max_response_bytes = 256;
+    let err = broker
+        .execute(&request, &CancellationToken::default())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, BrokerError::ResponseTooLarge { .. }),
+        "expected ResponseTooLarge for gzip bomb, got {err:?}"
+    );
+    let _ = server.await;
+
+    // 2. Empty body with Content-Encoding: gzip (e.g. 204 No Content).
+    let (listener, url) = bind_server().await;
+    let server = serve_once(
+        listener,
+        "HTTP/1.1 204 No Content\r\nContent-Encoding: gzip\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            .to_owned(),
+    );
+    let request = NetworkRequest::get(
+        "gzip-empty-test",
+        url.clone(),
+        vec![Origin::from_url(&url).unwrap()],
+    );
+    let response = broker
+        .execute(&request, &CancellationToken::default())
+        .await
+        .unwrap();
+    assert!(response.body.is_empty());
+    assert!(!response.headers.contains_key("content-length"));
+    server.await.unwrap();
+
+    // 3. Stacked gzip, unsupported encoding, and corrupt gzip bytes are rejected as Transport.
+    for (encoding_header, body) in [
+        ("gzip, gzip", gzip_bytes(&gzip_bytes(b"nested"))),
+        ("br", b"brotli-bytes".to_vec()),
+        ("gzip", b"not-a-valid-gzip-stream".to_vec()),
+    ] {
+        let (listener, url) = bind_server().await;
+        let mut raw = format!(
+            "HTTP/1.1 200 OK\r\nContent-Encoding: {encoding_header}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        raw.extend_from_slice(&body);
+        let server = serve_once_bytes(listener, raw);
+        let request = NetworkRequest::get(
+            "gzip-invalid-test",
+            url.clone(),
+            vec![Origin::from_url(&url).unwrap()],
+        );
+        let err = broker
+            .execute(&request, &CancellationToken::default())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, BrokerError::Transport { .. }),
+            "expected Transport for Content-Encoding '{encoding_header}', got {err:?}"
+        );
+        let _ = server.await;
+    }
 }

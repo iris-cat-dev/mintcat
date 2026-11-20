@@ -218,11 +218,25 @@ impl SourceProvider for ModioProvider {
         cancellation: &CancellationToken,
     ) -> Result<SourceMod, SourceError> {
         let mod_id = self.resolve_mod_id(game, mod_ref, cancellation).await?;
-        let endpoint =
-            self.endpoint(&format!("games/{}/mods/{mod_id}", provider_game_id(game)?))?;
-        let item: ApiMod = self.request_json(endpoint, cancellation).await?;
-        if item.id != mod_id {
-            return Err(SourceError::InvalidResponse("mod.io metadata crossed the requested mod identity".into()));
+        let mut endpoint = self.endpoint(&format!("games/{}/mods", provider_game_id(game)?))?;
+        endpoint
+            .query_pairs_mut()
+            .append_pair("id", &mod_id.to_string())
+            .append_pair("_limit", "2");
+        let response: ApiPage<ApiMod> = self.request_json(endpoint, cancellation).await?;
+        if response.data.iter().any(|item| item.id != mod_id) {
+            return Err(SourceError::InvalidResponse(
+                "mod.io metadata crossed the requested mod identity".into(),
+            ));
+        }
+        let mut items = response.data.into_iter();
+        let item = items
+            .next()
+            .ok_or_else(|| SourceError::NotFound(mod_id.to_string()))?;
+        if items.next().is_some() {
+            return Err(SourceError::InvalidResponse(
+                "mod.io mod identity is not unique".into(),
+            ));
         }
         let mapped = map_mod(game, item)?;
         if mapped.review_status != ReviewStatus::Accepted {
@@ -256,18 +270,29 @@ impl SourceProvider for ModioProvider {
             "games/{}/mods/{mod_id}/dependencies?_limit=100",
             provider_game_id(game)?
         ))?;
-        let response: ApiPage<ApiMod> = self.request_json(endpoint, cancellation).await?;
+        let response: ApiPage<ApiDependency> = self.request_json(endpoint, cancellation).await?;
         response
             .data
             .into_iter()
             .map(|dependency| {
-                if dependency.game_id.to_string() != game.provider_game_id {
-                    return Err(SourceError::InvalidResponse(
-                        "mod.io dependency crossed the game binding".to_owned(),
-                    ));
+                if let Some(game_id) = dependency.game_id {
+                    if game_id.to_string() != game.provider_game_id {
+                        return Err(SourceError::InvalidResponse(
+                            "mod.io dependency crossed the game binding".to_owned(),
+                        ));
+                    }
                 }
+                let dependency_id = dependency
+                    .mod_id
+                    .or(dependency.id)
+                    .filter(|id| *id > 0)
+                    .ok_or_else(|| {
+                        SourceError::InvalidResponse(
+                            "mod.io dependency identity is missing".to_owned(),
+                        )
+                    })?;
                 Ok(SourceDependency {
-                    mod_ref: base_mod_ref(game, dependency.id),
+                    mod_ref: base_mod_ref(game, dependency_id),
                     required: true,
                 })
             })
@@ -290,7 +315,14 @@ impl SourceProvider for ModioProvider {
         let download = selected.download.ok_or_else(|| {
             SourceError::Unavailable(format!("file {} has no download", selected.id))
         })?;
-        let url = Url::parse(&download.binary_url)
+        let binary_url = download
+            .binary_url
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                SourceError::Unavailable(format!("file {} has no download", selected.id))
+            })?;
+        let url = Url::parse(binary_url)
             .map_err(|_| SourceError::InvalidResponse("invalid download URL".to_owned()))?;
         let download_origin = Origin::from_url(&url)?;
         if !self.config.download_origins.contains(&download_origin) {
@@ -317,52 +349,96 @@ impl SourceProvider for ModioProvider {
     }
 }
 
+fn deserialize_default_on_null<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+fn deserialize_opt_nonempty_object<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: DeserializeOwned,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    match value {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::Object(map)) if map.is_empty() => Ok(None),
+        Some(serde_json::Value::Array(items)) if items.is_empty() => Ok(None),
+        Some(other) => serde_json::from_value(other)
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+    }
+}
+
+fn deserialize_default_object<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + DeserializeOwned,
+{
+    Ok(deserialize_opt_nonempty_object(deserializer)?.unwrap_or_default())
+}
+
 #[derive(Debug, Deserialize)]
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
 struct ApiPage<T> {
+    #[serde(default = "Vec::new", deserialize_with = "deserialize_default_on_null")]
     data: Vec<T>,
     #[serde(default)]
     result_total: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+struct ApiDependency {
+    #[serde(default)]
+    mod_id: Option<u64>,
+    #[serde(default)]
+    id: Option<u64>,
+    #[serde(default)]
+    game_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct ApiMod {
     id: u64,
     game_id: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     status: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     visible: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     date_added: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     date_updated: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     maturity_option: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     name_id: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     summary: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     description_plaintext: String,
     #[serde(default)]
     profile_url: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_object")]
     submitted_by: ApiUser,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_object")]
     logo: ApiLogo,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_opt_nonempty_object")]
     modfile: Option<ApiFile>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     tags: Vec<ApiTag>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_object")]
     stats: ApiStats,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 struct ApiUser {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     username: String,
 }
 
@@ -378,21 +454,21 @@ struct ApiLogo {
 struct ApiFile {
     id: u64,
     mod_id: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     date_added: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     virus_status: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     virus_positive: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     filesize: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     filename: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     version: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_object")]
     filehash: ApiFileHash,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_opt_nonempty_object")]
     download: Option<ApiDownload>,
 }
 
@@ -404,24 +480,25 @@ struct ApiFileHash {
 
 #[derive(Debug, Clone, Deserialize)]
 struct ApiDownload {
-    binary_url: String,
+    #[serde(default)]
+    binary_url: Option<String>,
     #[serde(default)]
     date_expires: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 struct ApiTag {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     name: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 struct ApiStats {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     downloads_total: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     subscribers_total: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_default_on_null")]
     ratings_weighted_aggregate: f64,
 }
 
@@ -496,14 +573,31 @@ fn map_mod(game: &SourceGameBinding, item: ApiMod) -> Result<SourceMod, SourceEr
         .collect::<Vec<_>>();
     let mut seen = HashSet::new();
     tags.retain(|tag| seen.insert(tag.to_ascii_lowercase()));
+    let name = if item.name.trim().is_empty() {
+        if item.name_id.trim().is_empty() {
+            format!("mod-{}", item.id)
+        } else {
+            item.name_id
+        }
+    } else {
+        item.name
+    };
+    let profile_url = item
+        .profile_url
+        .filter(|value| !value.trim().is_empty());
+    let logo_url = item
+        .logo
+        .thumb_640x360
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| item.logo.original.filter(|value| !value.trim().is_empty()));
     Ok(SourceMod {
         mod_ref: base_mod_ref(game, item.id),
-        name: item.name,
+        name,
         summary: item.summary,
         description: item.description_plaintext,
         author: item.submitted_by.username,
-        profile_url: item.profile_url,
-        logo_url: item.logo.thumb_640x360.or(item.logo.original),
+        profile_url,
+        logo_url,
         tags,
         maturity_flags: item.maturity_option,
         review_status: map_mod_status(item.status, item.visible),

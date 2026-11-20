@@ -76,6 +76,7 @@ impl RuntimeConfiguration {
         Ok(Some(configuration))
     }
     pub fn has_game_runtime(&self) -> bool { !self.trust_root.as_os_str().is_empty() }
+    pub fn configured_sources(&self) -> &BTreeMap<String, SourceConfig> { &self.sources }
     pub fn trust(&self) -> Result<TrustStore> {
         if !self.has_game_runtime() { return Ok(TrustStore::default()); }
         mintcat_runtime_release::load_root_rotation_anchor(&self.trust_root).map_err(message)?.artifact_trust_store().map_err(message)
@@ -214,7 +215,8 @@ pub(super) async fn refresh(state: &Arc<DaemonState>) -> Result<()> {
         }
     }
     state.install.catalog().publish(adapters);
-    let configuration = state.configuration.as_ref().map(|configuration| configuration.sources.clone()).unwrap_or_default();
+    let base = state.configuration.as_ref().map(|configuration| configuration.sources.clone()).unwrap_or_default();
+    let configuration = super::sources::merge_credential_overrides(state, base)?;
     super::sources::publish(state, environment, descriptors, configuration).await?;
     Ok(())
 }

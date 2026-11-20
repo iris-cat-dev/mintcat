@@ -1,6 +1,18 @@
 import type { ConfiguredSource } from '@mintcat/sdk-ts';
-import { getSharedRuntime, getUiTheme, mountReactView, setUiTheme } from '@mintcat/sdk-ui';
-import type { Disposable, GameModuleList, UiContext, UiThemeName } from '@mintcat/sdk-ui';
+import {
+  copyTextToClipboard,
+  getSharedRuntime,
+  getSourceAuthGuide,
+  getSourceDisplayName,
+  getUiTheme,
+  isRemoteSourceId,
+  mountReactView,
+  openExternalUrl,
+  presentUiError,
+  setUiTheme,
+  validateSourceCredentialInput,
+} from '@mintcat/sdk-ui';
+import type { Disposable, GameModuleList, RemoteSourceId, UiContext, UiThemeName } from '@mintcat/sdk-ui';
 
 interface ThemeOption {
   id: UiThemeName;
@@ -56,10 +68,10 @@ const THEME_OPTIONS: readonly ThemeOption[] = [
   },
 ];
 
-const SOURCE_LABELS: Record<string, { label: string; desc: string; dotClass: string }> = {
-  modio: { label: 'mod.io', desc: '官方合作模组仓库连接器', dotClass: 'settings-source-dot--modio' },
-  modcat: { label: 'ModCat', desc: '中文社区镜像与索引服务', dotClass: 'settings-source-dot--modcat' },
-  nexusmods: { label: 'Nexus Mods', desc: 'Nexus 开放模组生态接入', dotClass: 'settings-source-dot--nexusmods' },
+const SOURCE_DOT_CLASSES: Record<string, string> = {
+  modio: 'settings-source-dot--modio',
+  modcat: 'settings-source-dot--modcat',
+  nexusmods: 'settings-source-dot--nexusmods',
 };
 
 export function mountAppearanceSettings(root: HTMLElement): Disposable {
@@ -143,9 +155,52 @@ export function mountRuntimeSettings(
   let loading = true;
   let inventory: GameModuleList | undefined;
   let sources: ConfiguredSource[] = [];
+  let editingSourceId: RemoteSourceId | undefined;
+  let secretInput = '';
+  let modalError = '';
+  let saving = false;
+  let clearingSourceId = '';
+  let copiedUrl = '';
+  let copyResetTimer: ReturnType<typeof setTimeout> | undefined;
   let redraw = (): void => {};
 
   const active = (): boolean => alive && !context.signal.aborted;
+  const clearCopyTimer = (): void => {
+    if (copyResetTimer !== undefined) {
+      clearTimeout(copyResetTimer);
+      copyResetTimer = undefined;
+    }
+    copiedUrl = '';
+  };
+  const closeModal = (): void => {
+    if (saving) return;
+    editingSourceId = undefined;
+    secretInput = '';
+    modalError = '';
+    if (active()) redraw();
+  };
+  const openModal = (sourceId: RemoteSourceId): void => {
+    editingSourceId = sourceId;
+    secretInput = '';
+    modalError = '';
+    if (active()) redraw();
+  };
+  const openPortal = (url: string): void => {
+    void openExternalUrl(url).catch(() => {
+      if (active()) context.notify('无法自动打开浏览器，请点击「复制地址」后手动访问。');
+    });
+  };
+  const copyPortal = (url: string): void => {
+    void copyTextToClipboard(url).then(copied => {
+      if (!active()) return;
+      if (!copied) { context.notify('复制失败，请手动选中地址复制。'); return; }
+      clearCopyTimer();
+      copiedUrl = url;
+      context.notify('已复制凭据获取地址。');
+      redraw();
+      copyResetTimer = setTimeout(() => { copyResetTimer = undefined; copiedUrl = ''; if (active()) redraw(); }, 2_000);
+    });
+  };
   const load = async (): Promise<void> => {
     loading = true;
     if (active()) redraw();
@@ -164,17 +219,72 @@ export function mountRuntimeSettings(
       }
     }
   };
+  const saveCredential = async (): Promise<void> => {
+    if (!editingSourceId || saving) return;
+    const targetSourceId = editingSourceId;
+    const validated = validateSourceCredentialInput(secretInput);
+    if (!validated.ok) {
+      modalError = validated.message;
+      if (active()) redraw();
+      return;
+    }
+    saving = true;
+    modalError = '';
+    if (active()) redraw();
+    try {
+      const result = await context.call('sources.credentials.set', { sourceId: targetSourceId, secret: validated.value }, crypto.randomUUID());
+      if (!active()) { secretInput = ''; return; }
+      sources = sources.map(item => item.sourceId === result.sourceId
+        ? { ...item, credentialConfigured: result.credentialConfigured }
+        : item);
+      secretInput = '';
+      modalError = '';
+      editingSourceId = undefined;
+      context.invalidate('');
+      context.notify(`已保存 ${getSourceDisplayName(targetSourceId)} 凭据到本机系统钥匙串。`);
+    } catch (cause) {
+      if (!active()) return;
+      const presented = presentUiError(cause, 'search');
+      modalError = `${presented.title}：${presented.description}`;
+    } finally {
+      if (active()) {
+        saving = false;
+        redraw();
+      }
+    }
+  };
+  const clearCredential = async (sourceId: RemoteSourceId): Promise<void> => {
+    if (clearingSourceId) return;
+    clearingSourceId = sourceId;
+    if (active()) redraw();
+    try {
+      const result = await context.call('sources.credentials.clear', { sourceId }, crypto.randomUUID());
+      if (!active()) return;
+      sources = sources.map(item => item.sourceId === result.sourceId
+        ? { ...item, credentialConfigured: result.credentialConfigured }
+        : item);
+      context.invalidate('');
+      context.notify(`已清除 ${getSourceDisplayName(sourceId)} 已保存的凭据。`);
+    } finally {
+      if (active()) {
+        clearingSourceId = '';
+        redraw();
+      }
+    }
+  };
 
   function RuntimeView() {
     const [, setTick] = React.useState(0);
     redraw = () => setTick(v => v + 1);
     const gameModules = (inventory?.modules ?? []).filter(item => item.game);
+    const modalGuide = editingSourceId ? getSourceAuthGuide(editingSourceId) : undefined;
+    const editingSource = editingSourceId ? sources.find(item => item.sourceId === editingSourceId) : undefined;
 
     return h('div', { className: 'settings-page-shell' },
       h('div', { className: 'settings-section-header' },
         h('div', null,
           h('h2', { className: 'settings-section-title' }, '扩展与后台服务'),
-          h('p', { className: 'settings-section-desc' }, '查看已签名游戏支持插件、远程模组源连接器及独立守护进程运行状态。')),
+          h('p', { className: 'settings-section-desc' }, '查看已签名游戏支持插件、远程模组源连接器凭据及独立守护进程运行状态。')),
         h(Antd.Button, { size: 'small', icon: h(Icons.ReloadOutlined, { spin: loading }), onClick: () => context.guard(load)() }, '刷新状态')),
 
       h('section', { className: 'settings-group-card' },
@@ -206,17 +316,35 @@ export function mountRuntimeSettings(
         h('div', { className: 'settings-group-head' },
           h('div', null,
             h('h3', { className: 'settings-group-title' }, '在线模组源连接器'),
-            h('p', { className: 'settings-group-subtitle' }, '当前后台已加载的在线模组检索与下载来源'))),
+            h('p', { className: 'settings-group-subtitle' }, '管理远程模组源的访问凭据；凭据仅加密保存在本机系统钥匙串中，不写入配置文件'))),
         sources.length
           ? h('div', { className: 'settings-row-list' }, ...sources.map(source => {
-            const meta = SOURCE_LABELS[source.sourceId] ?? { label: source.sourceId, desc: '在线模组源服务', dotClass: '' };
+            const guide = getSourceAuthGuide(source.sourceId);
+            const dotClass = SOURCE_DOT_CLASSES[source.sourceId] ?? '';
+            const configured = Boolean(source.credentialConfigured);
+            const remoteId = isRemoteSourceId(source.sourceId) ? source.sourceId : undefined;
             return h('div', { key: source.sourceId, className: 'settings-flat-row' },
               h('div', { className: 'settings-flat-row-info' },
                 h('div', { className: 'settings-item-title-row' },
-                  h('span', { className: `settings-source-dot ${meta.dotClass}` }),
-                  h('span', { className: 'settings-flat-row-title' }, meta.label)),
-                h('div', { className: 'settings-flat-row-desc' }, meta.desc)),
-              h(Antd.Tag, { color: 'success' }, '已就绪'));
+                  h('span', { className: `settings-source-dot ${dotClass}` }),
+                  h('span', { className: 'settings-flat-row-title' }, guide?.sourceName ?? getSourceDisplayName(source.sourceId)),
+                  h(Antd.Tag, { color: configured ? 'success' : 'warning' }, configured ? '已配置凭据' : '未配置凭据')),
+                h('div', { className: 'settings-flat-row-desc' }, guide
+                  ? `${guide.description} · ${guide.credentialLabel}`
+                  : '在线模组源服务')),
+              remoteId ? h('div', { className: 'settings-source-actions' },
+                h(Antd.Button, {
+                  size: 'small',
+                  icon: h(Icons.KeyOutlined),
+                  disabled: clearingSourceId === remoteId,
+                  onClick: () => openModal(remoteId),
+                }, configured ? '更换凭据' : '配置凭据'),
+                configured ? h(Antd.Button, {
+                  size: 'small',
+                  danger: true,
+                  loading: clearingSourceId === remoteId,
+                  onClick: () => context.guard(() => clearCredential(remoteId))(),
+                }, '清除凭据') : null) : null);
           }))
           : h('div', { className: 'settings-flat-row' },
             h('div', { className: 'settings-flat-row-info' },
@@ -228,7 +356,57 @@ export function mountRuntimeSettings(
           h('div', { className: 'settings-flat-row-info' },
             h('div', { className: 'settings-flat-row-title' }, '后台守护进程诊断与恢复'),
             h('div', { className: 'settings-flat-row-desc' }, '查看独立后台进程运行状态、运行日志、安全模式与本地已确认恢复集。')),
-          h(Antd.Button, { icon: h(Icons.ToolOutlined), onClick: onOpenRescue }, '打开诊断与恢复'))));
+          h(Antd.Button, { icon: h(Icons.ToolOutlined), onClick: onOpenRescue }, '打开诊断与恢复'))),
+
+      h(Antd.Modal, {
+        open: Boolean(editingSourceId && modalGuide),
+        title: modalGuide ? `${editingSource?.credentialConfigured ? '更换' : '配置'} ${modalGuide.sourceName} 凭据` : '配置来源凭据',
+        okText: '保存凭据',
+        cancelText: '取消',
+        confirmLoading: saving,
+        destroyOnHidden: true,
+        okButtonProps: { disabled: saving || !secretInput.trim(), className: 'glass-primary-action' },
+        onCancel: closeModal,
+        onOk: () => context.guard(saveCredential)(),
+      }, modalGuide ? h('div', { className: 'settings-cred-modal' },
+        h('div', { className: 'settings-cred-portal' },
+          h('div', { className: 'settings-cred-portal-info' },
+            h('span', { className: 'settings-cred-portal-label' }, `官方获取入口 · ${modalGuide.portalName}`),
+            h('a', {
+              href: modalGuide.portalUrl,
+              target: '_blank',
+              rel: 'noopener noreferrer',
+              className: 'settings-cred-portal-url',
+              onClick: (event: { preventDefault(): void }) => { event.preventDefault(); openPortal(modalGuide.portalUrl); },
+            }, modalGuide.portalUrl, ' ', h(Icons.ExportOutlined))),
+          h('div', { className: 'settings-cred-portal-actions' },
+            h(Antd.Button, { size: 'small', icon: h(Icons.ExportOutlined), onClick: () => openPortal(modalGuide.portalUrl) }, modalGuide.actionLabel),
+            h(Antd.Button, { size: 'small', icon: h(copiedUrl === modalGuide.portalUrl ? Icons.CheckOutlined : Icons.CopyOutlined), onClick: () => copyPortal(modalGuide.portalUrl) }, copiedUrl === modalGuide.portalUrl ? '已复制' : '复制地址'))),
+        h('ol', { className: 'settings-cred-steps' }, ...modalGuide.steps.map((step, index) => h('li', { key: index }, step))),
+        h('div', { className: 'settings-cred-field' },
+          h('label', { className: 'settings-cred-field-label', htmlFor: 'settings-source-cred-input' }, modalGuide.credentialLabel),
+          h(Antd.Input.Password, {
+            id: 'settings-source-cred-input',
+            value: secretInput,
+            placeholder: modalGuide.placeholder,
+            'aria-label': '来源凭据输入框',
+            autoComplete: 'off',
+            spellCheck: false,
+            allowClear: true,
+            disabled: saving,
+            onChange: (event: { target: { value: string } }) => {
+              secretInput = event.target.value;
+              if (modalError) modalError = '';
+              redraw();
+            },
+            onPressEnter: () => {
+              if (!saving && secretInput.trim()) context.guard(saveCredential)();
+            },
+          }),
+          modalError ? h('div', { className: 'settings-cred-error', role: 'alert' }, modalError) : null),
+        h('div', { className: 'settings-cred-note' },
+          h(Icons.LockOutlined),
+          h('span', null, '凭据将直接加密保存在本机系统钥匙串中，不会以明文写入配置文件、数据库或日志。'))) : null));
   }
 
   const view = mountReactView(root, h(RuntimeView));
@@ -238,6 +416,9 @@ export function mountRuntimeSettings(
   return {
     dispose() {
       alive = false;
+      clearCopyTimer();
+      secretInput = '';
+      modalError = '';
       sub.dispose();
       view.dispose();
     },

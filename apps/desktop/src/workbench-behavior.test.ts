@@ -194,4 +194,92 @@ describe('bundled workbench pages', () => {
     expect(vi.mocked(requestApplication).mock.calls.some(([, method]) => method === 'jobs.cancel')).toBe(false);
     expect(vi.getTimerCount()).toBe(0);
   });
+  it('manages remote source credentials from runtime settings without editing config files', async () => {
+    let modioConfigured = false;
+    vi.mocked(requestApplication).mockImplementation(async (_directory, method, params, key) => {
+      if (method === 'modules.list') return { generationId: 'builtins', modules: [] };
+      if (method === 'games.list') return { items: [] };
+      if (method === 'sources.list') return { sources: [{ sourceId: 'modio', credentialConfigured: modioConfigured }] };
+      if (method === 'sources.credentials.set') {
+        expect(key).toEqual(expect.any(String));
+        expect(params).toEqual({ sourceId: 'modio', secret: 'modio-oauth-secret-123' });
+        modioConfigured = true;
+        return { sourceId: 'modio', credentialConfigured: true };
+      }
+      if (method === 'sources.credentials.clear') {
+        expect(key).toEqual(expect.any(String));
+        expect(params).toEqual({ sourceId: 'modio' });
+        modioConfigured = false;
+        return { sourceId: 'modio', credentialConfigured: false };
+      }
+      throw new Error(`Unexpected request ${method}`);
+    });
+    const { root, rescue } = await open();
+    await React.act(async () => { await workbench!.navigate('/mintcat.desktop/runtime'); });
+    expect(root.textContent).toContain('未配置凭据');
+    await React.act(async () => {
+      [...root.querySelectorAll('button')].find(button => button.textContent === '配置凭据')!.click();
+    });
+    await React.act(async () => {
+      const input = document.querySelector<HTMLInputElement>('input[aria-label="来源凭据输入框"]')!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'modio-oauth-secret-123');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await React.act(async () => {
+      [...document.querySelectorAll('.ant-modal')].find(modal => modal.textContent?.includes('配置 mod.io 凭据'))!
+        .querySelector<HTMLButtonElement>('.ant-btn-primary')!.click();
+    });
+    expect(root.textContent).toContain('已配置凭据');
+    expect(root.textContent).toContain('更换凭据');
+    await React.act(async () => {
+      [...root.querySelectorAll('button')].find(button => button.textContent === '清除凭据')!.click();
+    });
+    expect(root.textContent).toContain('未配置凭据');
+    expect(rescue).not.toHaveBeenCalled();
+  });
+  it('clears transient info notices on page navigation and auto-loads cached search results when reopening online mods', async () => {
+    let searchCalls = 0;
+    const game = { gameId: 'game:drg', gameKey: 'drg', displayName: 'Deep Rock Galactic', active: true, installations: [] };
+    const profile: ProfileSummary = { profileId: 'profile-1', gameId: game.gameId, name: 'new', displayName: 'new', active: true, description: '', revision: 1, contentRevision: 1, incarnationId: 'inc-1' };
+    vi.mocked(requestApplication).mockImplementation(async (_directory, method) => {
+      if (method === 'modules.list') return { generationId: 'drg-gen', modules: [{ moduleId: 'mintcat.game.drg', enabled: true, game: { gameId: game.gameId, displayName: game.displayName, descriptor: { gameId: game.gameId, displayName: game.displayName, settingsSchemaVersion: 1, settingsSchema: { type: 'object', properties: {} }, variants: [], sourceBindings: [{ sourceId: 'modio', remoteGameKey: 'drg' }] } } }] };
+      if (method === 'games.list') return { items: [game] };
+      if (method === 'profiles.list') return { items: [profile] };
+      if (method === 'mods.list') return { profileId: profile.profileId, contentRevision: 1, total: 0, items: [] };
+      if (method === 'groups.list') return { profileId: profile.profileId, contentRevision: 1, items: [] };
+      if (method === 'profiles.contentState') return { profileId: profile.profileId, contentRevision: 1, writable: true, recoveryRequired: false, operations: [] };
+      if (method === 'sources.list') return { sources: [{ sourceId: 'modio', credentialConfigured: true }] };
+      if (method === 'sources.search') {
+        searchCalls++;
+        return { items: [{ reference: { sourceId: 'modio', remoteGameKey: 'drg', remoteModId: '100' }, displayName: '热门 DRG 模组' }] };
+      }
+      if (method === 'mods.add') return { jobId: 'job-add-1' };
+      throw new Error(`Unexpected request ${method}`);
+    });
+    const { root, rescue } = await open();
+    await React.act(async () => { await workbench!.navigate('/mintcat.ui.search/search'); });
+    expect(searchCalls).toBe(1);
+    expect(root.textContent).toContain('热门 DRG 模组');
+    expect(root.textContent).not.toContain('探索在线模组库');
+
+    // Adding a mod displays the info notice banner.
+    await React.act(async () => {
+      [...root.querySelectorAll('button')].find(button => button.textContent === '添加')!.click();
+    });
+    await React.act(async () => {
+      [...document.querySelectorAll('.ant-modal')].find(modal => modal.textContent?.includes('添加模组到配置'))!
+        .querySelector<HTMLButtonElement>('.ant-btn-primary')!.click();
+    });
+    expect(root.querySelector('.module-notice')?.textContent).toContain('添加任务 job-add-1 已交给 daemon');
+
+    // Navigating away and back clears the stale banner and immediately restores cached catalog items.
+    await React.act(async () => { await workbench!.navigate('/mintcat.library/library'); });
+    expect(root.querySelector('.module-notice')?.textContent).toBe('');
+    await React.act(async () => { await workbench!.navigate('/mintcat.ui.search/search'); });
+    expect(root.querySelector('.module-notice')?.textContent).toBe('');
+    expect(searchCalls).toBe(1);
+    expect(root.textContent).toContain('热门 DRG 模组');
+    expect(root.textContent).not.toContain('探索在线模组库');
+    expect(rescue).not.toHaveBeenCalled();
+  });
 });

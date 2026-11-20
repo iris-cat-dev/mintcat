@@ -1,6 +1,8 @@
 use bytes::Bytes;
+use flate2::write::MultiGzDecoder;
 use std::{
     collections::BTreeMap,
+    io::{self, Write as _},
     pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -11,7 +13,10 @@ use std::{
 
 use futures_util::StreamExt as _;
 use reqwest::{
-    header::{HeaderMap, HeaderName, HeaderValue, AUTHORIZATION, CONTENT_LENGTH, LOCATION},
+    header::{
+        HeaderMap, HeaderName, HeaderValue, ACCEPT_ENCODING, AUTHORIZATION, CONTENT_ENCODING,
+        CONTENT_LENGTH, LOCATION,
+    },
     Client, Method,
 };
 use tokio::sync::Notify;
@@ -359,22 +364,33 @@ impl NetworkBroker {
         }
     }
 
+    async fn resolve_credential(
+        &self,
+        binding: Option<&CredentialBinding>,
+    ) -> Result<Option<crate::SecretValue>, BrokerError> {
+        let Some(binding) = binding else {
+            return Ok(None);
+        };
+        let credentials = Arc::clone(&self.credentials);
+        let reference = binding.reference.clone();
+        // OS credential stores perform blocking IPC (Keychain / CredRead / Secret Service).
+        // Keep resolution off Tokio async workers so timeouts and IPC handshakes stay live.
+        tokio::task::spawn_blocking(move || {
+            credentials
+                .resolve(&reference)?
+                .ok_or_else(|| BrokerError::CredentialUnavailable(reference.as_str().to_owned()))
+        })
+        .await
+        .map_err(|_| BrokerError::CredentialStore)?
+        .map(Some)
+    }
+
     async fn open_stream_direct(
         &self,
         request: &NetworkRequest,
         request_id: &str,
     ) -> Result<NetworkStreamResponse, BrokerError> {
-        let credential = request
-            .credential
-            .as_ref()
-            .map(|binding| {
-                self.credentials
-                    .resolve(&binding.reference)?
-                    .ok_or_else(|| {
-                        BrokerError::CredentialUnavailable(binding.reference.as_str().to_owned())
-                    })
-            })
-            .transpose()?;
+        let credential = self.resolve_credential(request.credential.as_ref()).await?;
         let mut current = request.url.clone();
         for redirect_count in 0..=request.max_redirects {
             require_allowed_origin(&current, &request.allowed_origins)?;
@@ -538,26 +554,19 @@ impl NetworkBroker {
         request: &NetworkRequest,
         request_id: &str,
     ) -> Result<NetworkResponse, BrokerError> {
-        let credential = request
-            .credential
-            .as_ref()
-            .map(|binding| {
-                self.credentials
-                    .resolve(&binding.reference)?
-                    .ok_or_else(|| {
-                        BrokerError::CredentialUnavailable(binding.reference.as_str().to_owned())
-                    })
-            })
-            .transpose()?;
+        let credential = self.resolve_credential(request.credential.as_ref()).await?;
         let mut current = request.url.clone();
         for redirect_count in 0..=request.max_redirects {
             require_allowed_origin(&current, &request.allowed_origins)?;
-            let headers = build_headers(
+            let mut headers = build_headers(
                 &request.headers,
                 request.credential.as_ref(),
                 credential.as_ref(),
                 &current,
             )?;
+            if !headers.contains_key(ACCEPT_ENCODING) {
+                headers.insert(ACCEPT_ENCODING, HeaderValue::from_static("gzip"));
+            }
             let response = self
                 .client
                 .request(request.method.reqwest(), current.clone())
@@ -604,7 +613,10 @@ impl NetworkBroker {
         endpoint
             .query_pairs_mut()
             .append_pair("url", request.url.as_str());
-        let headers = build_headers(&request.headers, None, None, &endpoint)?;
+        let mut headers = build_headers(&request.headers, None, None, &endpoint)?;
+        if !headers.contains_key(ACCEPT_ENCODING) {
+            headers.insert(ACCEPT_ENCODING, HeaderValue::from_static("gzip"));
+        }
         let response = self
             .client
             .request(request.method.reqwest(), endpoint.clone())
@@ -744,6 +756,80 @@ fn build_stream_response(
     })
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ResponseEncoding {
+    Identity,
+    Gzip,
+}
+
+fn response_encoding(
+    headers: &HeaderMap,
+    request_id: &str,
+    endpoint: &Url,
+) -> Result<ResponseEncoding, BrokerError> {
+    let mut encoding = ResponseEncoding::Identity;
+    for value in headers.get_all(CONTENT_ENCODING) {
+        let raw = value.to_str().map_err(|_| BrokerError::Transport {
+            request_id: request_id.to_owned(),
+            endpoint: redacted_endpoint(endpoint),
+        })?;
+        for token in raw.split(',') {
+            let token = token.trim();
+            if token.is_empty() || token.eq_ignore_ascii_case("identity") {
+                continue;
+            }
+            if (token.eq_ignore_ascii_case("gzip") || token.eq_ignore_ascii_case("x-gzip"))
+                && encoding == ResponseEncoding::Identity
+            {
+                encoding = ResponseEncoding::Gzip;
+            } else {
+                return Err(BrokerError::Transport {
+                    request_id: request_id.to_owned(),
+                    endpoint: redacted_endpoint(endpoint),
+                });
+            }
+        }
+    }
+    Ok(encoding)
+}
+
+struct BoundedVecWriter {
+    buf: Vec<u8>,
+    limit: usize,
+    exceeded: bool,
+}
+
+impl BoundedVecWriter {
+    fn new(limit: usize) -> Self {
+        Self {
+            buf: Vec::new(),
+            limit,
+            exceeded: false,
+        }
+    }
+}
+
+impl io::Write for BoundedVecWriter {
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        if self.exceeded
+            || self
+                .buf
+                .len()
+                .checked_add(data.len())
+                .is_none_or(|next| next > self.limit)
+        {
+            self.exceeded = true;
+            return Err(io::Error::other("response too large"));
+        }
+        self.buf.extend_from_slice(data);
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 async fn collect_response(
     response: reqwest::Response,
     request: &NetworkRequest,
@@ -759,38 +845,112 @@ async fn collect_response(
             endpoint: redacted_endpoint(endpoint),
         });
     }
+    let encoding = response_encoding(response.headers(), request_id, endpoint)?;
+    let max_wire_bytes = match encoding {
+        ResponseEncoding::Identity => request.max_response_bytes,
+        ResponseEncoding::Gzip => request
+            .max_response_bytes
+            .saturating_add(request.max_response_bytes / 1000)
+            .saturating_add(64 * 1024),
+    };
     if response
         .headers()
         .get(CONTENT_LENGTH)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<usize>().ok())
-        .is_some_and(|length| length > request.max_response_bytes)
+        .is_some_and(|length| length > max_wire_bytes)
     {
         return Err(BrokerError::ResponseTooLarge {
             request_id: request_id.to_owned(),
         });
     }
-    let headers = safe_response_headers(response.headers());
-    let mut body = Vec::new();
+    let mut headers = safe_response_headers(response.headers());
     let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|_| BrokerError::Transport {
-            request_id: request_id.to_owned(),
-            endpoint: redacted_endpoint(endpoint),
-        })?;
-        let next_len =
-            body.len()
-                .checked_add(chunk.len())
-                .ok_or_else(|| BrokerError::ResponseTooLarge {
+    let body = match encoding {
+        ResponseEncoding::Identity => {
+            let mut body = Vec::new();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|_| BrokerError::Transport {
                     request_id: request_id.to_owned(),
+                    endpoint: redacted_endpoint(endpoint),
                 })?;
-        if next_len > request.max_response_bytes {
-            return Err(BrokerError::ResponseTooLarge {
-                request_id: request_id.to_owned(),
-            });
+                let next_len = body.len().checked_add(chunk.len()).ok_or_else(|| {
+                    BrokerError::ResponseTooLarge {
+                        request_id: request_id.to_owned(),
+                    }
+                })?;
+                if next_len > request.max_response_bytes {
+                    return Err(BrokerError::ResponseTooLarge {
+                        request_id: request_id.to_owned(),
+                    });
+                }
+                body.extend_from_slice(&chunk);
+            }
+            body
         }
-        body.extend_from_slice(&chunk);
-    }
+        ResponseEncoding::Gzip => {
+            let mut compressed_bytes = 0_usize;
+            let mut decoder: Option<MultiGzDecoder<BoundedVecWriter>> = None;
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk.map_err(|_| BrokerError::Transport {
+                    request_id: request_id.to_owned(),
+                    endpoint: redacted_endpoint(endpoint),
+                })?;
+                if chunk.is_empty() {
+                    continue;
+                }
+                compressed_bytes = compressed_bytes.checked_add(chunk.len()).ok_or_else(|| {
+                    BrokerError::ResponseTooLarge {
+                        request_id: request_id.to_owned(),
+                    }
+                })?;
+                if compressed_bytes > max_wire_bytes {
+                    return Err(BrokerError::ResponseTooLarge {
+                        request_id: request_id.to_owned(),
+                    });
+                }
+                let decoder = decoder.get_or_insert_with(|| {
+                    MultiGzDecoder::new(BoundedVecWriter::new(request.max_response_bytes))
+                });
+                if decoder.write_all(&chunk).is_err() {
+                    if decoder.get_ref().exceeded {
+                        return Err(BrokerError::ResponseTooLarge {
+                            request_id: request_id.to_owned(),
+                        });
+                    }
+                    return Err(BrokerError::Transport {
+                        request_id: request_id.to_owned(),
+                        endpoint: redacted_endpoint(endpoint),
+                    });
+                }
+            }
+            let body = match decoder {
+                None => Vec::new(),
+                Some(mut decoder) => {
+                    if decoder.try_finish().is_err() {
+                        if decoder.get_ref().exceeded {
+                            return Err(BrokerError::ResponseTooLarge {
+                                request_id: request_id.to_owned(),
+                            });
+                        }
+                        return Err(BrokerError::Transport {
+                            request_id: request_id.to_owned(),
+                            endpoint: redacted_endpoint(endpoint),
+                        });
+                    }
+                    decoder
+                        .finish()
+                        .map_err(|_| BrokerError::Transport {
+                            request_id: request_id.to_owned(),
+                            endpoint: redacted_endpoint(endpoint),
+                        })?
+                        .buf
+                }
+            };
+            headers.remove("content-length");
+            body
+        }
+    };
     Ok(NetworkResponse {
         request_id: request_id.to_owned(),
         status: status.as_u16(),

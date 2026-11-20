@@ -1,8 +1,29 @@
 import type { JobRef, ModRef, ProfileSummary, SourceSearchItem } from '@mintcat/sdk-ts';
-import { getSharedRuntime, mountReactView, navigateUi, presentUiError, publishUiSelection } from '@mintcat/sdk-ui';
-import type { Disposable, GameModuleList, GameUiDescriptor, UiContext, UiErrorContext, UiErrorPresentation } from '@mintcat/sdk-ui';
+import {
+  copyTextToClipboard,
+  getSharedRuntime,
+  getSourceAuthGuide,
+  getSourceDisplayName,
+  isRemoteSourceId,
+  mountReactView,
+  navigateUi,
+  openExternalUrl,
+  presentUiError,
+  publishUiSelection,
+  validateSourceCredentialInput,
+} from '@mintcat/sdk-ui';
+import type {
+  Disposable,
+  GameModuleList,
+  GameUiDescriptor,
+  RemoteSourceId,
+  UiContext,
+  UiErrorContext,
+  UiErrorPresentation,
+} from '@mintcat/sdk-ui';
 
 export async function mountSearch(root: HTMLElement, context: UiContext): Promise<Disposable> {
+  const SEARCH_CACHE_TTL_MS = 60_000;
   const { React, Antd, Icons, createPortal } = getSharedRuntime();
   const h = React.createElement;
   const saved = context.state('search', 1, { gameId: '', profileId: '', sourceId: '', query: '' });
@@ -10,19 +31,48 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
   const active = (): boolean => alive && !context.signal.aborted;
   let gameId = saved.gameId, profileId = saved.profileId, sourceId = saved.sourceId, query = saved.query;
   let descriptors: GameUiDescriptor[] = [];
+  let hasLoadedModules = false;
   let availableSources = new Set<string>();
+  let sourceCredentials = new Map<string, boolean>();
   let profiles: ProfileSummary[] = [], items: SourceSearchItem[] = [];
   let cursor: string | undefined, requestGeneration = 0, bindingGeneration = 0;
   let loading = false, bindingsLoading = false, adding = false, searched = false, error: UiErrorPresentation | undefined, errorContext: UiErrorContext = 'search';
   let profileHint = '', status = '', filter = '', selected: SourceSearchItem | undefined;
+  let copiedUrl = '', copyResetTimer: ReturnType<typeof setTimeout> | undefined;
+  let credentialInput = '', credentialError = '', credentialSaving = false, credentialClearing = false;
+  let credentialModalSource: RemoteSourceId | undefined;
   let redraw = (): void => {};
   const update = (): void => { if (active()) redraw(); };
+  const clearCopyTimer = (): void => {
+    if (copyResetTimer !== undefined) { clearTimeout(copyResetTimer); copyResetTimer = undefined; }
+    copiedUrl = '';
+  };
+  const resetCredentialDraft = (): void => {
+    credentialInput = '';
+    credentialError = '';
+  };
+  const openPortalUrl = (url: string): void => {
+    void openExternalUrl(url).catch(() => {
+      if (active()) context.notify('无法自动打开浏览器，请点击「复制地址」后手动访问。');
+    });
+  };
+  const copyPortalUrl = (url: string): void => {
+    void copyTextToClipboard(url).then(copied => {
+      if (!active()) return;
+      if (!copied) { context.notify('复制失败，请手动选中地址复制。'); return; }
+      clearCopyTimer();
+      copiedUrl = url;
+      context.notify('已复制凭据获取地址。');
+      update();
+      copyResetTimer = setTimeout(() => { copyResetTimer = undefined; copiedUrl = ''; update(); }, 2_000);
+    });
+  };
   const persist = (): void => context.saveState('search', 1, { gameId, profileId, sourceId, query });
   const selection = (): void => {
     const descriptor = descriptors.find(item => item.gameId === gameId);
     if (descriptor) publishUiSelection({ gameId, gameName: descriptor.displayName, profileId: profileId || undefined });
   };
-  const clearResults = (): void => { ++requestGeneration; loading = false; searched = false; cursor = undefined; items = []; selected = undefined; error = undefined; status = ''; update(); };
+  const clearResults = (): void => { ++requestGeneration; clearCopyTimer(); resetCredentialDraft(); loading = false; searched = false; cursor = undefined; items = []; selected = undefined; error = undefined; status = ''; update(); };
   const fail = (cause: unknown, operation: UiErrorContext): void => {
     error = presentUiError(cause, operation); errorContext = operation; status = ''; update();
   };
@@ -32,6 +82,72 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
       if (active() && generation === bindingGeneration && searchGeneration === requestGeneration && currentGame === gameId) fail(cause, operation);
     }
   })();
+  const saveCredential = async (targetSourceId: RemoteSourceId, autoReloadSearch: boolean): Promise<void> => {
+    if (credentialSaving || credentialClearing) return;
+    const validated = validateSourceCredentialInput(credentialInput);
+    if (!validated.ok) {
+      credentialError = validated.message;
+      update();
+      return;
+    }
+    credentialSaving = true;
+    credentialError = '';
+    update();
+    try {
+      const result = await context.call('sources.credentials.set', { sourceId: targetSourceId, secret: validated.value }, crypto.randomUUID());
+      if (!active()) { resetCredentialDraft(); return; }
+      sourceCredentials.set(result.sourceId, result.credentialConfigured);
+      resetCredentialDraft();
+      credentialModalSource = undefined;
+      context.invalidate('');
+      context.notify(`已保存 ${getSourceDisplayName(targetSourceId)} 凭据到本机系统钥匙串。`);
+      if (errorContext === 'add' && error?.kind === 'source-unauthorized') error = undefined;
+      credentialSaving = false;
+      update();
+      if (autoReloadSearch && sourceId === targetSourceId && gameId) {
+        await search();
+      }
+    } catch (cause) {
+      if (!active()) return;
+      const presented = presentUiError(cause, 'search');
+      credentialError = `${presented.title}：${presented.description}`;
+      credentialSaving = false;
+      update();
+    }
+  };
+  const clearCredential = async (targetSourceId: RemoteSourceId): Promise<void> => {
+    if (credentialSaving || credentialClearing) return;
+    credentialClearing = true;
+    credentialError = '';
+    update();
+    try {
+      const result = await context.call('sources.credentials.clear', { sourceId: targetSourceId }, crypto.randomUUID());
+      if (!active()) return;
+      sourceCredentials.set(result.sourceId, result.credentialConfigured);
+      resetCredentialDraft();
+      context.invalidate('');
+      context.notify(`已清除 ${getSourceDisplayName(targetSourceId)} 已保存的凭据。`);
+      credentialClearing = false;
+      update();
+    } catch (cause) {
+      if (!active()) return;
+      const presented = presentUiError(cause, 'search');
+      credentialError = `${presented.title}：${presented.description}`;
+      credentialClearing = false;
+      update();
+    }
+  };
+  const openCredentialModal = (targetSourceId: RemoteSourceId): void => {
+    resetCredentialDraft();
+    credentialModalSource = targetSourceId;
+    update();
+  };
+  const closeCredentialModal = (): void => {
+    if (credentialSaving || credentialClearing) return;
+    resetCredentialDraft();
+    credentialModalSource = undefined;
+    update();
+  };
   const loadBindings = async (): Promise<void> => {
     const generation = ++bindingGeneration; clearResults(); profiles = []; profileHint = '';
     const descriptor = descriptors.find(item => item.gameId === gameId);
@@ -60,6 +176,11 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
         ? '可浏览模组；请先在模组管理中创建配置，才能添加模组。'
         : '可浏览模组；请先在游戏设置中注册真实安装目录，再创建配置以添加模组。';
       persist(); selection(); update();
+      if (gameId && sourceId) {
+        bindingsLoading = false;
+        update();
+        await search();
+      }
     } catch (cause) {
       if (active() && generation === bindingGeneration && currentGame === gameId) fail(cause, 'bindings');
     } finally {
@@ -74,7 +195,7 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
     const params = { sourceId, gameId, query, pageSize: 50, ...(binding?.remoteGameKey ? { remoteGameKey: binding.remoteGameKey } : {}), ...(next && cursor ? { cursor } : {}) };
     loading = true; searched = true; error = undefined; status = ''; if (!next) items = []; update(); persist();
     try {
-      const response = await context.query(JSON.stringify(params), () => context.call('sources.search', params));
+      const response = await context.query(JSON.stringify(params), () => context.call('sources.search', params), SEARCH_CACHE_TTL_MS);
       if (!active() || generation !== requestGeneration) return;
       items = next ? [...items, ...response.items] : response.items; cursor = response.nextCursor;
       status = cursor ? '还有更多来源结果。' : '已显示全部来源结果。';
@@ -106,17 +227,145 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
     const visible = items.filter(item => !filter || `${item.displayName} ${item.summary ?? ''}`.toLocaleLowerCase().includes(filter.toLocaleLowerCase()));
     const alternatives = (descriptor?.sourceBindings ?? []).filter(binding => binding.sourceId !== sourceId && availableSources.has(binding.sourceId));
     const switchSource = (value: string): void => { sourceId = value; clearResults(); persist(); run(() => search()); };
-    const sourceNames: Record<string, string> = { modio: 'mod.io', modcat: 'ModCat', nexusmods: 'Nexus Mods' };
+    const authGuide = getSourceAuthGuide(sourceId);
+    const activeRemoteSource = isRemoteSourceId(sourceId) ? sourceId : undefined;
+    const hasSavedCredential = Boolean(activeRemoteSource && sourceCredentials.get(activeRemoteSource));
+    const isAuthFailure = error?.kind === 'source-unauthorized';
+    const showAuthGuideCard = Boolean(error && isAuthFailure && errorContext === 'search' && !items.length);
+    const activeSourceLabel = getSourceDisplayName(sourceId);
+    const credentialBusy = credentialSaving || credentialClearing;
+    const renderCredentialEntry = (targetSource: RemoteSourceId, autoReload: boolean, submitLabel: string) => {
+      const targetGuide = getSourceAuthGuide(targetSource);
+      return h('div', { className: 'mintcat-auth-form' },
+        h('div', { className: 'mintcat-auth-form-head' },
+          h('label', { className: 'mintcat-auth-form-label', htmlFor: `mintcat-cred-input-${targetSource}` }, `直接填入 ${targetGuide?.credentialLabel ?? '来源凭据'}`),
+          h('span', { className: 'mintcat-auth-form-hint' }, '保存后立即生效，无需编辑任何配置文件')),
+        h('div', { className: 'mintcat-auth-form-row' },
+          h(Antd.Input.Password, {
+            id: `mintcat-cred-input-${targetSource}`,
+            className: 'mintcat-auth-input',
+            value: credentialInput,
+            placeholder: targetGuide?.placeholder ?? '粘贴官方生成的访问令牌或 API Key',
+            'aria-label': '来源凭据输入框',
+            autoComplete: 'off',
+            spellCheck: false,
+            allowClear: true,
+            disabled: credentialBusy,
+            onChange: (event: { target: { value: string } }) => {
+              credentialInput = event.target.value;
+              if (credentialError) credentialError = '';
+              update();
+            },
+            onPressEnter: () => {
+              if (!credentialBusy && credentialInput.trim()) {
+                context.guard(() => saveCredential(targetSource, autoReload))();
+              }
+            },
+          }),
+          h(Antd.Button, {
+            type: 'primary',
+            className: 'glass-primary-action mintcat-auth-save-btn',
+            icon: h(Icons.SafetyCertificateOutlined),
+            loading: credentialSaving,
+            disabled: credentialBusy || !credentialInput.trim(),
+            onClick: () => context.guard(() => saveCredential(targetSource, autoReload))(),
+          }, submitLabel)),
+        credentialError ? h('div', { className: 'mintcat-auth-form-error', role: 'alert' }, credentialError) : null);
+    };
     const errorAlert = error ? h(Antd.Alert, {
-      type: 'error', showIcon: true, className: 'mintcat-search-alert', title: errorContext === 'bindings' ? error.title : `${sourceNames[sourceId] ?? sourceId}：${error.title}`,
+      type: 'error', showIcon: true, className: 'mintcat-search-alert', title: errorContext === 'bindings' ? error.title : `${activeSourceLabel}：${error.title}`,
       description: h('div', null, h('p', null, error.description),
+        isAuthFailure && authGuide ? h('div', { className: 'mintcat-search-alert-guide' },
+          h('span', null, `获取 ${authGuide.credentialLabel}：`),
+          h('a', {
+            href: authGuide.portalUrl,
+            target: '_blank',
+            rel: 'noopener noreferrer',
+            className: 'mintcat-search-alert-link',
+            onClick: (event: { preventDefault(): void }) => { event.preventDefault(); openPortalUrl(authGuide.portalUrl); },
+          }, authGuide.portalUrl, ' ', h(Icons.ExportOutlined, { className: 'mintcat-search-ext-icon' })),
+          h(Antd.Button, {
+            size: 'small',
+            type: 'link',
+            icon: h(copiedUrl === authGuide.portalUrl ? Icons.CheckOutlined : Icons.CopyOutlined),
+            onClick: () => copyPortalUrl(authGuide.portalUrl),
+          }, copiedUrl === authGuide.portalUrl ? '已复制' : '复制地址')) : null,
+        isAuthFailure && activeRemoteSource && errorContext === 'add'
+          ? renderCredentialEntry(activeRemoteSource, false, '保存凭据')
+          : null,
         error.diagnostics.length ? h('details', null, h('summary', null, '技术详情'), h('pre', null, error.diagnostics.join('\n'))) : null),
       action: h('div', { className: 'mintcat-search-alert-actions' },
         error.retryable && errorContext !== 'add' ? h(Antd.Button, { size: 'small', disabled: loading || bindingsLoading, onClick: () => {
-          context.invalidate(''); if (errorContext === 'bindings') run(refreshModules, 'bindings'); else run(() => search());
+          context.invalidate(''); if (errorContext === 'bindings') run(() => refreshModules(true), 'bindings'); else run(() => search());
         } }, errorContext === 'bindings' ? '重新读取配置' : '重试') : null,
-        errorContext === 'search' ? alternatives.map(binding => h(Antd.Button, { key: binding.sourceId, size: 'small', onClick: () => switchSource(binding.sourceId) }, `切换到 ${binding.sourceId === 'modcat' ? 'ModCat' : binding.sourceId}`)) : null),
+        errorContext === 'search' ? alternatives.map(binding => h(Antd.Button, { key: binding.sourceId, size: 'small', onClick: () => switchSource(binding.sourceId) }, `切换到 ${getSourceDisplayName(binding.sourceId)}`)) : null),
     }) : null;
+    const authGuideCard = showAuthGuideCard && error ? h('div', { className: 'mintcat-auth-guide' },
+      h('section', { className: 'mintcat-auth-guide-card', role: 'alert', 'aria-labelledby': 'mintcat-auth-guide-title' },
+        h('div', { className: 'mintcat-auth-guide-head' },
+          h('div', { className: 'mintcat-auth-guide-orb', 'aria-hidden': true }, h(Icons.KeyOutlined)),
+          h('div', { className: 'mintcat-auth-guide-heading' },
+            h('div', { className: 'mintcat-auth-guide-badges' },
+              h('span', { className: `mintcat-search-source-tag mintcat-search-source-tag--${sourceId}` }, activeSourceLabel),
+              authGuide ? h('span', { className: 'mintcat-auth-cred-chip' }, authGuide.credentialLabel) : null,
+              hasSavedCredential ? h('span', { className: 'mintcat-auth-state-chip' }, '已保存凭据 · 可能已失效') : null),
+            h('h3', { id: 'mintcat-auth-guide-title', className: 'mintcat-auth-guide-title' }, `${activeSourceLabel}：${error.title}`),
+            h('p', { className: 'mintcat-auth-guide-desc' }, hasSavedCredential
+              ? '当前保存的凭据无效、已过期或权限不足。请在下方重新粘贴有效凭据替换，或先清除旧凭据。'
+              : error.description))),
+        authGuide ? h('div', { className: 'mintcat-auth-portal' },
+          h('div', { className: 'mintcat-auth-portal-info' },
+            h('span', { className: 'mintcat-auth-portal-label' }, `官方获取入口 · ${authGuide.portalName}`),
+            h('a', {
+              href: authGuide.portalUrl,
+              target: '_blank',
+              rel: 'noopener noreferrer',
+              className: 'mintcat-auth-portal-url',
+              onClick: (event: { preventDefault(): void }) => { event.preventDefault(); openPortalUrl(authGuide.portalUrl); },
+            }, authGuide.portalUrl, ' ', h(Icons.ExportOutlined, { className: 'mintcat-search-ext-icon' }))),
+          h('div', { className: 'mintcat-auth-portal-actions' },
+            h(Antd.Button, {
+              className: 'mintcat-auth-portal-btn',
+              icon: h(Icons.ExportOutlined),
+              onClick: () => openPortalUrl(authGuide.portalUrl),
+            }, authGuide.actionLabel),
+            h(Antd.Button, {
+              icon: h(copiedUrl === authGuide.portalUrl ? Icons.CheckOutlined : Icons.CopyOutlined),
+              onClick: () => copyPortalUrl(authGuide.portalUrl),
+            }, copiedUrl === authGuide.portalUrl ? '已复制' : '复制地址'))) : null,
+        activeRemoteSource ? renderCredentialEntry(activeRemoteSource, true, '保存并重新加载') : null,
+        authGuide ? h('div', { className: 'mintcat-auth-steps' },
+          h('div', { className: 'mintcat-auth-steps-title' }, '获取步骤'),
+          h('ol', { className: 'mintcat-auth-step-list' }, ...authGuide.steps.map((step, index) => h('li', { key: index, className: 'mintcat-auth-step-item' },
+            h('span', { className: 'mintcat-auth-step-num', 'aria-hidden': true }, String(index + 1)),
+            h('span', { className: 'mintcat-auth-step-text' }, step))))) : null,
+        h('div', { className: 'mintcat-auth-note' },
+          h(Icons.LockOutlined, { className: 'mintcat-auth-note-icon', 'aria-hidden': true }),
+          h('span', null, '凭据将直接加密保存在本机系统钥匙串中，不会以明文写入配置文件、数据库或日志。')),
+        h('div', { className: 'mintcat-auth-actions' },
+          h(Antd.Button, {
+            icon: h(Icons.ReloadOutlined, { spin: loading }),
+            disabled: loading || bindingsLoading || credentialBusy,
+            onClick: () => { context.invalidate(''); run(() => search()); },
+          }, '重新检测'),
+          hasSavedCredential && activeRemoteSource ? h(Antd.Button, {
+            danger: true,
+            icon: h(Icons.DeleteOutlined),
+            loading: credentialClearing,
+            disabled: credentialBusy,
+            onClick: () => context.guard(() => clearCredential(activeRemoteSource))(),
+          }, '清除已保存凭据') : null,
+          ...alternatives.map(binding => h(Antd.Button, {
+            key: binding.sourceId,
+            disabled: credentialBusy,
+            onClick: () => switchSource(binding.sourceId),
+          }, `切换到 ${getSourceDisplayName(binding.sourceId)}`)),
+          h(Antd.Button, { icon: h(Icons.ImportOutlined), onClick: () => navigateUi('local') }, '前往本地导入')),
+        error.diagnostics.length ? h('details', { className: 'mintcat-auth-details' },
+          h('summary', null, '技术详情'),
+          h('pre', null, error.diagnostics.join('\n'))) : null)) : null;
+    const modalGuide = credentialModalSource ? getSourceAuthGuide(credentialModalSource) : undefined;
+    const modalHasSavedCredential = Boolean(credentialModalSource && sourceCredentials.get(credentialModalSource));
     const toolbar = h('div', { className: `mintcat-search-header${context.toolbar ? ' mintcat-search-header--portal' : ''}` },
         h('div', { className: 'mintcat-search-game-control' },
           h('span', { className: 'mintcat-search-game-badge', 'aria-hidden': true }, h(Icons.CompassOutlined)),
@@ -134,25 +383,33 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
               if (event.key === 'Enter' && sourceId && !loading) { event.preventDefault(); run(() => search()); }
             },
           }),
-          query ? h('button', { type: 'button', className: 'mintcat-search-box-clear', 'aria-label': '清除关键词', onClick: () => { query = ''; clearResults(); persist(); } }, '×') : h('kbd', { 'aria-hidden': true }, '↵')),
+          query ? h('button', { type: 'button', className: 'mintcat-search-box-clear', 'aria-label': '清除关键词', onClick: () => { query = ''; clearResults(); persist(); run(() => search()); } }, '×') : h('kbd', { 'aria-hidden': true }, '↵')),
         h('div', { className: `mintcat-search-profile-control${bindingsLoading || !profiles.length ? ' mintcat-search-profile-control--disabled' : ''}` },
           h('span', { className: 'mintcat-search-profile-label' }, h(Icons.ProfileOutlined), '配置'),
           h(Antd.Select<string>, { variant: 'borderless', value: profileId || undefined, placeholder: '选择目标配置', 'aria-label': '目标配置', popupMatchSelectWidth: false, loading: bindingsLoading, disabled: bindingsLoading || !profiles.length, options: profiles.map(item => ({ value: item.profileId, label: item.displayName })), className: 'mintcat-search-profile-select', onChange: (value: string) => { profileId = value; persist(); selection(); update(); } })),
         h('div', { className: 'mintcat-search-toolbar-group' },
           h(Antd.Button, { type: 'text', icon: h(Icons.HomeOutlined), title: '浏览首页', disabled: loading || !sourceId, onClick: () => { query = ''; clearResults(); run(() => search()); } }),
           h(Antd.Button, { type: 'text', icon: h(Icons.ReloadOutlined, { spin: loading }), title: '刷新搜索', disabled: loading || !sourceId, onClick: () => { context.invalidate(''); run(() => search()); } }),
-          h(Antd.Button, { type: 'text', icon: h(Icons.SyncOutlined), title: '重新读取游戏与来源', disabled: loading || bindingsLoading, onClick: () => run(refreshModules, 'bindings') })));
+          h(Antd.Button, { type: 'text', icon: h(Icons.SyncOutlined), title: '重新读取游戏与来源', disabled: loading || bindingsLoading, onClick: () => run(() => refreshModules(true), 'bindings') })));
     const sourceBindings = descriptor?.sourceBindings ?? [];
     const showFooterStatus = bindingsLoading || Boolean(sourceId && status);
     return h('div', { className: `mintcat-search-page${context.toolbar ? ' mintcat-search-page--portal' : ''}` },
       context.toolbar ? createPortal(toolbar, context.toolbar) : toolbar,
       sourceBindings.length ? h('div', { className: 'mintcat-search-subbar' },
         h(Antd.Tabs, { activeKey: sourceId, size: 'small', className: 'mintcat-search-tabs', items: sourceBindings.map(binding => ({ key: binding.sourceId, label: binding.sourceId })), onChange: switchSource }),
-        items.length || filter ? h('div', { className: 'mintcat-search-filters' },
-          h(Antd.Input, { value: filter, allowClear: true, size: 'small', prefix: h(Icons.FilterOutlined), placeholder: '筛选已加载结果…', 'aria-label': '筛选已加载结果', onChange: (event: { target: { value: string } }) => { filter = event.target.value; update(); }, className: 'mintcat-search-filter-input' }),
-          h('span', { className: 'mintcat-search-count-pill' }, `${visible.length} / ${items.length} 个结果`)) : null) : null,
-      errorContext !== 'add' ? errorAlert : null,
+        h('div', { className: 'mintcat-search-filters' },
+          items.length || filter ? h(React.Fragment, null,
+            h(Antd.Input, { value: filter, allowClear: true, size: 'small', prefix: h(Icons.FilterOutlined), placeholder: '筛选已加载结果…', 'aria-label': '筛选已加载结果', onChange: (event: { target: { value: string } }) => { filter = event.target.value; update(); }, className: 'mintcat-search-filter-input' }),
+            h('span', { className: 'mintcat-search-count-pill' }, `${visible.length} / ${items.length} 个结果`)) : null,
+          activeRemoteSource ? h(Antd.Button, {
+            size: 'small',
+            className: `mintcat-search-cred-btn${hasSavedCredential ? ' mintcat-search-cred-btn--set' : ''}`,
+            icon: h(Icons.KeyOutlined),
+            onClick: () => openCredentialModal(activeRemoteSource),
+          }, hasSavedCredential ? '已配置凭据' : '配置凭据') : null)) : null,
+      errorContext !== 'add' && !showAuthGuideCard ? errorAlert : null,
       profileHint ? h(Antd.Alert, { type: 'info', showIcon: true, className: 'mintcat-search-alert', title: profileHint }) : null,
+      authGuideCard,
       !sourceId && !bindingsLoading ? h('div', { className: 'mc-empty-hero' },
         h('div', { className: 'mc-empty-hero-card' },
           h('div', { className: 'mc-empty-hero-orb', 'aria-hidden': true }, h(Icons.CompassOutlined)),
@@ -194,11 +451,19 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
         h('div', { className: 'mintcat-search-info' },
           h('div', { className: 'mintcat-search-card-title' },
             item.profileUrl && /^https?:\/\//i.test(item.profileUrl)
-              ? h(Antd.Typography.Link, { strong: true, href: item.profileUrl, target: '_blank', rel: 'noopener noreferrer' }, item.displayName, ' ', h(Icons.ExportOutlined, { className: 'mintcat-search-ext-icon' }))
+              ? h(Antd.Typography.Link, {
+                strong: true,
+                href: item.profileUrl,
+                target: '_blank',
+                rel: 'noopener noreferrer',
+                onClick: item.profileUrl.startsWith('https://')
+                  ? (event: { preventDefault(): void }) => { event.preventDefault(); openPortalUrl(item.profileUrl!); }
+                  : undefined,
+              }, item.displayName, ' ', h(Icons.ExportOutlined, { className: 'mintcat-search-ext-icon' }))
               : h(Antd.Typography.Text, { strong: true }, item.displayName)),
           h('div', { className: 'mintcat-search-summary' }, item.summary || '此来源未提供模组简介。'),
           h('div', { className: 'mintcat-search-meta-tags' },
-            h('span', { className: `mintcat-search-source-tag mintcat-search-source-tag--${item.reference.sourceId}` }, sourceNames[item.reference.sourceId] ?? item.reference.sourceId),
+            h('span', { className: `mintcat-search-source-tag mintcat-search-source-tag--${item.reference.sourceId}` }, getSourceDisplayName(item.reference.sourceId)),
             h('span', { className: 'mintcat-search-meta-chip' }, `游戏 ${item.reference.remoteGameKey}`),
             h('span', { className: 'mintcat-search-meta-chip' }, `#${item.reference.remoteModId}`))),
         h('div', { className: 'mintcat-search-card-actions' },
@@ -206,14 +471,55 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
       cursor ? h(Antd.Button, { block: true, className: 'mintcat-search-more-btn', loading, onClick: () => run(() => search(true)) }, '加载更多结果') : null,
       showFooterStatus ? h('div', { className: 'mintcat-search-footer-status' },
         h(Antd.Typography.Text, { type: 'secondary', role: 'status' }, bindingsLoading ? '正在读取配置…' : status)) : null,
-      h(Antd.Modal, { open: Boolean(selected), title: '添加模组到配置', okText: '确认添加', cancelText: '取消', confirmLoading: adding, okButtonProps: { disabled: !profileId || adding, className: 'glass-primary-action' }, onCancel: () => { if (!adding) { selected = undefined; if (errorContext === 'add') error = undefined; update(); } }, onOk: () => { if (selected) run(() => add(selected!.reference), 'add'); } },
+      h(Antd.Modal, { open: Boolean(selected), title: '添加模组到配置', okText: '确认添加', cancelText: '取消', confirmLoading: adding, okButtonProps: { disabled: !profileId || adding, className: 'glass-primary-action' }, onCancel: () => { if (!adding) { selected = undefined; if (errorContext === 'add') error = undefined; resetCredentialDraft(); update(); } }, onOk: () => { if (selected) run(() => add(selected!.reference), 'add'); } },
         h(Antd.Typography.Paragraph, { strong: true, style: { marginBottom: 10 } }, selected?.displayName),
         errorAlert,
         h(Antd.Select<string>, { style: { width: '100%' }, value: profileId || undefined, placeholder: '选择目标配置', options: profiles.map(item => ({ value: item.profileId, label: item.displayName })), onChange: (value: string) => { profileId = value; persist(); selection(); update(); } }),
-        h(Antd.Alert, { style: { marginTop: 12 }, type: 'info', showIcon: true, title: '下载及添加由 daemon 执行；配置写锁与当前内容版本将由 Application API 校验。' })));
+        h(Antd.Alert, { style: { marginTop: 12 }, type: 'info', showIcon: true, title: '下载及添加由 daemon 执行；配置写锁与当前内容版本将由 Application API 校验。' })),
+      h(Antd.Modal, {
+        open: Boolean(credentialModalSource && modalGuide),
+        title: modalGuide ? `${modalHasSavedCredential ? '更换' : '配置'} ${modalGuide.sourceName} 凭据` : '配置来源凭据',
+        footer: null,
+        destroyOnHidden: true,
+        onCancel: closeCredentialModal,
+      }, modalGuide && credentialModalSource ? h('div', { className: 'mintcat-cred-modal-body' },
+        h('div', { className: 'mintcat-auth-portal mintcat-auth-portal--compact' },
+          h('div', { className: 'mintcat-auth-portal-info' },
+            h('span', { className: 'mintcat-auth-portal-label' }, `官方获取入口 · ${modalGuide.portalName}`),
+            h('a', {
+              href: modalGuide.portalUrl,
+              target: '_blank',
+              rel: 'noopener noreferrer',
+              className: 'mintcat-auth-portal-url',
+              onClick: (event: { preventDefault(): void }) => { event.preventDefault(); openPortalUrl(modalGuide.portalUrl); },
+            }, modalGuide.portalUrl, ' ', h(Icons.ExportOutlined, { className: 'mintcat-search-ext-icon' }))),
+          h('div', { className: 'mintcat-auth-portal-actions' },
+            h(Antd.Button, {
+              size: 'small',
+              icon: h(Icons.ExportOutlined),
+              onClick: () => openPortalUrl(modalGuide.portalUrl),
+            }, modalGuide.actionLabel),
+            h(Antd.Button, {
+              size: 'small',
+              icon: h(copiedUrl === modalGuide.portalUrl ? Icons.CheckOutlined : Icons.CopyOutlined),
+              onClick: () => copyPortalUrl(modalGuide.portalUrl),
+            }, copiedUrl === modalGuide.portalUrl ? '已复制' : '复制地址'))),
+        renderCredentialEntry(credentialModalSource, Boolean(searched || error), '保存凭据'),
+        h('div', { className: 'mintcat-auth-note' },
+          h(Icons.LockOutlined, { className: 'mintcat-auth-note-icon', 'aria-hidden': true }),
+          h('span', null, '凭据将直接加密保存在本机系统钥匙串中，不会以明文写入配置文件、数据库或日志。')),
+        modalHasSavedCredential ? h('div', { className: 'mintcat-cred-modal-footer' },
+          h(Antd.Button, {
+            danger: true,
+            size: 'small',
+            icon: h(Icons.DeleteOutlined),
+            loading: credentialClearing,
+            disabled: credentialBusy,
+            onClick: () => context.guard(() => clearCredential(credentialModalSource!))(),
+          }, '清除已保存凭据')) : null) : null));
   }
   const view = mountReactView(root, h(View));
-  const refreshModules = async (): Promise<void> => {
+  const refreshModules = async (invalidateCache = false): Promise<void> => {
     const generation = ++bindingGeneration;
     bindingsLoading = true; update();
     try {
@@ -221,18 +527,28 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
         context.request<GameModuleList>('modules.list', {}), context.call('sources.list', {}),
       ]);
       if (!active() || generation !== bindingGeneration) return;
-      const previous = JSON.stringify(descriptors.find(item => item.gameId === gameId));
+      const previous = hasLoadedModules ? JSON.stringify(descriptors.find(item => item.gameId === gameId)) : undefined;
       availableSources = new Set(sources.sources.map(source => source.sourceId));
+      sourceCredentials = new Map(sources.sources.map(source => [source.sourceId, Boolean(source.credentialConfigured)]));
       descriptors = current.modules.flatMap(module => module.enabled && module.game?.descriptor ? [{ ...module.game.descriptor, sourceBindings: module.game.descriptor.sourceBindings.filter(binding => availableSources.has(binding.sourceId)) }] : []);
       gameId = descriptors.some(item => item.gameId === gameId) ? gameId : descriptors[0]?.gameId ?? '';
-      if (previous !== JSON.stringify(descriptors.find(item => item.gameId === gameId)) || !profiles.length) { context.invalidate(''); await loadBindings(); } else update();
+      const nextDescriptor = JSON.stringify(descriptors.find(item => item.gameId === gameId));
+      const descriptorChanged = hasLoadedModules && previous !== nextDescriptor;
+      const firstLoad = !hasLoadedModules;
+      hasLoadedModules = true;
+      if (invalidateCache || descriptorChanged) context.invalidate('');
+      if (firstLoad || descriptorChanged || !profiles.length) {
+        await loadBindings();
+      } else {
+        update();
+      }
     } catch (cause) {
       if (active() && generation === bindingGeneration) fail(cause, 'bindings');
     } finally {
       if (active() && generation === bindingGeneration) { bindingsLoading = false; update(); }
     }
   };
-  const subscription = context.onInventoryChanged(() => { run(refreshModules); });
-  run(refreshModules);
-  return { dispose() { persist(); alive = false; ++requestGeneration; ++bindingGeneration; subscription.dispose(); view.dispose(); } };
+  const subscription = context.onInventoryChanged(() => { run(() => refreshModules(false)); });
+  run(() => refreshModules(false));
+  return { dispose() { persist(); clearCopyTimer(); resetCredentialDraft(); alive = false; ++requestGeneration; ++bindingGeneration; subscription.dispose(); view.dispose(); } };
 }

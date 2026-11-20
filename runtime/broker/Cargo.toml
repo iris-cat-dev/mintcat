@@ -7,6 +7,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+flate2.workspace = true
 futures-util.workspace = true
 bytes.workspace = true
 keyring.workspace = true

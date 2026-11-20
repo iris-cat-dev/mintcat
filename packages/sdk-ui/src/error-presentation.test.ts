@@ -12,6 +12,7 @@ describe('human error presentation boundaries', () => {
   it('recognizes errors from another SDK realm without using class identity', () => {
     const foreign: unknown = runInNewContext('Object.assign(new Error("source.operation"), { appError: payload })', { payload: unauthorized });
     const error = presentUiError(foreign, 'search');
+    expect(error.kind).toBe('source-unauthorized');
     expect(error.retryable).toBe(false);
     expect(error.title + error.description).not.toContain('source.operation');
     expect(error.diagnostics.join('\n')).toContain('request-auth');
@@ -59,5 +60,28 @@ describe('human error presentation boundaries', () => {
     expect(error.retryable).toBe(false);
     expect(error.title + error.description).not.toMatch(/opaque|example\.org|https?:\/\//);
     expect(error.diagnostics.join('\n')).not.toMatch(/opaque|example\.org|https?:\/\//);
+  });
+  it('presents credential validation and keychain availability errors clearly without leaking secrets', () => {
+    const invalid = presentUiError({
+      code: 'INVALID_ARGUMENT',
+      messageKey: 'source.credential_format',
+      requestId: 'cred-fmt',
+      details: { reason: 'credential_invalid_format' },
+    }, 'search');
+    expect(invalid.kind).toBe('source-credential-invalid');
+    expect(invalid.title).toBe('凭据格式无效');
+    expect(invalid.retryable).toBe(false);
+    expect(invalid.diagnostics.join('\n')).toContain('凭据包含空白或无效字符');
+
+    const vault = presentUiError({
+      code: 'SOURCE_UNAVAILABLE',
+      messageKey: 'source.credential_vault',
+      requestId: 'cred-vault',
+      details: { reason: 'credential_vault_unavailable' },
+    }, 'host');
+    expect(vault.kind).toBe('source-unavailable');
+    expect(vault.title).toBe('无法访问系统凭据库');
+    expect(vault.retryable).toBe(true);
+    expect(vault.diagnostics.join('\n')).toContain('系统凭据库不可用');
   });
 });

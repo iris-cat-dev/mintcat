@@ -84,6 +84,7 @@ export class Workbench implements Disposable {
   private closed = false;
   private pageOpened = false;
   private refreshing?: Promise<void>;
+  private noticeTimer?: number;
   private readonly inventoryTimer: number;
   private readonly hashHandler = (): void => { void this.navigate(location.hash.slice(1)); };
   private readonly beforeUnload = (event: BeforeUnloadEvent): void => {
@@ -225,24 +226,35 @@ export class Workbench implements Disposable {
       },
     };
   }
+  private clearNotice(): void {
+    if (this.noticeTimer !== undefined) {
+      clearTimeout(this.noticeTimer);
+      this.noticeTimer = undefined;
+    }
+    this.notice.replaceChildren();
+    delete this.notice.dataset.tone;
+  }
   private showNotice(text: string): void {
+    this.clearNotice();
     this.notice.dataset.tone = 'info';
     this.notice.classList.remove('mc-error-box');
     const content = kit.element('span', text);
     content.className = 'module-notice-text';
-    const dismiss = kit.button('×', () => { this.notice.replaceChildren(); delete this.notice.dataset.tone; });
+    const dismiss = kit.button('×', () => { this.clearNotice(); });
     dismiss.className = 'module-notice-dismiss';
     dismiss.ariaLabel = '关闭提示';
     this.notice.replaceChildren(content, dismiss);
+    this.noticeTimer = window.setTimeout(() => { this.clearNotice(); }, 5_000);
     window.dispatchEvent(new CustomEvent('mintcat-ui-notice', { detail: text }));
   }
   private showFailure(cause: unknown): void {
+    this.clearNotice();
     this.notice.dataset.tone = 'error';
     const error = presentUiError(cause);
     const body = kit.element('div');
     body.className = 'module-notice-error-body';
     renderUiError(body, error);
-    const dismiss = kit.button('×', () => { this.notice.replaceChildren(); delete this.notice.dataset.tone; });
+    const dismiss = kit.button('×', () => { this.clearNotice(); });
     dismiss.className = 'module-notice-dismiss';
     dismiss.ariaLabel = '关闭提示';
     this.notice.classList.remove('mc-error-box');
@@ -295,6 +307,7 @@ export class Workbench implements Disposable {
     if (this.closed) return;
     if (!force && route === this.route && this.mounted) return;
     if (!force && !this.allowDiscard()) { history.replaceState(null, '', `#${this.route}`); return; }
+    this.clearNotice();
     this.unmountPage();
     const page = this.pages.find(page => page.route === route) ?? builtinPages[0];
     this.pageOpened = true;
@@ -328,7 +341,7 @@ export class Workbench implements Disposable {
   }
   dispose(): void {
     if (this.closed) return;
-    this.closed = true; this.unmountPage(); clearInterval(this.inventoryTimer);
+    this.closed = true; this.clearNotice(); this.unmountPage(); clearInterval(this.inventoryTimer);
     window.removeEventListener('hashchange', this.hashHandler); window.removeEventListener('beforeunload', this.beforeUnload);
     window.removeEventListener('mintcat-ui-navigate', this.navigationHandler); window.removeEventListener('mintcat-ui-render-error', this.renderErrorHandler);
     this.sidebarView?.dispose(); this.settingsView?.dispose(); this.gamesPanel.remove(); this.navigation.remove();

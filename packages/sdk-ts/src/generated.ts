@@ -704,10 +704,25 @@ export interface SourcesListParams {
 
 export interface ConfiguredSource {
   "sourceId": "modio" | "modcat" | "nexusmods";
+  "credentialConfigured"?: boolean;
 }
 
 export interface SourcesListResult {
   "sources": Array<ConfiguredSource>;
+}
+
+export interface SourcesCredentialSetParams {
+  "sourceId": "modio" | "modcat" | "nexusmods";
+  "secret": string;
+}
+
+export interface SourcesCredentialClearParams {
+  "sourceId": "modio" | "modcat" | "nexusmods";
+}
+
+export interface SourceCredentialResult {
+  "sourceId": "modio" | "modcat" | "nexusmods";
+  "credentialConfigured": boolean;
 }
 
 export interface SourceSearchParams {
@@ -1082,7 +1097,7 @@ export interface GamesDiscoverResult {
   "items": Array<GameInstallationCandidate>;
 }
 
-export type CommandName = "system.status" | "system.doctor" | "games.list" | "profiles.list" | "profiles.contentState" | "profiles.create" | "profiles.update" | "profiles.activate" | "profiles.delete" | "profiles.clone" | "groups.list" | "groups.create" | "groups.update" | "groups.move" | "groups.delete" | "mods.list" | "mods.get" | "mods.rename" | "mods.setEnabled" | "mods.setEnabledBatch" | "mods.move" | "mods.remove" | "mods.cleanupMissing" | "mods.setVersion" | "jobs.get" | "jobs.watch" | "jobs.cancel" | "actions.get" | "actions.approve" | "actions.reject" | "modules.inspect" | "install.plan" | "install.apply" | "install.uninstall" | "updates.activate" | "sources.list" | "sources.search" | "mods.add" | "mods.importLocal" | "settings.get" | "settings.update" | "modules.list" | "mods.pack" | "updates.stage" | "updates.prepare" | "updates.confirm" | "updates.rollback" | "updates.operations" | "updates.channel" | "updates.gc" | "agent.sessions.create" | "agent.sessions.get" | "agent.sessions.send" | "agent.sessions.delete" | "proxy.status" | "proxy.start" | "proxy.stop" | "proxy.privilege" | "backup.export" | "backup.restore" | "backup.recover" | "backup.cloud.list" | "backup.cloud.upload" | "backup.cloud.download" | "library.import-legacy" | "library.config-import" | "games.register" | "games.discover";
+export type CommandName = "system.status" | "system.doctor" | "games.list" | "profiles.list" | "profiles.contentState" | "profiles.create" | "profiles.update" | "profiles.activate" | "profiles.delete" | "profiles.clone" | "groups.list" | "groups.create" | "groups.update" | "groups.move" | "groups.delete" | "mods.list" | "mods.get" | "mods.rename" | "mods.setEnabled" | "mods.setEnabledBatch" | "mods.move" | "mods.remove" | "mods.cleanupMissing" | "mods.setVersion" | "jobs.get" | "jobs.watch" | "jobs.cancel" | "actions.get" | "actions.approve" | "actions.reject" | "modules.inspect" | "install.plan" | "install.apply" | "install.uninstall" | "updates.activate" | "sources.list" | "sources.credentials.set" | "sources.credentials.clear" | "sources.search" | "mods.add" | "mods.importLocal" | "settings.get" | "settings.update" | "modules.list" | "mods.pack" | "updates.stage" | "updates.prepare" | "updates.confirm" | "updates.rollback" | "updates.operations" | "updates.channel" | "updates.gc" | "agent.sessions.create" | "agent.sessions.get" | "agent.sessions.send" | "agent.sessions.delete" | "proxy.status" | "proxy.start" | "proxy.stop" | "proxy.privilege" | "backup.export" | "backup.restore" | "backup.recover" | "backup.cloud.list" | "backup.cloud.upload" | "backup.cloud.download" | "library.import-legacy" | "library.config-import" | "games.register" | "games.discover";
 
 export interface CommandParams {
   "system.status": SystemStatusParams;
@@ -1121,6 +1136,8 @@ export interface CommandParams {
   "install.uninstall": InstallUninstallParams;
   "updates.activate": UpdatesActivateParams;
   "sources.list": SourcesListParams;
+  "sources.credentials.set": SourcesCredentialSetParams;
+  "sources.credentials.clear": SourcesCredentialClearParams;
   "sources.search": SourceSearchParams;
   "mods.add": ModsAddParams;
   "mods.importLocal": ModsImportLocalParams;
@@ -1192,6 +1209,8 @@ export interface CommandResult {
   "install.uninstall": JobRef;
   "updates.activate": JobRef;
   "sources.list": SourcesListResult;
+  "sources.credentials.set": SourceCredentialResult;
+  "sources.credentials.clear": SourceCredentialResult;
   "sources.search": SourceSearchResult;
   "mods.add": JobRef;
   "mods.importLocal": JobRef;
@@ -3904,6 +3923,9 @@ export const CORE_SCHEMA: Record<string, unknown> = {
             "modcat",
             "nexusmods"
           ]
+        },
+        "credentialConfigured": {
+          "type": "boolean"
         }
       }
     },
@@ -3919,6 +3941,69 @@ export const CORE_SCHEMA: Record<string, unknown> = {
           "items": {
             "$ref": "#/$defs/ConfiguredSource"
           }
+        }
+      }
+    },
+    "SourcesCredentialSetParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "secret"
+      ],
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "enum": [
+            "modio",
+            "modcat",
+            "nexusmods"
+          ]
+        },
+        "secret": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32768,
+          "writeOnly": true,
+          "description": "Raw remote source token or API key; stored only in the OS credential vault."
+        }
+      }
+    },
+    "SourcesCredentialClearParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId"
+      ],
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "enum": [
+            "modio",
+            "modcat",
+            "nexusmods"
+          ]
+        }
+      }
+    },
+    "SourceCredentialResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "credentialConfigured"
+      ],
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "enum": [
+            "modio",
+            "modcat",
+            "nexusmods"
+          ]
+        },
+        "credentialConfigured": {
+          "type": "boolean"
         }
       }
     },
@@ -6262,6 +6347,60 @@ export const COMMAND_SPECS = [
       "list"
     ],
     "agentExposed": true
+  },
+  {
+    "method": "sources.credentials.set",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/SourcesCredentialSetParams",
+    "resultSchema": "#/$defs/SourceCredentialResult",
+    "classification": "mutation",
+    "execution": "sync",
+    "permission": "source.credential.write",
+    "idempotency": "required",
+    "confirmation": "none",
+    "errorCodes": [
+      "INVALID_ARGUMENT",
+      "NOT_FOUND",
+      "PERMISSION_DENIED",
+      "RESOURCE_BUSY",
+      "RECOVERY_REQUIRED",
+      "SOURCE_UNAVAILABLE",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "Store or replace a remote source credential in the daemon OS credential vault.",
+    "cli": [
+      "sources",
+      "credentials",
+      "set"
+    ],
+    "agentExposed": false
+  },
+  {
+    "method": "sources.credentials.clear",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/SourcesCredentialClearParams",
+    "resultSchema": "#/$defs/SourceCredentialResult",
+    "classification": "mutation",
+    "execution": "sync",
+    "permission": "source.credential.write",
+    "idempotency": "required",
+    "confirmation": "none",
+    "errorCodes": [
+      "INVALID_ARGUMENT",
+      "NOT_FOUND",
+      "PERMISSION_DENIED",
+      "RESOURCE_BUSY",
+      "RECOVERY_REQUIRED",
+      "SOURCE_UNAVAILABLE",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "Remove a saved remote source credential from the daemon OS credential vault.",
+    "cli": [
+      "sources",
+      "credentials",
+      "clear"
+    ],
+    "agentExposed": false
   },
   {
     "method": "sources.search",

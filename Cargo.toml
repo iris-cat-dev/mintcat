@@ -58,11 +58,12 @@ base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 clap = { version = "4", features = ["derive", "env"] }
 md-5 = "0.10"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 fs2 = "0.4"
 ed25519-dalek = "2"
 rusqlite = { version = "0.40.2", default-features = false, features = ["bundled", "fallible_uint"] }
 futures-util = "0.3"
-keyring = "3"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 libc = "0.2"
 parking_lot = "0.12"
 semver = "1"

@@ -3,7 +3,17 @@ export type { GameUiDescriptor, GameModuleList } from './game-settings';
 export { getUiTheme, mountReactView, navigateUi, publishUiSelection, setUiTheme } from './react-view';
 export type { UiNavigationIcon, UiSelection, UiThemeName } from './react-view';
 export { presentUiError, renderUiError } from './error-presentation';
-export type { UiErrorContext, UiErrorPresentation } from './error-presentation';
+export type { UiErrorContext, UiErrorKind, UiErrorPresentation } from './error-presentation';
+export {
+  SOURCE_AUTH_GUIDES,
+  SOURCE_NAMES,
+  copyTextToClipboard,
+  getSourceAuthGuide,
+  getSourceDisplayName,
+  isRemoteSourceId,
+  validateSourceCredentialInput,
+} from './source-auth';
+export type { RemoteSourceId, SourceAuthGuide } from './source-auth';
 import type { CommandName, CommandParams, CommandResult } from '@mintcat/sdk-ts';
 import type * as ReactRuntime from 'react';
 import type * as ReactDOMRuntime from 'react-dom/client';
@@ -138,6 +148,7 @@ export interface SharedRuntime {
   Antd: typeof AntdRuntime;
   Icons: typeof IconsRuntime;
   kit: typeof kit;
+  openExternalUrl?: (url: string) => Promise<void>;
 }
 const runtimeRealm = globalThis as typeof globalThis & Record<symbol, Readonly<SharedRuntime> | undefined>;
 export function bindSharedRuntime(runtime: SharedRuntime): void {
@@ -148,4 +159,18 @@ export function getSharedRuntime(): Readonly<SharedRuntime> {
   const runtime = runtimeRealm[runtimeSlot];
   if (!runtime) throw new Error('No shared UI runtime is bound in this WebView');
   return runtime;
+}
+export async function openExternalUrl(rawUrl: string): Promise<void> {
+  let parsed: URL;
+  try { parsed = new URL(rawUrl); } catch { throw new Error('无效的外部链接地址'); }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+    throw new Error('仅允许打开不含内嵌凭据的 HTTPS 外部链接');
+  }
+  const normalized = parsed.toString();
+  const opener = runtimeRealm[runtimeSlot]?.openExternalUrl;
+  if (opener) {
+    await opener(normalized);
+    return;
+  }
+  window.open(normalized, '_blank', 'noopener,noreferrer');
 }

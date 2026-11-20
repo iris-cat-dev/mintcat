@@ -2653,7 +2653,8 @@
       "additionalProperties": false,
       "required": ["sourceId"],
       "properties": {
-        "sourceId": {"type": "string", "enum": ["modio", "modcat", "nexusmods"]}
+        "sourceId": {"type": "string", "enum": ["modio", "modcat", "nexusmods"]},
+        "credentialConfigured": {"type": "boolean"}
       }
     },
     "SourcesListResult": {
@@ -2662,6 +2663,38 @@
       "required": ["sources"],
       "properties": {
         "sources": {"type": "array", "items": {"$ref": "#/$defs/ConfiguredSource"}}
+      }
+    },
+    "SourcesCredentialSetParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "secret"],
+      "properties": {
+        "sourceId": {"type": "string", "enum": ["modio", "modcat", "nexusmods"]},
+        "secret": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32768,
+          "writeOnly": true,
+          "description": "Raw remote source token or API key; stored only in the OS credential vault."
+        }
+      }
+    },
+    "SourcesCredentialClearParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId"],
+      "properties": {
+        "sourceId": {"type": "string", "enum": ["modio", "modcat", "nexusmods"]}
+      }
+    },
+    "SourceCredentialResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "credentialConfigured"],
+      "properties": {
+        "sourceId": {"type": "string", "enum": ["modio", "modcat", "nexusmods"]},
+        "credentialConfigured": {"type": "boolean"}
       }
     },
     "SourceSearchParams": {

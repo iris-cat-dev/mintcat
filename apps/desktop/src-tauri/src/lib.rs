@@ -255,6 +255,103 @@ fn rescue_log(data_dir: String) -> Result<Value, String> {
     Ok(json!({"text":String::from_utf8_lossy(&bytes),"truncated":length > count}))
 }
 
+fn validate_external_https_url(raw: &str) -> Result<tauri::Url, String> {
+    if raw.is_empty() || raw.len() > 2048 || raw.chars().any(char::is_control) {
+        return Err("External URL must be a valid HTTPS web address".to_owned());
+    }
+    let parsed = tauri::Url::parse(raw)
+        .map_err(|_| "External URL must be a valid HTTPS web address".to_owned())?;
+    if parsed.scheme() != "https" || parsed.cannot_be_a_base() {
+        return Err("Only HTTPS external URLs may be opened".to_owned());
+    }
+    if parsed.host_str().is_none_or(str::is_empty) {
+        return Err("External URL must include a host".to_owned());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("External URL must not contain embedded credentials".to_owned());
+    }
+    Ok(parsed)
+}
+
+#[cfg(target_os = "macos")]
+fn launch_external_url(url: &tauri::Url) -> Result<(), String> {
+    use objc2_app_kit::NSWorkspace;
+    use objc2_foundation::{NSString, NSURL};
+
+    let raw = NSString::from_str(url.as_str());
+    let ns_url = NSURL::URLWithString(&raw).ok_or_else(|| "Invalid external URL".to_owned())?;
+    if NSWorkspace::sharedWorkspace().openURL(&ns_url) {
+        Ok(())
+    } else {
+        Err("Unable to open external URL in the default browser".to_owned())
+    }
+}
+
+#[cfg(windows)]
+fn launch_external_url(url: &tauri::Url) -> Result<(), String> {
+    use windows::core::{HSTRING, PCWSTR};
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let verb = HSTRING::from("open");
+    let target = HSTRING::from(url.as_str());
+    let instance = unsafe {
+        ShellExecuteW(
+            None,
+            &verb,
+            &target,
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if (instance.0 as isize) > 32 {
+        Ok(())
+    } else {
+        Err(format!(
+            "Unable to open external URL in the default browser (status {})",
+            instance.0 as isize
+        ))
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn launch_external_url(url: &tauri::Url) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+
+    Command::new("xdg-open")
+        .arg(url.as_str())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Unable to open external URL: {error}"))
+}
+
+#[tauri::command]
+async fn open_external_url(window: tauri::WebviewWindow, url: String) -> Result<(), String> {
+    let parsed = validate_external_https_url(&url)?;
+    #[cfg(target_os = "macos")]
+    {
+        let (sender, mut receiver) = tauri::async_runtime::channel(1);
+        window
+            .run_on_main_thread(move || {
+                let _ = sender.try_send(launch_external_url(&parsed));
+            })
+            .map_err(|error| error.to_string())?;
+        receiver
+            .recv()
+            .await
+            .ok_or_else(|| "External URL launcher callback was released".to_owned())?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        launch_external_url(&parsed)
+    }
+}
+
 pub fn run() {
     let context = tauri::generate_context!();
     if std::env::args_os().any(|argument| argument == "--verify-embedded-ui") {
@@ -281,6 +378,12 @@ pub fn run() {
                     .background_throttling(
                         tauri::utils::config::BackgroundThrottlingPolicy::Disabled,
                     )
+                    .on_new_window(|url, _features| {
+                        if let Ok(validated) = validate_external_https_url(url.as_str()) {
+                            let _ = launch_external_url(&validated);
+                        }
+                        tauri::webview::NewWindowResponse::Deny
+                    })
                     .build()?;
             }
             Ok(())
@@ -299,6 +402,7 @@ pub fn run() {
             daemon_call,
             desktop_environment,
             rescue_log,
+            open_external_url,
             window_surface::desktop_window_surface
         ])
         .build(context)
@@ -320,7 +424,33 @@ mod tests {
     use tempfile::tempdir;
     use tokio::sync::oneshot;
 
-    use super::request_running_daemon;
+    use super::{request_running_daemon, validate_external_https_url};
+
+    #[test]
+    fn external_url_validation_allows_only_credential_free_https_urls() {
+        for valid in [
+            "https://mod.io/me/access",
+            "https://mod.io/me/access#tokens",
+            "https://www.nexusmods.com/users/myaccount?tab=api%20access",
+            "https://modcat.top",
+        ] {
+            assert_eq!(validate_external_https_url(valid).unwrap().scheme(), "https");
+        }
+        for rejected in [
+            "",
+            "http://mod.io/me/access",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "https://user:secret@mod.io/me/access",
+            "https://mod.io/me/access\nmalicious",
+            "/relative/path",
+        ] {
+            assert!(
+                validate_external_https_url(rejected).is_err(),
+                "expected rejection for {rejected:?}"
+            );
+        }
+    }
 
     #[tokio::test]
     async fn desktop_connector_uses_the_same_authenticated_daemon() {

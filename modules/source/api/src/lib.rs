@@ -178,6 +178,7 @@ impl SourceError {
             Self::InteractionRequired { .. } => "source_interaction_required",
             Self::Unavailable(reason) if reason == "source_network" => "source_network",
             Self::Unavailable(_) => "source_unavailable",
+            Self::Network(BrokerError::CredentialStore) => "credential_vault_unavailable",
             Self::Network(_) => "source_network",
         }
     }

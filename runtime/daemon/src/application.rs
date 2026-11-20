@@ -65,8 +65,19 @@ fn source_error(id: &str, error: mintcat_source_service::SourceApplicationError)
     }
 }
 
+fn source_credential_error(id: &str, error: super::sources::CredentialMutationError) -> Box<AppError> {
+    use super::sources::CredentialMutationError;
+    match error {
+        CredentialMutationError::Empty => failure(id, "INVALID_ARGUMENT", "source.credential_empty", json!({"reason": "credential_empty"})),
+        CredentialMutationError::InvalidFormat => failure(id, "INVALID_ARGUMENT", "source.credential_format", json!({"reason": "credential_invalid_format"})),
+        CredentialMutationError::NotConfigured(source_id) => failure(id, "NOT_FOUND", "source.not_configured", json!({"sourceId": source_id})),
+        CredentialMutationError::VaultUnavailable => failure(id, "SOURCE_UNAVAILABLE", "source.credential_vault", json!({"reason": "credential_vault_unavailable"})),
+        CredentialMutationError::Unavailable => failure(id, "SOURCE_UNAVAILABLE", "source.credential_operation", json!({"reason": "source_unavailable"})),
+    }
+}
+
 pub(super) async fn handle_request(state: Arc<DaemonState>, request: ValidatedRequest, principal: Principal) -> Result<Value> {
-    let _source_generation = if matches!(request.descriptor.method, "sources.list" | "sources.search" | "mods.add" | "mods.importLocal" | "mods.setVersion") {
+    let _source_generation = if matches!(request.descriptor.method, "sources.list" | "sources.credentials.set" | "sources.credentials.clear" | "mods.add" | "mods.importLocal" | "mods.setVersion") {
         Some(state.composition_lock.lock().await)
     } else { None };
     dispatch(state.clone(), request, principal).await
@@ -112,6 +123,25 @@ async fn dispatch(state: Arc<DaemonState>, request: ValidatedRequest, principal:
             value(&id,mintcat_sdk::ModuleInspectResult {manifest:record.manifest.clone(),status:"active".into(),reason:None})
         }
         Command::SourcesList(_) => super::sources::list(&state).map_err(|message|failure(&id,"SOURCE_UNAVAILABLE","source.configuration",json!({"message":message}))),
+        Command::SourcesCredentialsSet(input) => {
+            let source_id = input.source_id.clone();
+            let secret = super::sources::parse_secret_input(&input.secret).map_err(|error| source_credential_error(&id, error))?;
+            let id2 = id.clone();
+            tokio::task::spawn_blocking(move || {
+                let _admission = MaintenanceGate::enter_mutation(&state.layout).map_err(|error| failure(&id2, "RESOURCE_BUSY", "runtime.maintenance", json!({"message":error.to_string()})))?;
+                let result = super::sources::set_credential(&state, &source_id, secret).map_err(|error| source_credential_error(&id2, error))?;
+                value(&id2, result)
+            }).await.map_err(|error| Box::new(internal_error(&id, error.to_string())))?
+        }
+        Command::SourcesCredentialsClear(input) => {
+            let source_id = input.source_id.clone();
+            let id2 = id.clone();
+            tokio::task::spawn_blocking(move || {
+                let _admission = MaintenanceGate::enter_mutation(&state.layout).map_err(|error| failure(&id2, "RESOURCE_BUSY", "runtime.maintenance", json!({"message":error.to_string()})))?;
+                let result = super::sources::clear_credential(&state, &source_id).map_err(|error| source_credential_error(&id2, error))?;
+                value(&id2, result)
+            }).await.map_err(|error| Box::new(internal_error(&id, error.to_string())))?
+        }
         Command::GamesRegister(input) => {
             let input=input.clone(); let id2=id.clone(); let key=request.envelope.idempotency_key.clone().expect("validated mutation key");
             let adapter=state.install.catalog().current(&input.game_id).map_err(|error|Box::new(mintcat_install::install_app_error(&id,&error)))?;
@@ -135,9 +165,25 @@ async fn dispatch(state: Arc<DaemonState>, request: ValidatedRequest, principal:
             }).await.map_err(|error|Box::new(internal_error(&id,error.to_string())))?
         }
         Command::SourcesSearch(input) => {
-            let application=source(&state,&id)?;
-            let result=application.search(&mintcat_source_service::SourceSearchRequest {source_id:input.source_id.clone(),game_id:input.game_id.clone(),remote_game_key:input.remote_game_key.clone(),query:input.query.clone(),cursor:input.cursor.clone(),page_size:input.page_size.unwrap_or(20) as u32},&mintcat_runtime_broker::CancellationToken::default()).await.map_err(|error|source_error(&id,error))?;
-            value(&id,result)
+            let application = {
+                let _source_generation = state.composition_lock.lock().await;
+                source(&state, &id)?
+            };
+            let result = application
+                .search(
+                    &mintcat_source_service::SourceSearchRequest {
+                        source_id: input.source_id.clone(),
+                        game_id: input.game_id.clone(),
+                        remote_game_key: input.remote_game_key.clone(),
+                        query: input.query.clone(),
+                        cursor: input.cursor.clone(),
+                        page_size: input.page_size.unwrap_or(20) as u32,
+                    },
+                    &mintcat_runtime_broker::CancellationToken::default(),
+                )
+                .await
+                .map_err(|error| source_error(&id, error))?;
+            value(&id, result)
         }
         Command::ModsAdd(_) => {
             let application=source(&state,&id)?; let input:mintcat_library_service::SourceAddRequest=params(&request)?;
@@ -322,6 +368,7 @@ mod source_error_tests {
                 request_id:"private-network-request".into(),
                 endpoint:"https://example.invalid/?token=private-value".into(),
             }),"SOURCE_UNAVAILABLE","source_network"),
+            (SourceError::Network(mintcat_runtime_broker::BrokerError::CredentialStore),"SOURCE_UNAVAILABLE","credential_vault_unavailable"),
         ] {
             let error = source_error("request-source-test",SourceApplicationError::Source(error));
             assert_eq!(error.code,code);

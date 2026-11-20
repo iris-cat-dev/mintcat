@@ -113,14 +113,21 @@ struct DaemonState {
 }
 
 #[derive(Clone)]
+struct ConfiguredSourceSummary {
+    source_id: String,
+    credential_configured: bool,
+}
+
+#[derive(Clone)]
 struct SourceGeneration {
     environment_generation: String,
     scope_confirmations: Arc<[bool]>,
+    games: Arc<[mintcat_game_api::GameDescriptor]>,
     lock_digest: String,
     application: SourceApplication,
     downloads: DownloadCoordinator,
     remote_downloads_available: bool,
-    configured_sources: Arc<[String]>,
+    configured_sources: Arc<[ConfiguredSourceSummary]>,
 }
 
 
