@@ -59,7 +59,6 @@
   color: var(--mc-accent-strong);
 }
 
-/* Keep the expedition's painted light and silhouettes, including on very wide windows. */
 :root[data-ui-theme="Pink"] {
   .library-atlas {
     --atlas-rule: var(--berry-glint);
@@ -67,17 +66,15 @@
     color: #fff7fc;
   }
   .library-atlas .library-atlas-kicker { color: var(--berry-light); }
-  .library-atlas--drg .library-atlas-art {
-    isolation: isolate;
-    background-color: #102622; /* Same as the painting's leftmost edge, before grading. */
+  .library-atlas--drg {
+    --atlas-rule: #b64976;
+    background: #fbdae9;
+    color: #532443;
+    box-shadow: inset 0 0 0 1px #ba376d26;
   }
-  .library-atlas--drg .library-atlas-art::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(108deg, #a17d9b 15%, #aa80a5 58%, #db96ac 80%, #ce98ab);
-    mix-blend-mode: color;
-    opacity: .93;
+  .library-atlas--drg .library-atlas-kicker { color: #78354f; }
+  .library-atlas--drg .library-atlas-art {
+    background: #fbdae9 url('./strawberry-expedition.webp') right center / auto 100% no-repeat;
   }
   .library-atlas--drg .library-atlas-art::after {
     background: linear-gradient(116deg, transparent 55%, #ffecfa26 56%, transparent 58%,
