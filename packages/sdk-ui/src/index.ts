@@ -1,6 +1,6 @@
 export { mountGameSettings } from './game-settings';
 export type { GameUiDescriptor, GameModuleList } from './game-settings';
-export { getLastUiSelection, getUiTheme, mountReactView, navigateUi, publishUiSelection, setUiTheme, subscribeUiSelection } from './react-view';
+export { getLastUiSelection, getUiTheme, isDarkUiTheme, mountReactView, navigateUi, publishUiSelection, setUiTheme, subscribeUiSelection } from './react-view';
 export type { UiNavigationIcon, UiSelection, UiThemeName } from './react-view';
 export { presentUiError, renderUiError } from './error-presentation';
 export type { UiErrorContext, UiErrorKind, UiErrorPresentation } from './error-presentation';

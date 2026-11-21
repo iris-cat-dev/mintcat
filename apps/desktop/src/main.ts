@@ -1,5 +1,6 @@
 import './style.css';
 import './themes/strawberry.css';
+import './themes/night-city.css';
 import { mountDesktop } from './bootstrap';
 
 const app = document.querySelector<HTMLElement>('#app');

@@ -2,11 +2,16 @@ import type { ReactNode } from 'react';
 import type { ThemeConfig } from 'antd';
 import type { Disposable } from './index';
 import { getSharedRuntime } from './index';
+import { nightCityConfig } from './night-city';
 
-export type UiThemeName = 'Light' | 'Dark' | 'Pink' | 'Blue';
+export type UiThemeName = 'Light' | 'Dark' | 'Pink' | 'Blue' | 'NightCity';
 export type UiNavigationIcon = 'home' | 'search' | 'settings' | 'robot' | 'cloud' | 'install' | 'proxy' | 'local' | 'downloads';
 export interface UiSelection { gameId: string; gameName: string; profileId?: string }
-const themes: readonly UiThemeName[] = ['Light', 'Dark', 'Pink', 'Blue'];
+const themes: readonly UiThemeName[] = ['Light', 'Dark', 'Pink', 'Blue', 'NightCity'];
+
+export function isDarkUiTheme(name: UiThemeName): boolean {
+  return name === 'Dark' || name === 'NightCity';
+}
 
 export function getUiTheme(): UiThemeName {
   const current = document.documentElement.dataset.uiTheme;
@@ -20,9 +25,10 @@ export function setUiTheme(name: UiThemeName): void {
   const root = document.documentElement;
   root.dataset.themeSwitching = 'true';
   root.dataset.uiTheme = name;
-  root.style.colorScheme = name === 'Dark' ? 'dark' : 'light';
-  root.classList.toggle('dark-theme', name === 'Dark');
-  document.body.classList.toggle('dark-theme', name === 'Dark');
+  const dark = isDarkUiTheme(name);
+  root.style.colorScheme = dark ? 'dark' : 'light';
+  root.classList.toggle('dark-theme', dark);
+  document.body.classList.toggle('dark-theme', dark);
   document.querySelector('#theme-style')?.remove();
   window.dispatchEvent(new CustomEvent('mintcat-ui-theme', { detail: name }));
   if (typeof requestAnimationFrame === 'function') {
@@ -33,6 +39,7 @@ export function setUiTheme(name: UiThemeName): void {
 }
 function themeConfig(name: UiThemeName): ThemeConfig {
   const { Antd } = getSharedRuntime();
+  if (name === 'NightCity') return { ...nightCityConfig, algorithm: Antd.theme.darkAlgorithm };
   const dark = name === 'Dark';
   const accent = name === 'Blue' ? '#3b82f6' : name === 'Pink' ? '#ba376d' : '#ec4899';
   const accentSoft = name === 'Blue'

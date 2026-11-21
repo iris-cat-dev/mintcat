@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { getUiTheme } from '@mintcat/sdk-ui';
+import { getUiTheme, isDarkUiTheme } from '@mintcat/sdk-ui';
 
 interface WindowSurface {
   platform: 'macos' | 'windows' | 'linux';
@@ -31,7 +31,7 @@ export function initializeWindowSurface(native: boolean): () => void {
         applied = revision;
         try {
           const result = await invoke<WindowSurface>('desktop_window_surface', {
-            dark: getUiTheme() === 'Dark',
+            dark: isDarkUiTheme(getUiTheme()),
             reduceTransparency: transparency.matches,
             observe: true,
           });
@@ -66,7 +66,7 @@ export function initializeWindowSurface(native: boolean): () => void {
     window.removeEventListener('mintcat-ui-theme', changed);
     transparency.removeEventListener('change', changed);
     unlisten?.();
-    void settled.then(() => invoke('desktop_window_surface', { dark: getUiTheme() === 'Dark', reduceTransparency: true, observe: false })).catch(() => {
+    void settled.then(() => invoke('desktop_window_surface', { dark: isDarkUiTheme(getUiTheme()), reduceTransparency: true, observe: false })).catch(() => {
       // Closing the native window may release IPC before its final callback.
     });
   };

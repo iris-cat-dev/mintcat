@@ -67,6 +67,16 @@ const THEME_OPTIONS: readonly ThemeOption[] = [
     accent: '#3b82f6',
     text: '#1e293b',
   },
+  {
+    id: 'NightCity',
+    name: '夜城霓虹',
+    desc: '电黄主操作、冰青选中态与品红扫描光',
+    windowBg: '#0a101a',
+    sidebarBg: '#101725',
+    cardBg: '#151f2c',
+    accent: '#f2f52e',
+    text: '#edf5fc',
+  },
 ];
 
 const SOURCE_DOT_CLASSES: Record<string, string> = {
