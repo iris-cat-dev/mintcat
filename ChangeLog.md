@@ -2,7 +2,7 @@
 
 ### 夜城霓虹主题
 
-- 新增可独立切换的「夜城霓虹」：深紫工作区、淡紫选中态、电黄主操作与冰青开关。DRG 专属横幅中，紫色矿灯和电黄背光照亮四名矿工与 Molly。布局不变，已选皮肤不会被覆盖。
+- 新增可独立切换的「夜城霓虹」。参考 [CD Projekt RED 的界面设计演讲](https://media.gdcvault.com/2023+Showcase/Arkadiusz_Antonik_User_Interface_In_Cyberpunk_2077_Challanges_And_Optimizations.pdf#page=24)，DRG 横幅采用电黄黑字标题、珊瑚与青色斜切边和紫色矿区插画。侧栏以矿轨线图和珊瑚色标记当前页面；冰青标记筛选、分组方式和启用开关，模组列表保留深紫底色。
 
 ### 草莓奶霜主题
 

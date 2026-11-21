@@ -70,7 +70,7 @@ const THEME_OPTIONS: readonly ThemeOption[] = [
   {
     id: 'NightCity',
     name: '夜城霓虹',
-    desc: '紫晶矿区、电黄主操作与冰青开关',
+    desc: '电黄街头海报、珊瑚导航与冰青控件',
     windowBg: '#160e23',
     sidebarBg: '#221332',
     cardBg: '#261c32',

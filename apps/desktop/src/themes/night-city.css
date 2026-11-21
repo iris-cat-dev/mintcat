@@ -2,6 +2,7 @@
   --neon-yellow: #f2f52e;
   --neon-cyan: #52e5ed;
   --neon-pink: #ff499b;
+  --neon-coral: #ff637d;
   --neon-ink: #160e23;
   --mc-accent: #cf9bff;
   --mc-accent-strong: #e6c6ff;
@@ -26,18 +27,25 @@
   --library-mint: var(--mc-accent);
 
   .app-sidebar-host {
-    background: repeating-linear-gradient(125deg, transparent 0 4px, #cf9bff88 4px 6px) 16px calc(100% - 70px) / 38px 5px no-repeat, var(--mc-sidebar-bg);
+    background: url('./night-rail.svg') left bottom 58px / 208px auto no-repeat, var(--mc-sidebar-bg);
+    border-inline-end-color: #704153;
   }
+  .app-header {
+    background: linear-gradient(90deg, var(--neon-coral) 0 10%, #874bb9 10% 34%, #603455 34% 78%, var(--neon-cyan) 78% 85%, #392844 85%) left bottom / 100% 2px no-repeat, #211529;
+  }
+  .chrome-utilities .chrome-agent-btn:not(:disabled) { color: #ffd0db; background: #5d254b; }
+  .library-toolbar .library-add-button:not(:disabled) { border-color: #397c86; color: #a3f6fa; background: #142834; }
   .brand-icon-shell, .glass-primary-action.ant-btn-primary:not(:disabled), .library-install-button.ant-btn-primary:not(:disabled),
   .chrome-settings-pill--active, .game-settings button.game-settings-save, .rescue button.rescue-btn--primary, .page-error-retry { color: var(--neon-ink); }
   .library-install-button.ant-btn-primary:not(:disabled), .brand-icon-shell { box-shadow: inset 0 -2px #bdc700; }
   .brand-lockup h1, .library-atlas h2 { color: var(--neon-yellow); }
   .app-sidebar .ant-menu-item-selected {
-    color: var(--mc-accent-strong) !important;
-    background: var(--mc-selected) !important;
-    box-shadow: inset 3px 0 var(--mc-accent);
+    color: var(--neon-ink) !important;
+    background: var(--neon-coral) !important;
+    border-radius: 2px;
+    box-shadow: inset 3px 0 #ffc4ce;
   }
-  .app-sidebar .ant-menu-item-selected::before { background: var(--mc-accent); box-shadow: none; }
+  .app-sidebar .ant-menu-item-selected::before { background: var(--neon-ink); box-shadow: none; }
   .chrome-utilities { border-image: linear-gradient(transparent, var(--neon-pink), transparent) 1; }
   .chrome-agent-btn[aria-busy="true"] .agent-eye { fill: var(--neon-pink); }
   .chrome-agent-btn--unread::after { background: var(--neon-pink); }
@@ -45,8 +53,25 @@
   .library-game-emblem--drg { background-color: var(--neon-yellow); }
   .library-atlas { --atlas-rule: var(--neon-pink); background: #1d0c2d; }
   .library-atlas .library-atlas-kicker { color: var(--mc-accent-strong); }
-  .library-atlas--drg .library-atlas-art { background: #1d0c2d url('./night-shift.webp') right center / auto 100% no-repeat; }
-  .library-atlas--drg .library-atlas-art::after { background: none; animation: none; }
+  .atlas-stage { border-radius: 0; container-type: inline-size; }
+  .library-atlas--drg {
+    --atlas-rule: currentColor;
+    border-radius: 0;
+    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+  }
+  .library-atlas--drg .library-atlas-art {
+    background: url('./night-billboard.svg') left center / clamp(398px, 44%, 610px) 100% no-repeat,
+      #1d0c2d url('./night-shift.webp') right center / auto 100% no-repeat;
+  }
+  .library-atlas--drg .library-atlas-art::after { content: none; }
+  .library-atlas--drg .library-atlas-kicker { color: #352738; letter-spacing: .22em; }
+  .library-atlas--drg h2 {
+    color: var(--neon-ink);
+    font-size: clamp(28px, 3.25cqi, 48px);
+    font-style: italic;
+    font-weight: 850;
+    letter-spacing: -.055em;
+  }
   .library-survey { filter: grayscale(1) sepia(.9) hue-rotate(227deg) saturate(3); }
   .library-survey::before { opacity: .65; }
   [data-module="mintcat.library"].library {
@@ -54,7 +79,17 @@
     --library-mint: var(--mc-accent);
     --library-brass: var(--neon-pink);
   }
-  [data-module="mintcat.library"] .library-groupby-opt.is-active { color: var(--mc-accent-strong); background: var(--mc-selected); }
+  [data-module="mintcat.library"] {
+    .library-groupby-opt.is-active, .library-filter-active { background: var(--neon-cyan); color: var(--neon-ink); }
+    .library-filter-active { border-bottom-color: #156775; border-radius: 2px; }
+    .library-filter-active > span { background: #10323d; color: #c5ffff; }
+    .library-filter-active:focus-visible, .library-groupby-opt.is-active:focus-visible { outline-color: var(--neon-ink); }
+    .library-mod-table th { color: #ffc4cf; background: #3b1c36; border-top-color: var(--neon-coral); }
+    .library-group-row > td { background-color: #342744; box-shadow: inset 3px 0 #a87bdd; }
+    .library-group-row:hover > td { background-color: #43314f; }
+    .library-group-icon-badge { color: var(--neon-cyan); }
+    .library-category { color: #e0caff; border-color: #665079; background: #33243f; }
+  }
   [data-module="mintcat.library"] .library-mod-row .ant-switch-small.ant-switch-checked { background: var(--neon-cyan); }
   [data-module="mintcat.library"] .library-mod-row .ant-switch-small.ant-switch-checked .ant-switch-handle::before { background: #12303a; }
   .library-toolbar .library-install-button.library-deploy-sweep::after { background: linear-gradient(90deg, transparent, #ff499bbf 48%, #ffecfcaa 53%, transparent); }

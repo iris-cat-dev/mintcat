@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 170" preserveAspectRatio="none">
+  <defs>
+    <pattern id="ink" patternUnits="userSpaceOnUse" width="4" height="4"><circle cx="1" cy="1" r=".65" fill="#342044"/></pattern>
+  </defs>
+  <!-- Three offset sheets, like misregistered fluorescent inks on a street poster. -->
+  <path fill="#52e5ed" d="M0 0h494l-35 70h-9l-50 100H0z"/>
+  <path fill="#ff637d" d="M0 0h483l-22 44h-12l-35 70h10l-28 56H0z"/>
+  <path fill="#f2f52e" d="M0 0h453l-17 34h-9l-44 88h9l-24 48H0z"/>
+  <path fill="url(#ink)" opacity=".24" d="M314 0h139l-17 34h-9l-44 88h9l-24 48H287l31-62h-19l36-72z"/>
+  <g fill="#27172e"><path d="M0 11h54l5-5h28v2H60l-5 5H0zM0 153h67l6 6h18v2H72l-6-6H0z" opacity=".62"/><path d="M18 145h2v4h-2zm4 0h1v4h-1zm4 0h3v4h-3zm5 0h1v4h-1zm3 0h2v4h-2zm5 0h1v4h-1zm3 0h4v4h-4z"/></g>
+</svg>
