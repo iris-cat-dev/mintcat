@@ -70,12 +70,12 @@ const THEME_OPTIONS: readonly ThemeOption[] = [
   {
     id: 'NightCity',
     name: '夜城霓虹',
-    desc: '电黄主操作、冰青选中态与品红扫描光',
-    windowBg: '#0a101a',
-    sidebarBg: '#101725',
-    cardBg: '#151f2c',
+    desc: '紫晶矿区、电黄主操作与冰青开关',
+    windowBg: '#160e23',
+    sidebarBg: '#221332',
+    cardBg: '#261c32',
     accent: '#f2f52e',
-    text: '#edf5fc',
+    text: '#f5effb',
   },
 ];
 
