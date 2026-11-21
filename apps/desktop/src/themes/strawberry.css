@@ -19,6 +19,11 @@
   --mc-primary-bg: linear-gradient(112deg, #ad3169, #bf3a70 70%, #c64372);
   --mc-primary-shadow: 0 2px 6px #ae376222, inset 0 1px #ffffff45;
   --mc-shadow: 0 9px 28px #6c2e5424;
+  --berry-light: #ffe4f0;
+  --berry-glint: #efa8ca;
+  --berry-night: #47293e;
+  --library-brass: var(--mc-accent);
+  --library-mint: #d17da3;
 }
 :root[data-ui-theme="Pink"] .app-sidebar-host {
   background: url('./strawberries.svg') right 13px bottom 68px / 86px auto no-repeat,
@@ -40,6 +45,7 @@
 }
 :root[data-ui-theme="Pink"] [data-module="mintcat.library"].library {
   --library-name-ink: var(--mc-text);
+  --library-brass: var(--mc-accent);
   --library-mint: #d17da3;
 }
 :root[data-ui-theme="Pink"] [data-module="mintcat.library"] .library-mod-row .ant-switch-small.ant-switch-checked {
@@ -52,3 +58,63 @@
   background: var(--mc-selected);
   color: var(--mc-accent-strong);
 }
+
+/* Keep the expedition's painted light and silhouettes, including on very wide windows. */
+:root[data-ui-theme="Pink"] {
+  .library-atlas {
+    --atlas-rule: var(--berry-glint);
+    background: var(--berry-night);
+    color: #fff7fc;
+  }
+  .library-atlas .library-atlas-kicker { color: var(--berry-light); }
+  .library-atlas--drg .library-atlas-art {
+    isolation: isolate;
+    background-color: #102622; /* Same as the painting's leftmost edge, before grading. */
+  }
+  .library-atlas--drg .library-atlas-art::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(108deg, #a17d9b 15%, #aa80a5 58%, #db96ac 80%, #ce98ab);
+    mix-blend-mode: color;
+    opacity: .93;
+  }
+  .library-atlas--drg .library-atlas-art::after {
+    background: linear-gradient(116deg, transparent 55%, #ffecfa26 56%, transparent 58%,
+      transparent 60%, #ffd2eb24 62%, transparent 64%);
+  }
+  /* Isolated decorative layers: tint the moving dust, lamp and corner strokes, never the text. */
+  .library-survey, .library-atlas:not(.library-atlas--drg) .library-atlas-art,
+  .mc-profile-plate::after, :is(.chrome-avatar-button,.chrome-avatar-identity) svg {
+    filter: grayscale(1) sepia(.78) hue-rotate(282deg) saturate(1.6);
+  }
+  .library-game-emblem--drg { background-color: var(--mc-accent-strong); }
+  .chrome-utilities { border-image: linear-gradient(transparent, var(--berry-glint), transparent) 1; }
+  .chrome-agent-btn[aria-busy="true"] .agent-eye { fill: var(--mc-accent-strong); }
+  .chrome-agent-btn--unread::after { background: var(--mc-accent); }
+  .library-toolbar .library-install-button.library-deploy-sweep::after {
+    background: linear-gradient(90deg, transparent, #ffbdda66 35%, #fff4facc 53%, transparent);
+  }
+  [data-module="mintcat.library"] .library-version-select.is-pinned .ant-select-suffix { color: var(--mc-accent); }
+  .library-drag-ghost, .library-file-caption {
+    color: #fff8fc;
+    border-color: var(--berry-glint);
+    background: var(--berry-night);
+    box-shadow: var(--mc-shadow);
+  }
+  .library-drag-ghost-icon, .library-drag-ghost-hint { color: var(--berry-light); background: #ffffff12; }
+  .mc-profile-plate {
+    background: radial-gradient(ellipse at 97% 45%, #7a4664, transparent 68%), var(--berry-night);
+    border-color: #90657d;
+    color: #fff8fc;
+  }
+  .mc-profile-marker, .mc-profile-description, .mc-profile-counts { color: var(--berry-light); }
+  .mc-profile-marker::before { background: var(--berry-glint); }
+  @media (prefers-reduced-motion: no-preference) {
+    [data-module="mintcat.library"] .library-mod-row[data-import-new] > td { animation-name: berry-import-arrived; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-module="mintcat.library"] .library-mod-row[data-import-new] > td { background-color: var(--mc-selected); }
+  }
+}
+@keyframes berry-import-arrived { 0%, 27% { background-color: var(--mc-selected); } }
