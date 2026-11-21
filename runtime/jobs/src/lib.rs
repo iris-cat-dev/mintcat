@@ -552,6 +552,12 @@ impl JobStore {
         )?;
         let snapshot = if is_terminal(&raw.state) {
             raw.into_snapshot()?
+        } else if raw.state == "recovery-required" {
+            self.transition(
+                &transaction,
+                job_id,
+                EventUpdate::state("cancelled-from-recovery", JobState::Cancelled),
+            )?
         } else {
             let deferred = raw.state == "committing";
             self.transition(
@@ -1863,5 +1869,27 @@ mod tests {
             reopened.get_job("owner", &unknown).unwrap().state,
             JobState::RecoveryRequired
         );
+    }
+
+    #[test]
+    fn recovery_required_job_cancels_directly_to_cancelled() {
+        let (_sandbox, store) = store(16);
+        let recovery_id = register(&store, "cancel-recovery", ConfirmationPolicy::None);
+        let failed_recovery = store
+            .append_event(
+                &recovery_id,
+                EventUpdate::state("broken", JobState::RecoveryRequired),
+            )
+            .unwrap();
+        let cancelled = store
+            .request_cancel(
+                "owner",
+                &recovery_id,
+                failed_recovery.last_seq,
+                "cancel-recovery-key",
+                &request_hash(&json!({ "jobId": recovery_id })).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(cancelled.state, JobState::Cancelled);
     }
 }

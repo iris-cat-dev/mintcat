@@ -2082,6 +2082,43 @@
         },
         "appliedVersionId": {
           "$ref": "#/$defs/Identifier"
+        },
+        "currentDisplayVersion": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "appliedDisplayVersion": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "appliedArtifactDigest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "onlineAvailable": {
+          "type": "boolean"
+        },
+        "localMissing": {
+          "type": "boolean"
+        },
+        "lastUpdateAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "onlineUpdateAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -2165,6 +2202,10 @@
         "fileSize": {
           "type": "integer",
           "minimum": 0
+        },
+        "displayVersion": {
+          "type": "string",
+          "maxLength": 200
         }
       }
     },
@@ -2726,6 +2767,23 @@
         },
         "remoteGameKey": {
           "$ref": "#/$defs/Identifier"
+        },
+        "sortField": {
+          "type": "string",
+          "enum": [
+            "updated",
+            "downloads",
+            "subscribers",
+            "rating",
+            "name"
+          ]
+        },
+        "sortDirection": {
+          "type": "string",
+          "enum": [
+            "ascending",
+            "descending"
+          ]
         }
       }
     },
@@ -2747,6 +2805,24 @@
         },
         "summary": {
           "type": "string"
+        },
+        "author": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "downloads": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "subscribers": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rating": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "integer"
         },
         "profileUrl": {
           "type": "string",
@@ -2796,6 +2872,12 @@
         "expectedContentRevision": {
           "type": "integer",
           "minimum": 0
+        },
+        "groupId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "includeDependencies": {
+          "type": "boolean"
         }
       }
     },
@@ -2825,6 +2907,9 @@
         "expectedContentRevision": {
           "type": "integer",
           "minimum": 0
+        },
+        "groupId": {
+          "$ref": "#/$defs/Identifier"
         }
       }
     },
@@ -3379,6 +3464,96 @@
       "required": [
         "deleted"
       ]
+    },
+    "AgentCredentialStatusParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "AgentCredentialSetParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "secret"
+      ],
+      "properties": {
+        "secret": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32768,
+          "writeOnly": true,
+          "description": "Raw OpenAI-compatible API key; stored only in the OS credential vault."
+        }
+      }
+    },
+    "AgentCredentialClearParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "AgentCredentialStatusResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "credentialConfigured"
+      ],
+      "properties": {
+        "credentialConfigured": {
+          "type": "boolean"
+        },
+        "credentialRef": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "AgentConnectionTestParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseUrl",
+        "model"
+      ],
+      "properties": {
+        "baseUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400
+        },
+        "credentialRef": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "AgentConnectionTestResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "latencyMs",
+        "message"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "statusCode": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "latencyMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 500
+        }
+      }
     },
     "ProxyStatusParams": {
       "type": "object",
@@ -4137,6 +4312,444 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/GameInstallationCandidate"
+          }
+        }
+      }
+    },
+    "ModsRefreshVersionsParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "profileModId"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ModsCheckUpdatesParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileModIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        }
+      }
+    },
+    "ModUpdateCheckItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileModId",
+        "modId",
+        "onlineAvailable",
+        "hasUpdate"
+      ],
+      "properties": {
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "modId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "onlineAvailable": {
+          "type": "boolean"
+        },
+        "hasUpdate": {
+          "type": "boolean"
+        },
+        "latestVersionId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "latestDisplayVersion": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "appliedVersionId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "errorCode": {
+          "type": "string",
+          "maxLength": 100
+        }
+      }
+    },
+    "ModsCheckUpdatesResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "checkedCount",
+        "updatedCount",
+        "unavailableCount",
+        "items"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "checkedCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "updatedCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unavailableCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModUpdateCheckItem"
+          }
+        }
+      }
+    },
+    "ModsUpdateBatchParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "expectedContentRevision"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "profileModIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        },
+        "mode": {
+          "$ref": "#/$defs/DownloadMode"
+        }
+      }
+    },
+    "ModsCheckConflictsParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileModIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        }
+      }
+    },
+    "ModConflictItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relativePath",
+        "winnerProfileModId",
+        "shadowedProfileModIds"
+      ],
+      "properties": {
+        "relativePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "winnerProfileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "shadowedProfileModIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        }
+      }
+    },
+    "ModsCheckConflictsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "checkedCount",
+        "skippedProfileModIds",
+        "conflicts"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "checkedCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skippedProfileModIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModConflictItem"
+          }
+        }
+      }
+    },
+    "ModsExportArtifactParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "profileModId",
+        "destinationPath"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "destinationPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "ModsExportArtifactResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileModId",
+        "artifactDigest",
+        "destinationPath",
+        "fileSize",
+        "detectedFormat"
+      ],
+      "properties": {
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "artifactDigest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "destinationPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "fileSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "detectedFormat": {
+          "type": "string",
+          "enum": [
+            "pak",
+            "zip",
+            "directory-snapshot",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "SourcesResolveUrlParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gameId",
+        "url"
+      ],
+      "properties": {
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "SourcesListSubscribedParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "gameId"
+      ],
+      "properties": {
+        "sourceId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "remoteGameKey": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "cursor": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "InstallReceiptsParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "installationId"
+      ],
+      "properties": {
+        "installationId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "InstallReceiptSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receiptId",
+        "installationId",
+        "profileRevision",
+        "planHash",
+        "fileCount",
+        "committedAtMs"
+      ],
+      "properties": {
+        "receiptId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "installationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "planHash": {
+          "$ref": "#/$defs/Digest"
+        },
+        "fileCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "committedAtMs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "InstallReceiptsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "installationId",
+        "items"
+      ],
+      "properties": {
+        "installationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InstallReceiptSummary"
+          }
+        }
+      }
+    },
+    "InstallDetectInputsParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "DetectedInstallInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileModId",
+        "verified",
+        "audioOnlyHint"
+      ],
+      "properties": {
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "verified": {
+          "type": "boolean"
+        },
+        "artifactDigest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "pak",
+            "zip",
+            "directory-snapshot"
+          ]
+        },
+        "audioOnlyHint": {
+          "type": "boolean"
+        }
+      }
+    },
+    "InstallDetectInputsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "items"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DetectedInstallInput"
           }
         }
       }

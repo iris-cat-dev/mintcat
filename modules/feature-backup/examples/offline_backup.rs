@@ -10,7 +10,7 @@ impl CredentialVault for FixtureVault {
 }
 fn state() -> Result<BackupRuntimeState, BackupError> {
     Ok(BackupRuntimeState { blockers: BackupBlockers::default(), modules: BTreeMap::from([
-        ("mintcat.library".into(), ModuleVersion { version: "0.1.0".into(), schema_version: 5 }),
+        ("mintcat.library".into(), ModuleVersion { version: "0.1.0".into(), schema_version: mintcat_feature_backup::LIBRARY_SCHEMA_VERSION }),
         ("mintcat.game-drg".into(), ModuleVersion { version: "0.1.0".into(), schema_version: 1 }),
         ("mintcat.game-rogue-core".into(), ModuleVersion { version: "0.1.0".into(), schema_version: 1 }),
     ]) })

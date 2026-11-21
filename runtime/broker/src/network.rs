@@ -257,9 +257,37 @@ impl CancellationToken {
 
 #[derive(Clone)]
 pub struct NetworkBroker {
-    client: Client,
+    client: Arc<std::sync::RwLock<Client>>,
     credentials: Arc<dyn CredentialStore>,
     forward_proxy: Option<ForwardProxy>,
+}
+
+fn build_http_client(http_proxy: Option<&Url>) -> Result<Client, BrokerError> {
+    let mut builder = Client::builder().redirect(reqwest::redirect::Policy::none());
+    match http_proxy {
+        Some(url) => {
+            if !matches!(url.scheme(), "http" | "https")
+                || url.host_str().is_none_or(str::is_empty)
+                || url.cannot_be_a_base()
+            {
+                return Err(BrokerError::InvalidRequest(
+                    "HTTP proxy URL must be a valid http:// or https:// address with host"
+                        .to_owned(),
+                ));
+            }
+            let proxy = reqwest::Proxy::all(url.as_str()).map_err(|_| {
+                BrokerError::InvalidRequest("invalid HTTP proxy configuration".to_owned())
+            })?;
+            builder = builder.proxy(proxy);
+        }
+        None => {
+            // Route selection is explicit; direct mode never inherits ambient system proxies.
+            builder = builder.no_proxy();
+        }
+    }
+    builder
+        .build()
+        .map_err(|_| BrokerError::InvalidRequest("HTTP client setup failed".to_owned()))
 }
 
 impl NetworkBroker {
@@ -267,17 +295,29 @@ impl NetworkBroker {
         credentials: &CredentialVault,
         forward_proxy: Option<ForwardProxy>,
     ) -> Result<Self, BrokerError> {
-        let client = Client::builder()
-            // Route selection is explicit; neither route may inherit system proxies.
-            .no_proxy()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|_| BrokerError::InvalidRequest("HTTP client setup failed".to_owned()))?;
+        let client = build_http_client(None)?;
         Ok(Self {
-            client,
+            client: Arc::new(std::sync::RwLock::new(client)),
             credentials: credentials.resolver(),
             forward_proxy,
         })
+    }
+
+    pub fn set_http_proxy(&self, proxy_url: Option<&Url>) -> Result<(), BrokerError> {
+        let next = build_http_client(proxy_url)?;
+        let mut guard = self
+            .client
+            .write()
+            .map_err(|_| BrokerError::InvalidRequest("HTTP client lock poisoned".to_owned()))?;
+        *guard = next;
+        Ok(())
+    }
+
+    fn http_client(&self) -> Result<Client, BrokerError> {
+        self.client
+            .read()
+            .map(|guard| guard.clone())
+            .map_err(|_| BrokerError::InvalidRequest("HTTP client lock poisoned".to_owned()))
     }
 
     pub async fn execute(
@@ -401,7 +441,7 @@ impl NetworkBroker {
                 &current,
             )?;
             let response = self
-                .client
+                .http_client()?
                 .request(request.method.reqwest(), current.clone())
                 .headers(headers)
                 .body(request.body.clone().unwrap_or_default())
@@ -453,7 +493,7 @@ impl NetworkBroker {
             .append_pair("url", request.url.as_str());
         let headers = build_headers(&request.headers, None, None, &endpoint)?;
         let response = self
-            .client
+            .http_client()?
             .request(request.method.reqwest(), endpoint.clone())
             .headers(headers)
             .body(request.body.clone().unwrap_or_default())
@@ -568,7 +608,7 @@ impl NetworkBroker {
                 headers.insert(ACCEPT_ENCODING, HeaderValue::from_static("gzip"));
             }
             let response = self
-                .client
+                .http_client()?
                 .request(request.method.reqwest(), current.clone())
                 .headers(headers)
                 .body(request.body.clone().unwrap_or_default())
@@ -618,7 +658,7 @@ impl NetworkBroker {
             headers.insert(ACCEPT_ENCODING, HeaderValue::from_static("gzip"));
         }
         let response = self
-            .client
+            .http_client()?
             .request(request.method.reqwest(), endpoint.clone())
             .headers(headers)
             .body(request.body.clone().unwrap_or_default())

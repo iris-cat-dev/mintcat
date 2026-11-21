@@ -11,6 +11,28 @@ export interface ModDownloadOverlay {
   item: DownloadOverlayItem;
 }
 
+export type ModStatusFilter = 'all' | 'enabled' | 'disabled' | 'pending' | 'updatable';
+export type ModSortMode =
+  | 'name-asc'
+  | 'name-desc'
+  | 'time-desc'
+  | 'time-asc'
+  | 'approval-asc'
+  | 'approval-desc';
+
+export interface ModFacetFilters {
+  status: ModStatusFilter;
+  sourceId: string;
+  approval: string;
+  multiplayer: string;
+  category: string;
+}
+
+const MULTIPLAYER_TAGS = new Set(['RequiredByAll', 'RecommendedForAll', 'Optional']);
+const APPROVAL_TAGS = new Set(['Verified', 'Auto-Verified', 'Approved', 'Sandbox']);
+const VERSION_TAG_PATTERN = /^v?\d+\.\d+(\.\d+)*$/i;
+const TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled']);
+
 export function indexDownloadOverlays(
   state: ProfilesContentStateResult,
 ): ReadonlyMap<string, ModDownloadOverlay> {
@@ -35,6 +57,16 @@ export function shouldRefreshLibrary(
     && cachedContentRevision !== state.contentRevision;
 }
 
+export function overlayProgressPercent(overlay: ModDownloadOverlay | undefined): number | undefined {
+  if (!overlay) return undefined;
+  const state = overlay.item.transferState ?? overlay.operation.state;
+  if (TERMINAL_STATES.has(state)) return undefined;
+  const completed = overlay.item.downloadedBytes ?? overlay.operation.completedUnits;
+  const total = overlay.item.totalBytes ?? overlay.operation.totalUnits;
+  if (total <= 0) return 0;
+  return Math.min(100, Math.floor((completed / total) * 100));
+}
+
 export function pendingVersionLabel(overlay: ModDownloadOverlay | undefined): string | undefined {
   if (!overlay?.item.pendingSelection) return undefined;
   const selection = overlay.item.pendingSelection;
@@ -50,18 +82,149 @@ export function pendingVersionLabel(overlay: ModDownloadOverlay | undefined): st
   return `Pending ${version} · ${state} · ${progress}%`;
 }
 
+export function extractGameVersionTags(tags: readonly string[]): string[] {
+  return tags
+    .map(tag => tag.trim())
+    .filter(tag => VERSION_TAG_PATTERN.test(tag));
+}
+
 export function modMetadataLabels(tags: readonly string[], approvalStatus: string): {
   category: string; multiplayer: string; approval: string;
 } {
-  const category = tags.filter(tag => tag !== 'RequiredByAll' && tag !== 'RecommendedForAll' && tag !== 'Optional').join(' / ');
+  const category = tags
+    .map(tag => tag.trim())
+    .filter(tag =>
+      tag.length > 0
+      && !MULTIPLAYER_TAGS.has(tag)
+      && !APPROVAL_TAGS.has(tag)
+      && !VERSION_TAG_PATTERN.test(tag),
+    )
+    .join(' / ');
   const multiplayer = tags.includes('RequiredByAll') ? '全员必装'
     : tags.includes('RecommendedForAll') ? '推荐全员'
     : tags.includes('Optional') ? '客户端可选' : '—';
-  const approval = approvalStatus === 'Verified' ? '已验证'
-    : approvalStatus === 'Approved' ? '已批准'
-    : approvalStatus === 'Sandbox' ? '沙盒'
-    : approvalStatus || '—';
+  const normalizedApproval = approvalStatus.trim();
+  const approval = normalizedApproval === 'Verified' ? '已验证'
+    : normalizedApproval === 'Approved' ? '已批准'
+    : normalizedApproval === 'Sandbox' ? '沙盒'
+    : !normalizedApproval || normalizedApproval === 'unavailable' ? '—'
+    : normalizedApproval;
   return { category: category || '—', multiplayer, approval };
+}
+
+export function formatVersionText(versionId?: string, displayVersion?: string): string {
+  const display = displayVersion?.trim();
+  if (display) return display;
+  if (!versionId) return '—';
+  if (versionId === 'legacy-unversioned') return '未标明版本';
+  if (versionId.startsWith('sha256:')) return `${versionId.slice(7, 15)}`;
+  return versionId;
+}
+
+export function modDisplayVersion(
+  mod: Pick<ModSummary, 'appliedDisplayVersion' | 'appliedVersionId' | 'currentDisplayVersion' | 'currentVersionId' | 'versionSelection'>,
+): string {
+  if (mod.appliedDisplayVersion || mod.appliedVersionId) {
+    return formatVersionText(mod.appliedVersionId, mod.appliedDisplayVersion);
+  }
+  if (mod.currentDisplayVersion || mod.currentVersionId) {
+    return formatVersionText(mod.currentVersionId, mod.currentDisplayVersion);
+  }
+  if (mod.versionSelection.versionId) {
+    return formatVersionText(mod.versionSelection.versionId);
+  }
+  return '—';
+}
+
+export function modHasUpdate(mod: Pick<ModSummary, 'mod' | 'currentVersionId' | 'appliedVersionId'>): boolean {
+  if (mod.mod.sourceId === 'local') return false;
+  return Boolean(mod.currentVersionId && mod.appliedVersionId && mod.appliedVersionId !== mod.currentVersionId);
+}
+
+export function modSourceUrl(mod: Pick<ModSummary, 'url' | 'mod'>): string | undefined {
+  const direct = mod.url?.trim();
+  if (direct && /^https:\/\//i.test(direct)) return direct;
+  const { sourceId, remoteGameKey, remoteModId } = mod.mod;
+  if (!remoteModId) return undefined;
+  if (sourceId === 'modcat') {
+    return `https://modcat.top/#/modDetail?ModId=${encodeURIComponent(remoteModId)}`;
+  }
+  if (sourceId === 'nexusmods' && remoteGameKey) {
+    return `https://www.nexusmods.com/${encodeURIComponent(remoteGameKey)}/mods/${encodeURIComponent(remoteModId)}`;
+  }
+  if (sourceId === 'modio' && remoteGameKey && !/^\d+$/.test(remoteModId)) {
+    return `https://mod.io/g/${encodeURIComponent(remoteGameKey)}/m/${encodeURIComponent(remoteModId)}`;
+  }
+  return undefined;
+}
+
+export function parseModUrlLines(raw: string): string[] {
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    urls.push(trimmed);
+  }
+  return urls;
+}
+
+export function approvalRank(status: string): number {
+  switch (status.trim()) {
+    case 'Verified': return 0;
+    case 'Approved': return 1;
+    case 'Sandbox': return 2;
+    default: return 3;
+  }
+}
+
+export function compareModsForSort(a: ModSummary, b: ModSummary, mode: ModSortMode): number {
+  switch (mode) {
+    case 'name-asc':
+      return a.displayName.localeCompare(b.displayName);
+    case 'name-desc':
+      return b.displayName.localeCompare(a.displayName);
+    case 'time-desc':
+      return (b.createdAtMs ?? b.updatedAtMs ?? 0) - (a.createdAtMs ?? a.updatedAtMs ?? 0)
+        || a.displayName.localeCompare(b.displayName);
+    case 'time-asc':
+      return (a.createdAtMs ?? a.updatedAtMs ?? 0) - (b.createdAtMs ?? b.updatedAtMs ?? 0)
+        || a.displayName.localeCompare(b.displayName);
+    case 'approval-asc':
+      return approvalRank(a.approvalStatus) - approvalRank(b.approvalStatus)
+        || a.displayName.localeCompare(b.displayName);
+    case 'approval-desc':
+      return approvalRank(b.approvalStatus) - approvalRank(a.approvalStatus)
+        || a.displayName.localeCompare(b.displayName);
+  }
+}
+
+export function matchesModFacets(
+  mod: ModSummary,
+  facets: ModFacetFilters,
+  pendingIds: ReadonlySet<string>,
+  updatableIds: ReadonlySet<string>,
+): boolean {
+  if (facets.status === 'enabled' && !mod.enabled) return false;
+  if (facets.status === 'disabled' && mod.enabled) return false;
+  if (facets.status === 'pending' && !pendingIds.has(mod.profileModId)) return false;
+  if (facets.status === 'updatable' && !updatableIds.has(mod.profileModId)) return false;
+  if (facets.sourceId && mod.mod.sourceId !== facets.sourceId) return false;
+  const meta = modMetadataLabels(mod.tags, mod.approvalStatus);
+  if (facets.approval) {
+    if (facets.approval === 'none') {
+      if (meta.approval !== '—') return false;
+    } else if (mod.approvalStatus !== facets.approval) {
+      return false;
+    }
+  }
+  if (facets.multiplayer && meta.multiplayer !== facets.multiplayer) return false;
+  if (facets.category) {
+    const categories = meta.category === '—' ? [] : meta.category.split(' / ');
+    if (!categories.includes(facets.category)) return false;
+  }
+  return true;
 }
 
 type SortMod = Pick<ModSummary, 'profileModId' | 'groupId' | 'sortOrder'> & {

@@ -2,7 +2,7 @@ use mintcat_sdk::{ArtifactRef, ModRef};
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::{store::OwnerStore, LibraryAuthorization, LibraryError, CONTENT_WRITE_PERMISSION};
+use crate::{store::OwnerStore, LibraryAuthorization, LibraryError, CONTENT_WRITE_PERMISSION, METADATA_WRITE_PERMISSION};
 use crate::library_api::{authorize_profile, bump_content_revision, ensure_content_available, ensure_revision, hash_json, insert_application_event, load_profile, now_ms, record_mutation, replay_mutation};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -11,6 +11,10 @@ pub struct SourceAddRequest {
     pub profile_id: String,
     pub reference: ModRef,
     pub expected_content_revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_dependencies: Option<bool>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -26,6 +30,8 @@ pub struct SourceAddVersion {
     pub version_id: String,
     pub remote_file_id: Option<String>,
     pub file_size: u64,
+    #[serde(default)]
+    pub display_version: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -33,8 +39,24 @@ pub struct SourceAddMetadata {
     pub display_name: String,
     pub profile_url: Option<String>,
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub approval_status: String,
+    #[serde(default)]
+    pub online_update_at_ms: i64,
     pub versions: Vec<SourceAddVersion>,
     pub selected_version_id: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RemoteModMetadataUpdate {
+    pub mod_id: String,
+    pub profile_url: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub approval_status: Option<String>,
+    pub online_update_at_ms: Option<i64>,
+    pub online_available: bool,
+    pub versions: Vec<SourceAddVersion>,
+    pub current_version_id: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -108,21 +130,85 @@ impl OwnerStore {
         ensure_revision(target.content_revision, profile.content_revision)?;
         ensure_content_available(&transaction, &request.profile_id)?;
         let reference = &request.reference;
+        if let Some(group_id) = request.group_id.as_deref() {
+            let group_exists: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM library_groups WHERE group_id = ?1 AND profile_id = ?2)",
+                params![group_id, profile.profile_id],
+                |row| row.get(0),
+            )?;
+            if !group_exists {
+                return Err(LibraryError::NotFound(group_id.to_owned()));
+            }
+        }
         let existing = transaction.query_row("SELECT mod_id, game_id FROM library_mods WHERE source_id=?1 AND remote_game_key=?2 AND remote_mod_id=?3", params![reference.source_id, reference.remote_game_key, reference.remote_mod_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).optional()?;
+        let approval_status = metadata.approval_status.trim();
         let mod_id = if let Some((id, game_id)) = existing {
             if game_id != profile.game_id { return Err(LibraryError::InvalidRecord("source identity belongs to another game".into())); }
+            if artifact.is_none() {
+                transaction.execute(
+                    "UPDATE library_mods
+                     SET url = CASE WHEN ?2 <> '' THEN ?2 ELSE url END,
+                         tags_json = ?3,
+                         approval_status = ?4,
+                         online_update_at_ms = CASE WHEN ?5 > 0 THEN ?5 ELSE online_update_at_ms END,
+                         online_available = 1,
+                         local_missing = 0,
+                         updated_at_ms = ?6
+                     WHERE mod_id = ?1",
+                    params![
+                        id,
+                        metadata.profile_url.as_deref().unwrap_or(""),
+                        serde_json::to_string(&metadata.tags)?,
+                        approval_status,
+                        metadata.online_update_at_ms.max(0),
+                        now
+                    ],
+                )?;
+            }
             id
         } else {
             let id = Uuid::new_v4().to_string();
-            transaction.execute("INSERT INTO library_mods(mod_id,game_id,source_id,remote_game_key,remote_mod_id,name_id,display_name,original_name,url,tags_json,approval_status,last_update_at_ms,online_update_at_ms,online_available,local_missing,created_at_ms,updated_at_ms,revision,incarnation_id) VALUES(?1,?2,?3,?4,?5,?5,?6,?6,?7,?8,'unavailable',0,0,?9,?10,?11,?11,1,?12)", params![id, profile.game_id, reference.source_id, reference.remote_game_key, reference.remote_mod_id, metadata.display_name.trim(), metadata.profile_url.as_deref().unwrap_or(""), serde_json::to_string(&metadata.tags)?, artifact.is_none(), artifact.is_none(), now, Uuid::new_v4().to_string()])?;
+            transaction.execute("INSERT INTO library_mods(mod_id,game_id,source_id,remote_game_key,remote_mod_id,name_id,display_name,original_name,url,tags_json,approval_status,last_update_at_ms,online_update_at_ms,online_available,local_missing,created_at_ms,updated_at_ms,revision,incarnation_id) VALUES(?1,?2,?3,?4,?5,?5,?6,?6,?7,?8,?9,0,?10,?11,0,?12,?12,1,?13)", params![id, profile.game_id, reference.source_id, reference.remote_game_key, reference.remote_mod_id, metadata.display_name.trim(), metadata.profile_url.as_deref().unwrap_or(""), serde_json::to_string(&metadata.tags)?, approval_status, metadata.online_update_at_ms.max(0), artifact.is_none(), now, Uuid::new_v4().to_string()])?;
             id
         };
         let mut version_ids = std::collections::HashSet::new();
         for version in &metadata.versions {
             if version.version_id.trim().is_empty() || !version_ids.insert(&version.version_id) { return Err(LibraryError::InvalidRecord("source returned invalid or duplicate versions".into())); }
-            transaction.execute("INSERT INTO library_mod_versions(mod_id,version_id,remote_file_id,file_size,availability,current,created_at_ms,updated_at_ms) VALUES(?1,?2,?3,?4,?5,0,?6,?6) ON CONFLICT(mod_id,version_id) DO NOTHING", params![mod_id,version.version_id,version.remote_file_id,version.file_size,if version.remote_file_id.is_some() { "remote" } else { "metadata-only" },now])?;
         }
         if metadata.selected_version_id.as_ref().is_some_and(|id| !version_ids.contains(id)) { return Err(LibraryError::InvalidRecord("selected source version is absent".into())); }
+        let current_version_id = metadata
+            .selected_version_id
+            .as_deref()
+            .or_else(|| metadata.versions.last().map(|version| version.version_id.as_str()));
+        if current_version_id.is_some() {
+            transaction.execute(
+                "UPDATE library_mod_versions SET current = 0 WHERE mod_id = ?1 AND current = 1",
+                params![mod_id],
+            )?;
+        }
+        for version in &metadata.versions {
+            let is_current = current_version_id.is_some_and(|current| current == version.version_id);
+            transaction.execute(
+                "INSERT INTO library_mod_versions(mod_id,version_id,remote_file_id,file_size,availability,current,created_at_ms,updated_at_ms,display_version)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?7,?8)
+                 ON CONFLICT(mod_id,version_id) DO UPDATE SET
+                   remote_file_id = COALESCE(excluded.remote_file_id, library_mod_versions.remote_file_id),
+                   file_size = CASE WHEN excluded.file_size > 0 THEN excluded.file_size ELSE library_mod_versions.file_size END,
+                   current = excluded.current,
+                   updated_at_ms = excluded.updated_at_ms,
+                   display_version = CASE WHEN excluded.display_version <> '' THEN excluded.display_version ELSE library_mod_versions.display_version END",
+                params![
+                    mod_id,
+                    version.version_id,
+                    version.remote_file_id,
+                    version.file_size,
+                    if version.remote_file_id.is_some() { "remote" } else { "metadata-only" },
+                    is_current,
+                    now,
+                    version.display_version.trim()
+                ],
+            )?;
+        }
         let existing_profile_mod = transaction.query_row("SELECT profile_mod_id FROM library_profile_mods WHERE profile_id=?1 AND mod_id=?2",params![profile.profile_id,mod_id],|row|row.get::<_,String>(0)).optional()?;
         let new_profile_mod = existing_profile_mod.is_none();
         let profile_mod_id = existing_profile_mod.unwrap_or_else(|| Uuid::new_v4().to_string());
@@ -131,7 +217,7 @@ impl OwnerStore {
         } else { false };
         let changed = new_profile_mod || binding_changed;
         if new_profile_mod {
-            transaction.execute("INSERT INTO library_profile_mods(profile_mod_id,profile_id,mod_id,incarnation_id,sort_order,enabled,created_at_ms,updated_at_ms,version_selection_kind,selected_version_id) VALUES(?1,?2,?3,?4,(SELECT COALESCE(MAX(sort_order)+1,0) FROM library_profile_mods WHERE profile_id=?2 AND group_id IS NULL),1,?5,?5,?6,?7)",params![profile_mod_id,profile.profile_id,mod_id,Uuid::new_v4().to_string(),now,if reference.version_id.is_some() {"pinned"} else {"auto"}, metadata.selected_version_id])?;
+            transaction.execute("INSERT INTO library_profile_mods(profile_mod_id,profile_id,mod_id,group_id,incarnation_id,sort_order,enabled,created_at_ms,updated_at_ms,version_selection_kind,selected_version_id) VALUES(?1,?2,?3,?4,?5,(SELECT COALESCE(MAX(sort_order)+1,0) FROM library_profile_mods WHERE profile_id=?2 AND group_id IS ?4),1,?6,?6,?7,?8)",params![profile_mod_id,profile.profile_id,mod_id,request.group_id,Uuid::new_v4().to_string(),now,if reference.version_id.is_some() {"pinned"} else {"auto"}, metadata.selected_version_id])?;
         }
         let operation_id = Uuid::new_v4().to_string();
         if let Some(artifact) = artifact {
@@ -156,6 +242,123 @@ impl OwnerStore {
         transaction.commit()?;
         Ok(result)
     }
+
+    pub fn sync_remote_mod_metadata(
+        &self,
+        authorization: &LibraryAuthorization,
+        update: &RemoteModMetadataUpdate,
+    ) -> Result<(), LibraryError> {
+        authorization.require(METADATA_WRITE_PERMISSION)?;
+        let now = now_ms()?;
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let existing_source: Option<String> = transaction
+            .query_row(
+                "SELECT source_id FROM library_mods WHERE mod_id = ?1",
+                params![update.mod_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(source_id) = existing_source else {
+            return Err(LibraryError::NotFound(update.mod_id.clone()));
+        };
+        if source_id == "local" {
+            return Err(LibraryError::InvalidRecord(
+                "cannot sync remote metadata for a local mod".into(),
+            ));
+        }
+        let owned: bool = transaction.query_row(
+            "SELECT EXISTS(
+               SELECT 1 FROM library_profile_mods pm
+               JOIN library_profiles p ON p.profile_id = pm.profile_id
+               WHERE pm.mod_id = ?1 AND p.owner_scope = ?2 AND p.deleted_at_ms IS NULL
+             )",
+            params![update.mod_id, authorization.owner_scope()],
+            |row| row.get(0),
+        )?;
+        if !owned {
+            return Err(LibraryError::PermissionDenied(update.mod_id.clone()));
+        }
+        if !update.online_available {
+            transaction.execute(
+                "UPDATE library_mods SET online_available = 0, updated_at_ms = ?2 WHERE mod_id = ?1",
+                params![update.mod_id, now],
+            )?;
+            transaction.commit()?;
+            return Ok(());
+        }
+        let tags_json = update
+            .tags
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+        let approval_status = update.approval_status.as_deref().map(str::trim);
+        transaction.execute(
+            "UPDATE library_mods
+             SET url = COALESCE(NULLIF(?2, ''), url),
+                 tags_json = COALESCE(?3, tags_json),
+                 approval_status = COALESCE(?4, approval_status),
+                 online_update_at_ms = CASE WHEN ?5 IS NOT NULL AND ?5 > 0 THEN ?5 ELSE online_update_at_ms END,
+                 online_available = 1,
+                 local_missing = 0,
+                 updated_at_ms = ?6
+             WHERE mod_id = ?1",
+            params![
+                update.mod_id,
+                update.profile_url.as_deref(),
+                tags_json,
+                approval_status,
+                update.online_update_at_ms,
+                now
+            ],
+        )?;
+        if !update.versions.is_empty() {
+            let mut seen = std::collections::HashSet::new();
+            for version in &update.versions {
+                if version.version_id.trim().is_empty() || !seen.insert(&version.version_id) {
+                    return Err(LibraryError::InvalidRecord(
+                        "source returned invalid or duplicate versions".into(),
+                    ));
+                }
+            }
+            let current_id = update
+                .current_version_id
+                .as_deref()
+                .filter(|id| seen.contains(&(*id).to_owned()))
+                .or_else(|| update.versions.last().map(|version| version.version_id.as_str()));
+            if current_id.is_some() {
+                transaction.execute(
+                    "UPDATE library_mod_versions SET current = 0 WHERE mod_id = ?1 AND current = 1",
+                    params![update.mod_id],
+                )?;
+            }
+            for version in &update.versions {
+                let is_current = current_id.is_some_and(|current| current == version.version_id);
+                transaction.execute(
+                    "INSERT INTO library_mod_versions(mod_id,version_id,remote_file_id,file_size,availability,current,created_at_ms,updated_at_ms,display_version)
+                     VALUES(?1,?2,?3,?4,?5,?6,?7,?7,?8)
+                     ON CONFLICT(mod_id,version_id) DO UPDATE SET
+                       remote_file_id = COALESCE(excluded.remote_file_id, library_mod_versions.remote_file_id),
+                       file_size = CASE WHEN excluded.file_size > 0 THEN excluded.file_size ELSE library_mod_versions.file_size END,
+                       current = excluded.current,
+                       updated_at_ms = excluded.updated_at_ms,
+                       display_version = CASE WHEN excluded.display_version <> '' THEN excluded.display_version ELSE library_mod_versions.display_version END",
+                    params![
+                        update.mod_id,
+                        version.version_id,
+                        version.remote_file_id,
+                        version.file_size,
+                        if version.remote_file_id.is_some() { "remote" } else { "metadata-only" },
+                        is_current,
+                        now,
+                        version.display_version.trim()
+                    ],
+                )?;
+            }
+        }
+        transaction.commit()?;
+        Ok(())
+    }
 }
 fn validate_request(request: &SourceAddRequest) -> Result<(), LibraryError> {
     if [&request.profile_id,&request.reference.source_id,&request.reference.remote_game_key,&request.reference.remote_mod_id].iter().any(|field| field.trim().is_empty()) { return Err(LibraryError::InvalidRecord("source addition identity cannot be empty".into())); }
@@ -177,11 +380,11 @@ mod tests {
              VALUES('profile','game','owner','default','Default',1,'',1,0,'incarnation',0,0,0);"
         ).unwrap();
         let auth = LibraryAuthorization::new("owner", [CONTENT_WRITE_PERMISSION]);
-        let request = SourceAddRequest { profile_id:"profile".into(), reference:ModRef {source_id:"modio".into(),remote_game_key:"signed-key".into(),remote_mod_id:"42".into(),version_id:None,remote_file_id:None},expected_content_revision:0 };
+        let request = SourceAddRequest { profile_id:"profile".into(), reference:ModRef {source_id:"modio".into(),remote_game_key:"signed-key".into(),remote_mod_id:"42".into(),version_id:None,remote_file_id:None},expected_content_revision:0, group_id: None, include_dependencies: None };
         (root, store, auth, request)
     }
     fn metadata() -> SourceAddMetadata {
-        SourceAddMetadata { display_name:"Remote mod".into(),profile_url:None,tags:vec![],versions:vec![SourceAddVersion {version_id:"v1".into(),remote_file_id:Some("file1".into()),file_size:42}],selected_version_id:Some("v1".into()) }
+        SourceAddMetadata { display_name:"Remote mod".into(),profile_url:Some("https://mod.io/g/drg/m/remote-mod".into()),tags:vec!["QoL".into()],approval_status:"Verified".into(),online_update_at_ms:1_700_000_000_000,versions:vec![SourceAddVersion {version_id:"v1".into(),remote_file_id:Some("file1".into()),file_size:42,display_version:"1.0.0".into()}],selected_version_id:Some("v1".into()) }
     }
 
     #[test]
@@ -196,8 +399,14 @@ mod tests {
         assert_eq!(store.snapshot().unwrap(),after);
         assert!(after.content_refs.is_empty());
         assert!(after.profile_content_bindings.is_empty());
+        assert_eq!(after.mods[0].approval_status, "Verified");
+        assert!(!after.mods[0].local_missing);
+        assert!(after.mods[0].online_available);
+        assert_eq!(after.mods[0].online_update_at_ms, 1_700_000_000_000);
         assert_eq!(after.versions[0].availability,"remote");
         assert_eq!(after.versions[0].artifact_digest,None);
+        assert!(after.versions[0].current);
+        assert_eq!(after.versions[0].display_version, "1.0.0");
         request.expected_content_revision=1;
         let target = store.source_add_target(&auth,&request).unwrap();
         let duplicate = store.commit_source_add(&auth,"different",&request,&target,&metadata()).unwrap();
@@ -232,7 +441,7 @@ mod tests {
         let digest = format!("sha256:{}", "a".repeat(64));
         request.reference.source_id="local".into();
         request.reference.remote_mod_id=digest.clone();
-        let metadata=SourceAddMetadata {display_name:"Local directory".into(),profile_url:None,tags:vec![],versions:vec![SourceAddVersion {version_id:digest.clone(),remote_file_id:None,file_size:42}],selected_version_id:Some(digest.clone())};
+        let metadata=SourceAddMetadata {display_name:"Local directory".into(),profile_url:None,tags:vec![],approval_status:String::new(),online_update_at_ms:0,versions:vec![SourceAddVersion {version_id:digest.clone(),remote_file_id:None,file_size:42,display_version:String::new()}],selected_version_id:Some(digest.clone())};
         let mut artifact = ArtifactRef {digest:digest.clone(),size:42,verified:false,media_type:None};
         let before=store.snapshot().unwrap();
         assert!(store.commit_local_source_add(&auth,"local",&request,&target,&metadata,&artifact,"generation").is_err());

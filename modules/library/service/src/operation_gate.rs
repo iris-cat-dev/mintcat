@@ -5,8 +5,8 @@ use std::{
 
 use mintcat_runtime_artifacts::ArtifactGrant;
 use mintcat_sdk::{
-    ArtifactGrantDescriptor, ArtifactRef, DownloadMode, ModsSetVersionParams, OperationFence,
-    VersionSelection, VersionSelectionKind,
+    ArtifactGrantDescriptor, ArtifactRef, DownloadMode, ModsSetVersionParams,
+    ModsUpdateBatchParams, OperationFence, VersionSelection, VersionSelectionKind,
 };
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
@@ -831,6 +831,131 @@ pub fn start_version_download(
                 validator: None,
                 selection: Some(request.selection.clone()),
             }],
+        },
+    )
+}
+
+pub fn start_batch_version_download(
+    &self,
+    authorization: &LibraryAuthorization,
+    idempotency_key: &str,
+    owner_generation: &str,
+    module_lock_digest: &str,
+    request: &ModsUpdateBatchParams,
+) -> Result<StartedDownloadOperation, LibraryError> {
+    authorization.require_content_write()?;
+    let mut connection = self.connection()?;
+    let transaction = connection.transaction()?;
+    let profile = load_profile_gate(&transaction, &request.profile_id)?;
+    authorize_owner(authorization, &profile.owner_scope)?;
+    if profile.content_revision != request.expected_content_revision {
+        return Err(LibraryError::RevisionConflict {
+            expected: request.expected_content_revision,
+            actual: profile.content_revision,
+        });
+    }
+    let filter: Option<HashSet<&str>> = request
+        .profile_mod_ids
+        .as_ref()
+        .filter(|ids| !ids.is_empty())
+        .map(|ids| ids.iter().map(String::as_str).collect());
+    let mut statement = transaction.prepare(
+        "SELECT pm.profile_mod_id, pm.incarnation_id, pm.mod_id, m.source_id,
+                m.remote_game_key, m.remote_mod_id, binding.version_id,
+                v.version_id, v.remote_file_id, v.artifact_digest
+         FROM library_profile_mods pm
+         JOIN library_mods m ON m.mod_id = pm.mod_id
+         LEFT JOIN library_profile_content_bindings binding
+           ON binding.profile_mod_id = pm.profile_mod_id
+         JOIN library_mod_versions v
+           ON v.mod_id = m.mod_id AND v.current = 1
+         WHERE pm.profile_id = ?1 AND m.source_id <> 'local'
+         ORDER BY pm.sort_order, pm.profile_mod_id",
+    )?;
+    let rows = statement
+        .query_map([&request.profile_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<String>>(9)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+    let mut seen = HashSet::new();
+    let mut items = Vec::new();
+    for (
+        profile_mod_id,
+        incarnation_id,
+        mod_id,
+        source_id,
+        remote_game_key,
+        source_mod_id,
+        applied_version_id,
+        current_version_id,
+        source_file_id,
+        expected_digest,
+    ) in rows
+    {
+        if !seen.insert(profile_mod_id.clone()) {
+            continue;
+        }
+        if let Some(allowed) = &filter {
+            if !allowed.contains(profile_mod_id.as_str()) {
+                continue;
+            }
+        } else if applied_version_id.as_deref() == Some(current_version_id.as_str()) {
+            continue;
+        }
+        items.push(StartOperationItem {
+            item_id: format!("update-{}", items.len() + 1),
+            profile_mod_id,
+            profile_mod_incarnation_id: incarnation_id,
+            mod_id,
+            source_id,
+            source_mod_id,
+            remote_game_key,
+            source_file_id,
+            resolved_version: current_version_id,
+            expected_digest,
+            validator: None,
+            selection: Some(VersionSelection {
+                kind: VersionSelectionKind::Auto,
+                version_id: None,
+            }),
+        });
+    }
+    if items.is_empty() {
+        return Err(LibraryError::InvalidRecord(
+            "no updatable remote mods were found for this operation".to_owned(),
+        ));
+    }
+    let target_incarnation_id = profile.incarnation_id;
+    transaction.commit()?;
+    drop(connection);
+
+    self.start_download_operation(
+        authorization,
+        &StartDownloadOperation {
+            idempotency_scope: "mods.update-batch".to_owned(),
+            idempotency_key: idempotency_key.to_owned(),
+            profile_id: request.profile_id.clone(),
+            expected_content_revision: request.expected_content_revision,
+            target_incarnation_id,
+            owner_generation: owner_generation.to_owned(),
+            module_lock_digest: module_lock_digest.to_owned(),
+            mode: request
+                .mode
+                .clone()
+                .unwrap_or(DownloadMode::PrepareAndApply),
+            items,
         },
     )
 }

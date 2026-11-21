@@ -1,4 +1,4 @@
-import type { JobRef, JobSnapshot, ProfileSummary, ModSummary } from '@mintcat/sdk-ts';
+import type { DetectedInstallInput, InstallReceiptSummary, JobRef, JobSnapshot, ProfileSummary, ModSummary } from '@mintcat/sdk-ts';
 import { getSharedRuntime, mountReactView, presentUiError, publishUiSelection } from '@mintcat/sdk-ui';
 import type { Disposable, GameModuleList, GameUiDescriptor, Json, UiContext } from '@mintcat/sdk-ui';
 type TrackedTask = { jobId: string; actionId: string };
@@ -21,6 +21,8 @@ export async function mountInstall(root: HTMLElement, context: UiContext): Promi
   let gameId = saved.gameId, profileId = saved.profileId, installationId = saved.installationId, variantId = saved.variantId;
   let descriptors: GameUiDescriptor[] = [], profiles: ProfileSummary[] = [], mods: ModSummary[] = [];
   let installations: Array<{ installationId: string; rootPath?: string }> = [];
+  let receipts: InstallReceiptSummary[] = [];
+  let detectedInputs: Record<string, DetectedInstallInput> = {};
   let metadataProfileId = '', error = '', status = '', existingJob = '', receiptId = '', receiptRevision = '';
   const metadata: Record<string, InputMetadata> = {}, tracked = saved.jobs;
   const snapshots: Record<string, JobSnapshot> = {}, taskErrors: Record<string, string> = {};
@@ -36,10 +38,25 @@ export async function mountInstall(root: HTMLElement, context: UiContext): Promi
       finally { if (active()) { busy = false; update(); } }
     })();
   };
+  const loadReceipts = async (): Promise<void> => {
+    const currentInstallation = installationId;
+    if (!currentInstallation) { receipts = []; return; }
+    try {
+      const result = await context.call('install.receipts', { installationId: currentInstallation });
+      if (!active() || installationId !== currentInstallation) return;
+      receipts = result.items;
+      if (receipts.length && !receiptId) {
+        receiptId = receipts[0].receiptId;
+        receiptRevision = String(receipts[0].profileRevision);
+      }
+    } catch {
+      if (active() && installationId === currentInstallation) receipts = [];
+    }
+  };
   const loadProfile = async (): Promise<void> => {
     const current = profileId, generation = ++selectionGeneration; loading = true; update();
     try {
-      if (!current) { mods = []; metadataProfileId = ''; for (const key of Object.keys(metadata)) delete metadata[key]; return; }
+      if (!current) { mods = []; detectedInputs = {}; metadataProfileId = ''; for (const key of Object.keys(metadata)) delete metadata[key]; return; }
       let cursor: string | undefined;
       const loaded: ModSummary[] = [];
       do {
@@ -47,10 +64,25 @@ export async function mountInstall(root: HTMLElement, context: UiContext): Promi
         if (!active() || generation !== selectionGeneration || profileId !== current) return;
         loaded.push(...result.items); cursor = result.nextCursor;
       } while (cursor);
+      let detectedMap: Record<string, DetectedInstallInput> = {};
+      try {
+        const detected = await context.call('install.detectInputs', { profileId: current });
+        if (!active() || generation !== selectionGeneration || profileId !== current) return;
+        detectedMap = Object.fromEntries(detected.items.map(item => [item.profileModId, item]));
+      } catch {
+        detectedMap = {};
+      }
       const previous = metadataProfileId === current ? { ...metadata } : saved.profileId === current ? saved.inputMetadata ?? {} : {};
-      mods = loaded; metadataProfileId = current;
+      mods = loaded; detectedInputs = detectedMap; metadataProfileId = current;
       for (const key of Object.keys(metadata)) delete metadata[key];
-      for (const mod of mods.filter(item => item.enabled)) metadata[mod.profileModId] = { profileModId: mod.profileModId, format: previous[mod.profileModId]?.format ?? '', audioOnlyHint: previous[mod.profileModId]?.audioOnlyHint === true };
+      for (const mod of mods.filter(item => item.enabled)) {
+        const auto = detectedMap[mod.profileModId];
+        metadata[mod.profileModId] = {
+          profileModId: mod.profileModId,
+          format: auto?.format ?? previous[mod.profileModId]?.format ?? '',
+          audioOnlyHint: auto?.verified ? auto.audioOnlyHint : previous[mod.profileModId]?.audioOnlyHint === true,
+        };
+      }
       persist(); selection();
     } finally { if (active() && generation === selectionGeneration) { loading = false; update(); } }
   };
@@ -79,6 +111,7 @@ export async function mountInstall(root: HTMLElement, context: UiContext): Promi
       profiles = loaded; profileId = (profiles.find(item => item.profileId === desiredProfile) ?? profiles.find(item => item.active) ?? profiles[0])?.profileId ?? '';
       if (profileId === previousProfile) { metadataProfileId = previousProfile; Object.assign(metadata, previousMetadata); }
       persist(); selection();
+      await loadReceipts();
       if (profileId) await loadProfile(); else status = '请先创建配置。';
     } finally { if (active() && generation === selectionGeneration) { loading = false; update(); } }
   };
@@ -154,18 +187,42 @@ export async function mountInstall(root: HTMLElement, context: UiContext): Promi
           h('div', { className: 'mintcat-install-targets' },
             h(Antd.Form.Item, { label: '游戏' }, h(Antd.Select<string>, { value: gameId || undefined, disabled: busy || loading, options: descriptors.map(item => ({ value: item.gameId, label: item.displayName })), placeholder: '没有游戏适配器', onChange: (value: string) => { gameId = value; run(loadGame); } })),
             h(Antd.Form.Item, { label: '配置' }, h(Antd.Select<string>, { value: profileId || undefined, disabled: busy || loading || !profiles.length, options: profiles.map(item => ({ value: item.profileId, label: item.displayName })), placeholder: '请选择配置', onChange: (value: string) => { profileId = value; run(loadProfile); } })),
-            h(Antd.Form.Item, { label: '安装位置' }, h(Antd.Select<string>, { value: installationId || undefined, disabled: busy || loading || !installations.length, options: installations.map(item => ({ value: item.installationId, label: item.rootPath || item.installationId })), placeholder: '没有可用安装位置', onChange: (value: string) => { installationId = value; persist(); update(); } })),
+            h(Antd.Form.Item, { label: '安装位置' }, h(Antd.Select<string>, { value: installationId || undefined, disabled: busy || loading || !installations.length, options: installations.map(item => ({ value: item.installationId, label: item.rootPath || item.installationId })), placeholder: '没有可用安装位置', onChange: (value: string) => { installationId = value; receiptId = ''; receiptRevision = ''; persist(); run(loadReceipts); } })),
             h(Antd.Form.Item, { label: '游戏变体' }, h(Antd.Select<string>, { value: variantId || undefined, disabled: busy || loading || !descriptor, options: (descriptor?.variants ?? []).map(item => ({ value: item.variantId, label: item.displayName })), placeholder: '请选择已签名变体', onChange: (value: string) => { variantId = value; persist(); update(); } })))),
             !canPlan && !loading && !status ? h(Antd.Alert, { type: 'info', showIcon: true, title: '需要启用的已签名游戏模块、配置、安装位置与变体，才能创建计划。' }) : null,
         h(Antd.Table<ModSummary>, { size: 'small', loading, rowKey: 'profileModId', dataSource: mods.filter(item => item.enabled), pagination: false, locale: { emptyText: '此配置没有启用的输入' }, columns: [
           { title: '启用的模组', dataIndex: 'displayName' },
+          { title: '缓存状态', width: 150, render: (_: unknown, mod: ModSummary) => {
+            const info = detectedInputs[mod.profileModId];
+            if (!info?.verified) return h(Antd.Tag, { color: 'warning' }, '未缓存（需先下载）');
+            return h(Antd.Tag, { color: 'success' }, info.format ? `已识别 · ${info.format}` : '已缓存');
+          } },
           { title: '准确输入格式', width: 220, render: (_: unknown, mod: ModSummary) => h(Antd.Select<string>, { style: { width: '100%' }, size: 'small', value: metadata[mod.profileModId]?.format || undefined, placeholder: '选择已验证格式', disabled: busy, options: [{ value: 'pak', label: 'PAK 归档 (.pak)' }, { value: 'zip', label: 'ZIP 压缩包 (.zip)' }, { value: 'directory-snapshot', label: '目录快照' }], onChange: (value: string) => { metadata[mod.profileModId].format = value; persist(); update(); } }) },
           { title: '仅音频提示', width: 110, align: 'center' as const, render: (_: unknown, mod: ModSummary) => h(Antd.Checkbox, { checked: metadata[mod.profileModId]?.audioOnlyHint, disabled: busy, onChange: (event: { target: { checked: boolean } }) => { metadata[mod.profileModId].audioOnlyHint = event.target.checked; persist(); update(); } }) },
         ] }),
         h(Antd.Space, { wrap: true, style: { marginTop: 14 } },
           h(Antd.Button, { type: 'primary', className: 'glass-primary-action', icon: h(Icons.DeploymentUnitOutlined), disabled: busy || !canPlan, onClick: () => run(() => start('install.plan')) }, '生成不可变安装计划'),
           h(Antd.Button, { icon: h(Icons.InboxOutlined), disabled: busy || !canPlan, onClick: () => run(() => start('mods.pack')) }, '仅打包，不部署'))),
-      h(Antd.Card, { size: 'small', title: '凭安装收据卸载' },
+      h(Antd.Card, { size: 'small', title: '凭安装收据卸载', extra: h(Antd.Button, { size: 'small', icon: h(Icons.ReloadOutlined), disabled: busy || !installationId, onClick: () => run(loadReceipts) }, '刷新收据') },
+        receipts.length ? h(Antd.List<InstallReceiptSummary>, {
+          size: 'small',
+          style: { marginBottom: 12 },
+          dataSource: receipts,
+          renderItem: (item: InstallReceiptSummary) => h(Antd.List.Item, {
+            actions: [
+              h(Antd.Button, {
+                key: 'uninstall', size: 'small', danger: true, disabled: busy || !installationId,
+                onClick: () => run(async () => {
+                  track(await context.call('install.uninstall', { installationId, receiptId: item.receiptId, revision: item.profileRevision }, crypto.randomUUID()));
+                  await poll();
+                }),
+              }, '一键卸载'),
+            ],
+          }, h(Antd.List.Item.Meta, {
+            title: `收据 ${item.receiptId.slice(0, 12)}… · 配置版本 r${item.profileRevision}`,
+            description: `${item.fileCount} 个部署文件 · ${new Date(item.committedAtMs).toLocaleString()}`,
+          })),
+        }) : null,
         h('div', { className: 'mintcat-install-uninstall-row' },
           h(Antd.Input, { value: receiptId, placeholder: '已验证收据 ID', 'aria-label': '已验证收据 ID', disabled: busy, className: 'mintcat-install-receipt-input', onChange: (event: { target: { value: string } }) => { receiptId = event.target.value; update(); } }),
           h(Antd.Input, { value: receiptRevision, type: 'number', min: 0, placeholder: '绑定的配置版本', 'aria-label': '收据绑定的配置版本', disabled: busy, className: 'mintcat-install-revision-input', onChange: (event: { target: { value: string } }) => { receiptRevision = event.target.value; update(); } }),
@@ -173,7 +230,18 @@ export async function mountInstall(root: HTMLElement, context: UiContext): Promi
             if (!receiptId.trim() || !installationId || !receiptRevision.trim() || !Number.isSafeInteger(Number(receiptRevision)) || Number(receiptRevision) < 0) throw new Error('请选择安装位置、准确收据及其绑定的配置版本。');
             track(await context.call('install.uninstall', { installationId, receiptId: receiptId.trim(), revision: Number(receiptRevision) }, crypto.randomUUID())); await poll();
           }) }, '请求卸载'))),
-      h(Antd.Card, { size: 'small', title: 'daemon 持久任务', extra: h(Antd.Button, { size: 'small', icon: h(Icons.ReloadOutlined), disabled: busy, onClick: () => run(poll) }, '刷新任务') },
+      h(Antd.Card, {
+        size: 'small',
+        title: 'daemon 持久任务',
+        extra: h(Antd.Space, { size: 6 },
+          tracked.some(task => ['succeeded', 'failed', 'cancelled'].includes(snapshots[task.jobId]?.state ?? ''))
+            ? h(Antd.Button, { size: 'small', onClick: () => {
+              const keep = tracked.filter(task => !['succeeded', 'failed', 'cancelled'].includes(snapshots[task.jobId]?.state ?? ''));
+              tracked.splice(0, tracked.length, ...keep);
+              persist(); update();
+            } }, '清除已完成') : null,
+          h(Antd.Button, { size: 'small', icon: h(Icons.ReloadOutlined), disabled: busy, onClick: () => run(poll) }, '刷新任务')),
+      },
         h(Antd.Space.Compact, { style: { width: '100%', marginBottom: 12 } }, h(Antd.Input, { value: existingJob, placeholder: '已有 daemon 任务 ID', disabled: busy, onChange: (event: { target: { value: string } }) => { existingJob = event.target.value; update(); } }), h(Antd.Button, { disabled: busy || !existingJob.trim(), onClick: () => run(async () => {
           const snapshot = await context.call('jobs.get', { jobId: existingJob.trim() });
           if (!active()) return;

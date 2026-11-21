@@ -487,4 +487,38 @@ impl LibraryStore {
         self.advance_epoch()?;
         self.owner.commit_local_source_add(authorization, idempotency_key, request, target, metadata, artifact, owner_generation)
     }
+    pub fn sync_remote_mod_metadata(&self, authorization: &LibraryAuthorization, update: &RemoteModMetadataUpdate) -> Result<(), LibraryError> {
+        let _writer = self.writer.lock().map_err(|_| LibraryError::Poisoned)?;
+        self.advance_epoch()?;
+        self.owner.sync_remote_mod_metadata(authorization, update)
+    }
+    pub fn start_batch_version_download(
+        &self,
+        authorization: &LibraryAuthorization,
+        idempotency_key: &str,
+        owner_generation: &str,
+        module_lock_digest: &str,
+        request: &ModsUpdateBatchParams,
+    ) -> Result<StartedDownloadOperation, LibraryError> {
+        let _writer = self.writer.lock().map_err(|_| LibraryError::Poisoned)?;
+        self.advance_epoch()?;
+        self.owner.start_batch_version_download(authorization, idempotency_key, owner_generation, module_lock_digest, request)
+    }
+    pub fn get_profile_mod_artifact(
+        &self,
+        authorization: &LibraryAuthorization,
+        profile_id: &str,
+        profile_mod_id: &str,
+    ) -> Result<ProfileModArtifactInfo, LibraryError> {
+        self.owner.get_profile_mod_artifact(authorization, profile_id, profile_mod_id)
+    }
+    pub fn list_profile_mod_artifacts(
+        &self,
+        authorization: &LibraryAuthorization,
+        profile_id: &str,
+        profile_mod_ids: Option<&[String]>,
+        enabled_only: bool,
+    ) -> Result<Vec<ProfileModArtifactInfo>, LibraryError> {
+        self.owner.list_profile_mod_artifacts(authorization, profile_id, profile_mod_ids, enabled_only)
+    }
 }

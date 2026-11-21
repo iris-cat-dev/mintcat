@@ -101,6 +101,8 @@ pub struct ModContentVersion {
     pub source_url: Option<String>,
     pub file_size: u64,
     pub legacy_download_status: Option<String>,
+    #[serde(default)]
+    pub display_version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

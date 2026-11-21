@@ -7,6 +7,7 @@ import {
   getUiTheme,
   isRemoteSourceId,
   mountReactView,
+  openDataDir,
   openExternalUrl,
   presentUiError,
   setUiTheme,
@@ -162,6 +163,15 @@ export function mountRuntimeSettings(
   let clearingSourceId = '';
   let copiedUrl = '';
   let copyResetTimer: ReturnType<typeof setTimeout> | undefined;
+  let proxyMode: 'direct' | 'manual' = 'direct';
+  let proxyUrl = '';
+  let proxyRevision = 0;
+  let proxySaving = false;
+  let proxyMessage = '';
+  let proxyError = '';
+  let gcRunning = false;
+  let gcMessage = '';
+  let dataDirPath = '';
   let redraw = (): void => {};
 
   const active = (): boolean => alive && !context.signal.aborted;
@@ -205,16 +215,84 @@ export function mountRuntimeSettings(
     loading = true;
     if (active()) redraw();
     try {
-      const [mods, src] = await Promise.all([
+      const [mods, src, netSettings, sysStatus] = await Promise.all([
         context.request<GameModuleList>('modules.list', {}),
         context.call('sources.list', {}),
+        context.request<{ values: Record<string, unknown>; revision: number }>('settings.get', { scope: { kind: 'global' }, section: 'network' }).catch(() => ({ values: {} as Record<string, unknown>, revision: 0 })),
+        context.call('system.status', {}).catch(() => undefined),
       ]);
       if (!active()) return;
       inventory = mods;
       sources = src.sources;
+      const netValues = netSettings.values as Record<string, unknown>;
+      proxyRevision = netSettings.revision;
+      proxyMode = netValues.mode === 'manual' ? 'manual' : 'direct';
+      proxyUrl = typeof netValues.proxyUrl === 'string' ? netValues.proxyUrl : '';
+      if (sysStatus?.dataDir) dataDirPath = sysStatus.dataDir;
     } finally {
       if (active()) {
         loading = false;
+        redraw();
+      }
+    }
+  };
+  const saveProxy = async (): Promise<void> => {
+    if (proxySaving) return;
+    const trimmed = proxyUrl.trim();
+    if (proxyMode === 'manual' && !/^https?:\/\/.+/i.test(trimmed)) {
+      proxyError = '手动代理模式下请输入有效的 http:// 或 https:// 代理地址（例如 http://127.0.0.1:7890）。';
+      proxyMessage = '';
+      if (active()) redraw();
+      return;
+    }
+    proxySaving = true;
+    proxyError = '';
+    proxyMessage = '';
+    if (active()) redraw();
+    try {
+      const saved = await context.request<{ values: Record<string, unknown>; revision: number }>('settings.update', {
+        scope: { kind: 'global' },
+        section: 'network',
+        expectedRevision: proxyRevision,
+        values: { mode: proxyMode, proxyUrl: proxyMode === 'manual' ? trimmed : '' },
+      }, crypto.randomUUID());
+      if (!active()) return;
+      proxyRevision = saved.revision;
+      proxyMessage = proxyMode === 'manual' ? `已启用 HTTP 代理 ${trimmed}，所有在线请求立即生效。` : '已切换为直连模式，立即生效。';
+      context.notify(proxyMessage);
+    } catch (cause) {
+      if (!active()) return;
+      const presented = presentUiError(cause);
+      proxyError = `${presented.title}：${presented.description}`;
+    } finally {
+      if (active()) {
+        proxySaving = false;
+        redraw();
+      }
+    }
+  };
+  const runCacheGc = async (): Promise<void> => {
+    if (gcRunning) return;
+    gcRunning = true;
+    gcMessage = '';
+    if (active()) redraw();
+    try {
+      const result = await context.call('updates.gc', {}, crypto.randomUUID());
+      if (!active()) return;
+      const removedCount = result && typeof result === 'object' && 'removed' in result && Array.isArray(result.removed)
+        ? result.removed.length
+        : 0;
+      gcMessage = removedCount > 0
+        ? `已安全清理 ${removedCount} 个未被引用的过期缓存/插件包。`
+        : '当前所有缓存工件均被活跃配置、安装收据或回滚租约引用，无需清理。';
+      context.notify(gcMessage);
+    } catch (cause) {
+      if (!active()) return;
+      const presented = presentUiError(cause);
+      gcMessage = `${presented.title}：${presented.description}`;
+    } finally {
+      if (active()) {
+        gcRunning = false;
         redraw();
       }
     }
@@ -352,11 +430,90 @@ export function mountRuntimeSettings(
               h('div', { className: 'settings-flat-row-desc' }, '仍可通过本地导入管理离线模组文件。')))),
 
       h('section', { className: 'settings-group-card' },
-        h('div', { className: 'settings-flat-row' },
-          h('div', { className: 'settings-flat-row-info' },
-            h('div', { className: 'settings-flat-row-title' }, '后台守护进程诊断与恢复'),
-            h('div', { className: 'settings-flat-row-desc' }, '查看独立后台进程运行状态、运行日志、安全模式与本地已确认恢复集。')),
-          h(Antd.Button, { icon: h(Icons.ToolOutlined), onClick: onOpenRescue }, '打开诊断与恢复'))),
+        h('div', { className: 'settings-group-head' },
+          h('div', null,
+            h('h3', { className: 'settings-group-title' }, '网络代理设置'),
+            h('p', { className: 'settings-group-subtitle' }, '配置全局 HTTP/HTTPS 代理（如 Clash / V2Ray 本地端口），保存后立即对在线搜索、下载与 Agent 请求生效'))),
+        h('div', { className: 'settings-row-list' },
+          h('div', { className: 'settings-flat-row' },
+            h('div', { className: 'settings-flat-row-info' },
+              h('div', { className: 'settings-flat-row-title' }, '代理模式'),
+              h('div', { className: 'settings-flat-row-desc' }, '直连模式不读取环境变量；手动模式通过指定 HTTP/HTTPS 代理转发外部请求。')),
+            h(Antd.Select<'direct' | 'manual'>, {
+              size: 'small',
+              style: { width: 170 },
+              value: proxyMode,
+              'aria-label': '代理模式',
+              disabled: proxySaving,
+              options: [
+                { value: 'direct', label: '直连（默认）' },
+                { value: 'manual', label: '手动 HTTP 代理' },
+              ],
+              onChange: (value: 'direct' | 'manual') => { proxyMode = value; proxyError = ''; proxyMessage = ''; redraw(); },
+            })),
+          proxyMode === 'manual' ? h('div', { className: 'settings-flat-row' },
+            h('div', { className: 'settings-flat-row-info' },
+              h('div', { className: 'settings-flat-row-title' }, '代理服务器地址'),
+              h('div', { className: 'settings-flat-row-desc' }, '支持 http:// 或 https:// 协议，例如 http://127.0.0.1:7890。')),
+            h(Antd.Input, {
+              size: 'small',
+              style: { width: 260 },
+              value: proxyUrl,
+              placeholder: 'http://127.0.0.1:7890',
+              'aria-label': '代理服务器地址',
+              disabled: proxySaving,
+              onChange: (event: { target: { value: string } }) => { proxyUrl = event.target.value; proxyError = ''; redraw(); },
+            })) : null,
+          h('div', { className: 'settings-flat-row' },
+            h('div', { className: 'settings-flat-row-info' },
+              proxyError
+                ? h(Antd.Typography.Text, { type: 'danger' }, proxyError)
+                : proxyMessage
+                  ? h(Antd.Typography.Text, { type: 'success' }, proxyMessage)
+                  : h('div', { className: 'settings-flat-row-desc' }, '凭据仍受来源域名白名单隔离，不会泄露给未授权地址。')),
+            h(Antd.Button, {
+              size: 'small',
+              type: 'primary',
+              className: 'glass-primary-action',
+              loading: proxySaving,
+              onClick: () => context.guard(saveProxy)(),
+            }, '保存代理设置')))),
+
+      h('section', { className: 'settings-group-card' },
+        h('div', { className: 'settings-group-head' },
+          h('div', null,
+            h('h3', { className: 'settings-group-title' }, '缓存清理与数据目录'),
+            h('p', { className: 'settings-group-subtitle' }, '按引用计数安全回收未被引用的缓存文件与旧版插件包，保护所有活跃配置与安装收据'))),
+        h('div', { className: 'settings-row-list' },
+          h('div', { className: 'settings-flat-row' },
+            h('div', { className: 'settings-flat-row-info' },
+              h('div', { className: 'settings-flat-row-title' }, '清理无用缓存（Artifact GC）'),
+              h('div', { className: 'settings-flat-row-desc' }, gcMessage || '扫描并清理孤立的下载工件、历史模块包与过期暂存文件。')),
+            h(Antd.Button, {
+              size: 'small',
+              icon: h(Icons.ClearOutlined),
+              loading: gcRunning,
+              onClick: () => context.guard(runCacheGc)(),
+            }, '立即清理')),
+          h('div', { className: 'settings-flat-row' },
+            h('div', { className: 'settings-flat-row-info' },
+              h('div', { className: 'settings-flat-row-title' }, '独立数据目录'),
+              h('div', { className: 'settings-flat-row-desc' }, dataDirPath || '由桌面运行环境自动隔离管理')),
+            h(Antd.Button, {
+              size: 'small',
+              icon: h(Icons.FolderOpenOutlined),
+              disabled: !dataDirPath,
+              onClick: () => {
+                void openDataDir(dataDirPath).catch(() => {
+                  if (active()) context.notify('无法自动打开数据目录，请手动前往上述路径。');
+                });
+              },
+            }, '打开目录')),
+          h('div', { className: 'settings-flat-row' },
+            h('div', { className: 'settings-flat-row-info' },
+              h('div', { className: 'settings-flat-row-title' }, '后台守护进程诊断与恢复'),
+              h('div', { className: 'settings-flat-row-desc' }, '查看独立后台进程运行状态、运行日志、安全模式与本地已确认恢复集。')),
+            h(Antd.Button, { size: 'small', icon: h(Icons.ToolOutlined), onClick: onOpenRescue }, '打开诊断与恢复')))),
 
       h(Antd.Modal, {
         open: Boolean(editingSourceId && modalGuide),

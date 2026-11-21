@@ -151,7 +151,21 @@ export function mountReactView(root: HTMLElement, node: ReactNode): Disposable {
   } catch (error) { dispose(); throw error; }
   return { dispose };
 }
+let lastSelection: UiSelection | undefined;
+
+export function getLastUiSelection(): UiSelection | undefined {
+  return lastSelection ? { ...lastSelection } : undefined;
+}
+export function subscribeUiSelection(listener: (selection: UiSelection) => void): () => void {
+  const handler = (event: Event): void => {
+    const detail = (event as CustomEvent<UiSelection>).detail;
+    if (detail) listener({ ...detail });
+  };
+  window.addEventListener('mintcat-ui-selection', handler);
+  return () => window.removeEventListener('mintcat-ui-selection', handler);
+}
 export function publishUiSelection(selection: UiSelection): void {
+  lastSelection = { ...selection };
   window.dispatchEvent(new CustomEvent<UiSelection>('mintcat-ui-selection', { detail: selection }));
 }
 export function navigateUi(icon: UiNavigationIcon): void {

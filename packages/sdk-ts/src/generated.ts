@@ -540,6 +540,16 @@ export interface ModSummary {
   "versionSelection": VersionSelection;
   "currentVersionId"?: Identifier;
   "appliedVersionId"?: Identifier;
+  "currentDisplayVersion"?: string;
+  "appliedDisplayVersion"?: string;
+  "appliedArtifactDigest"?: Digest;
+  "url"?: string;
+  "onlineAvailable"?: boolean;
+  "localMissing"?: boolean;
+  "lastUpdateAtMs"?: number;
+  "onlineUpdateAtMs"?: number;
+  "createdAtMs"?: number;
+  "updatedAtMs"?: number;
 }
 
 export interface ModsListResult {
@@ -562,6 +572,7 @@ export interface ModVersionSummary {
   "availability": string;
   "current": boolean;
   "fileSize": number;
+  "displayVersion"?: string;
 }
 
 export interface ModDetails {
@@ -732,12 +743,19 @@ export interface SourceSearchParams {
   "cursor"?: Identifier;
   "pageSize"?: number;
   "remoteGameKey"?: Identifier;
+  "sortField"?: "updated" | "downloads" | "subscribers" | "rating" | "name";
+  "sortDirection"?: "ascending" | "descending";
 }
 
 export interface SourceSearchItem {
   "displayName": string;
   "reference": ModRef;
   "summary"?: string;
+  "author"?: string;
+  "downloads"?: number;
+  "subscribers"?: number;
+  "rating"?: number;
+  "updatedAt"?: number;
   "profileUrl"?: string;
   "logoUrl"?: string;
 }
@@ -751,6 +769,8 @@ export interface ModsAddParams {
   "profileId": Identifier;
   "reference": ModRef;
   "expectedContentRevision": number;
+  "groupId"?: Identifier;
+  "includeDependencies"?: boolean;
 }
 
 export interface ModsImportLocalParams {
@@ -758,6 +778,7 @@ export interface ModsImportLocalParams {
   "remoteGameKey": Identifier;
   "inputKind": "file" | "directory";
   "expectedContentRevision": number;
+  "groupId"?: Identifier;
 }
 
 export type SettingsScope = { "kind": "global"; } | { "kind": "game"; "gameId": Identifier; };
@@ -906,6 +927,34 @@ export interface AgentSessionsDeleteParams {
 
 export interface AgentSessionsDeleteResult {
   "deleted": true;
+}
+
+export interface AgentCredentialStatusParams {
+}
+
+export interface AgentCredentialSetParams {
+  "secret": string;
+}
+
+export interface AgentCredentialClearParams {
+}
+
+export interface AgentCredentialStatusResult {
+  "credentialConfigured": boolean;
+  "credentialRef"?: Identifier;
+}
+
+export interface AgentConnectionTestParams {
+  "baseUrl": string;
+  "model": string;
+  "credentialRef"?: Identifier;
+}
+
+export interface AgentConnectionTestResult {
+  "ok": boolean;
+  "statusCode"?: number;
+  "latencyMs": number;
+  "message": string;
 }
 
 export interface ProxyStatusParams {
@@ -1097,7 +1146,123 @@ export interface GamesDiscoverResult {
   "items": Array<GameInstallationCandidate>;
 }
 
-export type CommandName = "system.status" | "system.doctor" | "games.list" | "profiles.list" | "profiles.contentState" | "profiles.create" | "profiles.update" | "profiles.activate" | "profiles.delete" | "profiles.clone" | "groups.list" | "groups.create" | "groups.update" | "groups.move" | "groups.delete" | "mods.list" | "mods.get" | "mods.rename" | "mods.setEnabled" | "mods.setEnabledBatch" | "mods.move" | "mods.remove" | "mods.cleanupMissing" | "mods.setVersion" | "jobs.get" | "jobs.watch" | "jobs.cancel" | "actions.get" | "actions.approve" | "actions.reject" | "modules.inspect" | "install.plan" | "install.apply" | "install.uninstall" | "updates.activate" | "sources.list" | "sources.credentials.set" | "sources.credentials.clear" | "sources.search" | "mods.add" | "mods.importLocal" | "settings.get" | "settings.update" | "modules.list" | "mods.pack" | "updates.stage" | "updates.prepare" | "updates.confirm" | "updates.rollback" | "updates.operations" | "updates.channel" | "updates.gc" | "agent.sessions.create" | "agent.sessions.get" | "agent.sessions.send" | "agent.sessions.delete" | "proxy.status" | "proxy.start" | "proxy.stop" | "proxy.privilege" | "backup.export" | "backup.restore" | "backup.recover" | "backup.cloud.list" | "backup.cloud.upload" | "backup.cloud.download" | "library.import-legacy" | "library.config-import" | "games.register" | "games.discover";
+export interface ModsRefreshVersionsParams {
+  "profileId": Identifier;
+  "profileModId": Identifier;
+}
+
+export interface ModsCheckUpdatesParams {
+  "profileId": Identifier;
+  "profileModIds"?: Array<Identifier>;
+}
+
+export interface ModUpdateCheckItem {
+  "profileModId": Identifier;
+  "modId": Identifier;
+  "onlineAvailable": boolean;
+  "hasUpdate": boolean;
+  "latestVersionId"?: Identifier;
+  "latestDisplayVersion"?: string;
+  "appliedVersionId"?: Identifier;
+  "errorCode"?: string;
+}
+
+export interface ModsCheckUpdatesResult {
+  "profileId": Identifier;
+  "checkedCount": number;
+  "updatedCount": number;
+  "unavailableCount": number;
+  "items": Array<ModUpdateCheckItem>;
+}
+
+export interface ModsUpdateBatchParams {
+  "profileId": Identifier;
+  "expectedContentRevision": number;
+  "profileModIds"?: Array<Identifier>;
+  "mode"?: DownloadMode;
+}
+
+export interface ModsCheckConflictsParams {
+  "profileId": Identifier;
+  "profileModIds"?: Array<Identifier>;
+}
+
+export interface ModConflictItem {
+  "relativePath": string;
+  "winnerProfileModId": Identifier;
+  "shadowedProfileModIds": Array<Identifier>;
+}
+
+export interface ModsCheckConflictsResult {
+  "profileId": Identifier;
+  "checkedCount": number;
+  "skippedProfileModIds": Array<Identifier>;
+  "conflicts": Array<ModConflictItem>;
+}
+
+export interface ModsExportArtifactParams {
+  "profileId": Identifier;
+  "profileModId": Identifier;
+  "destinationPath": string;
+}
+
+export interface ModsExportArtifactResult {
+  "profileModId": Identifier;
+  "artifactDigest": Digest;
+  "destinationPath": string;
+  "fileSize": number;
+  "detectedFormat": "pak" | "zip" | "directory-snapshot" | "unknown";
+}
+
+export interface SourcesResolveUrlParams {
+  "gameId": Identifier;
+  "url": string;
+}
+
+export interface SourcesListSubscribedParams {
+  "sourceId": Identifier;
+  "gameId": Identifier;
+  "remoteGameKey"?: Identifier;
+  "cursor"?: Identifier;
+  "pageSize"?: number;
+}
+
+export interface InstallReceiptsParams {
+  "installationId": Identifier;
+}
+
+export interface InstallReceiptSummary {
+  "receiptId": Identifier;
+  "installationId": Identifier;
+  "profileRevision": number;
+  "planHash": Digest;
+  "fileCount": number;
+  "committedAtMs": number;
+}
+
+export interface InstallReceiptsResult {
+  "installationId": Identifier;
+  "items": Array<InstallReceiptSummary>;
+}
+
+export interface InstallDetectInputsParams {
+  "profileId": Identifier;
+}
+
+export interface DetectedInstallInput {
+  "profileModId": Identifier;
+  "verified": boolean;
+  "artifactDigest"?: Digest;
+  "format"?: "pak" | "zip" | "directory-snapshot";
+  "audioOnlyHint": boolean;
+}
+
+export interface InstallDetectInputsResult {
+  "profileId": Identifier;
+  "items": Array<DetectedInstallInput>;
+}
+
+export type CommandName = "system.status" | "system.doctor" | "games.list" | "profiles.list" | "profiles.contentState" | "profiles.create" | "profiles.update" | "profiles.activate" | "profiles.delete" | "profiles.clone" | "groups.list" | "groups.create" | "groups.update" | "groups.move" | "groups.delete" | "mods.list" | "mods.get" | "mods.rename" | "mods.setEnabled" | "mods.setEnabledBatch" | "mods.move" | "mods.remove" | "mods.cleanupMissing" | "mods.setVersion" | "jobs.get" | "jobs.watch" | "jobs.cancel" | "actions.get" | "actions.approve" | "actions.reject" | "modules.inspect" | "install.plan" | "install.apply" | "install.uninstall" | "updates.activate" | "sources.list" | "sources.credentials.set" | "sources.credentials.clear" | "sources.search" | "mods.add" | "mods.importLocal" | "settings.get" | "settings.update" | "modules.list" | "mods.pack" | "updates.stage" | "updates.prepare" | "updates.confirm" | "updates.rollback" | "updates.operations" | "updates.channel" | "updates.gc" | "agent.sessions.create" | "agent.sessions.get" | "agent.sessions.send" | "agent.sessions.delete" | "proxy.status" | "proxy.start" | "proxy.stop" | "proxy.privilege" | "backup.export" | "backup.restore" | "backup.recover" | "backup.cloud.list" | "backup.cloud.upload" | "backup.cloud.download" | "library.import-legacy" | "library.config-import" | "games.register" | "games.discover" | "mods.refreshVersions" | "mods.checkUpdates" | "mods.updateBatch" | "mods.checkConflicts" | "mods.exportArtifact" | "sources.resolveUrl" | "sources.listSubscribed" | "install.receipts" | "install.detectInputs" | "agent.credentials.status" | "agent.credentials.set" | "agent.credentials.clear" | "agent.connection.test";
 
 export interface CommandParams {
   "system.status": SystemStatusParams;
@@ -1170,6 +1335,19 @@ export interface CommandParams {
   "library.config-import": LibraryConfigImportParams;
   "games.register": GamesRegisterParams;
   "games.discover": GamesDiscoverParams;
+  "mods.refreshVersions": ModsRefreshVersionsParams;
+  "mods.checkUpdates": ModsCheckUpdatesParams;
+  "mods.updateBatch": ModsUpdateBatchParams;
+  "mods.checkConflicts": ModsCheckConflictsParams;
+  "mods.exportArtifact": ModsExportArtifactParams;
+  "sources.resolveUrl": SourcesResolveUrlParams;
+  "sources.listSubscribed": SourcesListSubscribedParams;
+  "install.receipts": InstallReceiptsParams;
+  "install.detectInputs": InstallDetectInputsParams;
+  "agent.credentials.status": AgentCredentialStatusParams;
+  "agent.credentials.set": AgentCredentialSetParams;
+  "agent.credentials.clear": AgentCredentialClearParams;
+  "agent.connection.test": AgentConnectionTestParams;
 }
 
 export interface CommandResult {
@@ -1243,6 +1421,19 @@ export interface CommandResult {
   "library.config-import": JobRef;
   "games.register": GamesRegisterResult;
   "games.discover": GamesDiscoverResult;
+  "mods.refreshVersions": ModDetails;
+  "mods.checkUpdates": ModsCheckUpdatesResult;
+  "mods.updateBatch": JobRef;
+  "mods.checkConflicts": ModsCheckConflictsResult;
+  "mods.exportArtifact": ModsExportArtifactResult;
+  "sources.resolveUrl": SourceSearchItem;
+  "sources.listSubscribed": SourceSearchResult;
+  "install.receipts": InstallReceiptsResult;
+  "install.detectInputs": InstallDetectInputsResult;
+  "agent.credentials.status": AgentCredentialStatusResult;
+  "agent.credentials.set": AgentCredentialStatusResult;
+  "agent.credentials.clear": AgentCredentialStatusResult;
+  "agent.connection.test": AgentConnectionTestResult;
 }
 
 export const CORE_SCHEMA: Record<string, unknown> = {
@@ -3331,6 +3522,43 @@ export const CORE_SCHEMA: Record<string, unknown> = {
         },
         "appliedVersionId": {
           "$ref": "#/$defs/Identifier"
+        },
+        "currentDisplayVersion": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "appliedDisplayVersion": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "appliedArtifactDigest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "onlineAvailable": {
+          "type": "boolean"
+        },
+        "localMissing": {
+          "type": "boolean"
+        },
+        "lastUpdateAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "onlineUpdateAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "updatedAtMs": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -3414,6 +3642,10 @@ export const CORE_SCHEMA: Record<string, unknown> = {
         "fileSize": {
           "type": "integer",
           "minimum": 0
+        },
+        "displayVersion": {
+          "type": "string",
+          "maxLength": 200
         }
       }
     },
@@ -4036,6 +4268,23 @@ export const CORE_SCHEMA: Record<string, unknown> = {
         },
         "remoteGameKey": {
           "$ref": "#/$defs/Identifier"
+        },
+        "sortField": {
+          "type": "string",
+          "enum": [
+            "updated",
+            "downloads",
+            "subscribers",
+            "rating",
+            "name"
+          ]
+        },
+        "sortDirection": {
+          "type": "string",
+          "enum": [
+            "ascending",
+            "descending"
+          ]
         }
       }
     },
@@ -4057,6 +4306,24 @@ export const CORE_SCHEMA: Record<string, unknown> = {
         },
         "summary": {
           "type": "string"
+        },
+        "author": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "downloads": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "subscribers": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rating": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "integer"
         },
         "profileUrl": {
           "type": "string",
@@ -4106,6 +4373,12 @@ export const CORE_SCHEMA: Record<string, unknown> = {
         "expectedContentRevision": {
           "type": "integer",
           "minimum": 0
+        },
+        "groupId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "includeDependencies": {
+          "type": "boolean"
         }
       }
     },
@@ -4135,6 +4408,9 @@ export const CORE_SCHEMA: Record<string, unknown> = {
         "expectedContentRevision": {
           "type": "integer",
           "minimum": 0
+        },
+        "groupId": {
+          "$ref": "#/$defs/Identifier"
         }
       }
     },
@@ -4689,6 +4965,96 @@ export const CORE_SCHEMA: Record<string, unknown> = {
       "required": [
         "deleted"
       ]
+    },
+    "AgentCredentialStatusParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "AgentCredentialSetParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "secret"
+      ],
+      "properties": {
+        "secret": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32768,
+          "writeOnly": true,
+          "description": "Raw OpenAI-compatible API key; stored only in the OS credential vault."
+        }
+      }
+    },
+    "AgentCredentialClearParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "AgentCredentialStatusResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "credentialConfigured"
+      ],
+      "properties": {
+        "credentialConfigured": {
+          "type": "boolean"
+        },
+        "credentialRef": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "AgentConnectionTestParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseUrl",
+        "model"
+      ],
+      "properties": {
+        "baseUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400
+        },
+        "credentialRef": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "AgentConnectionTestResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ok",
+        "latencyMs",
+        "message"
+      ],
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "statusCode": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "latencyMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 500
+        }
+      }
     },
     "ProxyStatusParams": {
       "type": "object",
@@ -5453,6 +5819,444 @@ export const CORE_SCHEMA: Record<string, unknown> = {
           "type": "array",
           "items": {
             "$ref": "#/$defs/GameInstallationCandidate"
+          }
+        }
+      }
+    },
+    "ModsRefreshVersionsParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "profileModId"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "ModsCheckUpdatesParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileModIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        }
+      }
+    },
+    "ModUpdateCheckItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileModId",
+        "modId",
+        "onlineAvailable",
+        "hasUpdate"
+      ],
+      "properties": {
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "modId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "onlineAvailable": {
+          "type": "boolean"
+        },
+        "hasUpdate": {
+          "type": "boolean"
+        },
+        "latestVersionId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "latestDisplayVersion": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "appliedVersionId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "errorCode": {
+          "type": "string",
+          "maxLength": 100
+        }
+      }
+    },
+    "ModsCheckUpdatesResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "checkedCount",
+        "updatedCount",
+        "unavailableCount",
+        "items"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "checkedCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "updatedCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unavailableCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModUpdateCheckItem"
+          }
+        }
+      }
+    },
+    "ModsUpdateBatchParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "expectedContentRevision"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "profileModIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        },
+        "mode": {
+          "$ref": "#/$defs/DownloadMode"
+        }
+      }
+    },
+    "ModsCheckConflictsParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileModIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        }
+      }
+    },
+    "ModConflictItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relativePath",
+        "winnerProfileModId",
+        "shadowedProfileModIds"
+      ],
+      "properties": {
+        "relativePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "winnerProfileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "shadowedProfileModIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        }
+      }
+    },
+    "ModsCheckConflictsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "checkedCount",
+        "skippedProfileModIds",
+        "conflicts"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "checkedCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skippedProfileModIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModConflictItem"
+          }
+        }
+      }
+    },
+    "ModsExportArtifactParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "profileModId",
+        "destinationPath"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "destinationPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "ModsExportArtifactResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileModId",
+        "artifactDigest",
+        "destinationPath",
+        "fileSize",
+        "detectedFormat"
+      ],
+      "properties": {
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "artifactDigest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "destinationPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "fileSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "detectedFormat": {
+          "type": "string",
+          "enum": [
+            "pak",
+            "zip",
+            "directory-snapshot",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "SourcesResolveUrlParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gameId",
+        "url"
+      ],
+      "properties": {
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "SourcesListSubscribedParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "gameId"
+      ],
+      "properties": {
+        "sourceId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "gameId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "remoteGameKey": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "cursor": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "InstallReceiptsParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "installationId"
+      ],
+      "properties": {
+        "installationId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "InstallReceiptSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receiptId",
+        "installationId",
+        "profileRevision",
+        "planHash",
+        "fileCount",
+        "committedAtMs"
+      ],
+      "properties": {
+        "receiptId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "installationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "planHash": {
+          "$ref": "#/$defs/Digest"
+        },
+        "fileCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "committedAtMs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "InstallReceiptsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "installationId",
+        "items"
+      ],
+      "properties": {
+        "installationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InstallReceiptSummary"
+          }
+        }
+      }
+    },
+    "InstallDetectInputsParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
+    "DetectedInstallInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileModId",
+        "verified",
+        "audioOnlyHint"
+      ],
+      "properties": {
+        "profileModId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "verified": {
+          "type": "boolean"
+        },
+        "artifactDigest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "pak",
+            "zip",
+            "directory-snapshot"
+          ]
+        },
+        "audioOnlyHint": {
+          "type": "boolean"
+        }
+      }
+    },
+    "InstallDetectInputsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "items"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DetectedInstallInput"
           }
         }
       }
@@ -7283,6 +8087,327 @@ export const COMMAND_SPECS = [
     "cli": [
       "games",
       "discover"
+    ],
+    "agentExposed": false
+  },
+  {
+    "method": "mods.refreshVersions",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/ModsRefreshVersionsParams",
+    "resultSchema": "#/$defs/ModDetails",
+    "classification": "mutation",
+    "execution": "sync",
+    "permission": "library.metadata.write",
+    "idempotency": "optional",
+    "confirmation": "none",
+    "errorCodes": [
+      "INVALID_ARGUMENT",
+      "NOT_FOUND",
+      "PERMISSION_DENIED",
+      "SOURCE_UNAUTHORIZED",
+      "SOURCE_NOT_FOUND",
+      "SOURCE_RATE_LIMITED",
+      "SOURCE_UNAVAILABLE",
+      "SOURCE_INVALID_RESPONSE",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "Fetch live remote versions for one mod, persist them in the Library, and return updated mod details.",
+    "cli": [
+      "mods",
+      "refresh-versions"
+    ],
+    "agentExposed": true
+  },
+  {
+    "method": "mods.checkUpdates",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/ModsCheckUpdatesParams",
+    "resultSchema": "#/$defs/ModsCheckUpdatesResult",
+    "classification": "mutation",
+    "execution": "sync",
+    "permission": "library.metadata.write",
+    "idempotency": "optional",
+    "confirmation": "none",
+    "errorCodes": [
+      "INVALID_ARGUMENT",
+      "NOT_FOUND",
+      "PERMISSION_DENIED",
+      "SOURCE_UNAUTHORIZED",
+      "SOURCE_RATE_LIMITED",
+      "SOURCE_UNAVAILABLE",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "Refresh remote metadata and latest versions for remote mods in a profile.",
+    "cli": [
+      "mods",
+      "check-updates"
+    ],
+    "agentExposed": true
+  },
+  {
+    "method": "mods.updateBatch",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/ModsUpdateBatchParams",
+    "resultSchema": "#/$defs/JobRef",
+    "classification": "mutation",
+    "execution": "job",
+    "permission": "library.content.write",
+    "idempotency": "required",
+    "confirmation": "policy",
+    "errorCodes": [
+      "INVALID_ARGUMENT",
+      "NOT_FOUND",
+      "RESOURCE_BUSY",
+      "STALE_TARGET",
+      "REVISION_CONFLICT",
+      "PERMISSION_DENIED",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "Start one atomic download operation to update selected or updatable remote mods to their latest version.",
+    "cli": [
+      "mods",
+      "update-batch"
+    ],
+    "agentExposed": true
+  },
+  {
+    "method": "mods.checkConflicts",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/ModsCheckConflictsParams",
+    "resultSchema": "#/$defs/ModsCheckConflictsResult",
+    "classification": "read",
+    "execution": "sync",
+    "permission": "library.read",
+    "idempotency": "none",
+    "confirmation": "none",
+    "errorCodes": [
+      "INVALID_ARGUMENT",
+      "NOT_FOUND",
+      "PERMISSION_DENIED",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "Inspect verified cached mod artifacts in a profile and report overlapping file paths.",
+    "cli": [
+      "mods",
+      "check-conflicts"
+    ],
+    "agentExposed": true
+  },
+  {
+    "method": "mods.exportArtifact",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/ModsExportArtifactParams",
+    "resultSchema": "#/$defs/ModsExportArtifactResult",
+    "classification": "mutation",
+    "execution": "sync",
+    "permission": "library.read",
+    "idempotency": "required",
+    "confirmation": "none",
+    "errorCodes": [
+      "INVALID_ARGUMENT",
+      "NOT_FOUND",
+      "PERMISSION_DENIED",
+      "ARTIFACT_NOT_VERIFIED",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "Export one verified cached mod artifact to an explicitly selected destination file path.",
+    "cli": [
+      "mods",
+      "export-artifact"
+    ],
+    "agentExposed": false
+  },
+  {
+    "method": "sources.resolveUrl",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/SourcesResolveUrlParams",
+    "resultSchema": "#/$defs/SourceSearchItem",
+    "classification": "read",
+    "execution": "sync",
+    "permission": "sources.read",
+    "idempotency": "none",
+    "confirmation": "none",
+    "errorCodes": [
+      "INVALID_ARGUMENT",
+      "SOURCE_UNAUTHORIZED",
+      "SOURCE_NOT_FOUND",
+      "SOURCE_RATE_LIMITED",
+      "SOURCE_UNAVAILABLE",
+      "SOURCE_INVALID_RESPONSE",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "Resolve a remote mod webpage URL through registered sources for a game.",
+    "cli": [
+      "sources",
+      "resolve-url"
+    ],
+    "agentExposed": true
+  },
+  {
+    "method": "sources.listSubscribed",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/SourcesListSubscribedParams",
+    "resultSchema": "#/$defs/SourceSearchResult",
+    "classification": "read",
+    "execution": "sync",
+    "permission": "sources.read",
+    "idempotency": "none",
+    "confirmation": "none",
+    "errorCodes": [
+      "INVALID_ARGUMENT",
+      "SOURCE_UNAUTHORIZED",
+      "SOURCE_NOT_FOUND",
+      "SOURCE_RATE_LIMITED",
+      "SOURCE_UNAVAILABLE",
+      "SOURCE_INVALID_RESPONSE",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "List mods subscribed by the authenticated account on a configured remote source.",
+    "cli": [
+      "sources",
+      "list-subscribed"
+    ],
+    "agentExposed": false
+  },
+  {
+    "method": "install.receipts",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/InstallReceiptsParams",
+    "resultSchema": "#/$defs/InstallReceiptsResult",
+    "classification": "read",
+    "execution": "sync",
+    "permission": "library.read",
+    "idempotency": "none",
+    "confirmation": "none",
+    "errorCodes": [
+      "INVALID_ARGUMENT",
+      "NOT_FOUND",
+      "PERMISSION_DENIED",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "List active installation receipts recorded for an installation.",
+    "cli": [
+      "install",
+      "receipts"
+    ],
+    "agentExposed": true
+  },
+  {
+    "method": "install.detectInputs",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/InstallDetectInputsParams",
+    "resultSchema": "#/$defs/InstallDetectInputsResult",
+    "classification": "read",
+    "execution": "sync",
+    "permission": "library.read",
+    "idempotency": "none",
+    "confirmation": "none",
+    "errorCodes": [
+      "INVALID_ARGUMENT",
+      "NOT_FOUND",
+      "PERMISSION_DENIED",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "Inspect verified cached artifacts for enabled profile mods and infer exact Unreal input formats.",
+    "cli": [
+      "install",
+      "detect-inputs"
+    ],
+    "agentExposed": true
+  },
+  {
+    "method": "agent.credentials.status",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/AgentCredentialStatusParams",
+    "resultSchema": "#/$defs/AgentCredentialStatusResult",
+    "classification": "read",
+    "execution": "sync",
+    "permission": "agent.write",
+    "idempotency": "none",
+    "confirmation": "none",
+    "errorCodes": [
+      "PERMISSION_DENIED",
+      "AGENT_STORAGE",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "Check whether an OpenAI-compatible API key is saved in the OS credential vault for Agent sessions.",
+    "cli": [
+      "agent",
+      "credentials",
+      "status"
+    ],
+    "agentExposed": false
+  },
+  {
+    "method": "agent.credentials.set",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/AgentCredentialSetParams",
+    "resultSchema": "#/$defs/AgentCredentialStatusResult",
+    "classification": "mutation",
+    "execution": "sync",
+    "permission": "agent.write",
+    "idempotency": "required",
+    "confirmation": "none",
+    "errorCodes": [
+      "INVALID_ARGUMENT",
+      "PERMISSION_DENIED",
+      "RESOURCE_BUSY",
+      "AGENT_STORAGE",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "Store or replace the Agent API key in the OS credential vault and return only its reference metadata.",
+    "cli": [
+      "agent",
+      "credentials",
+      "set"
+    ],
+    "agentExposed": false
+  },
+  {
+    "method": "agent.credentials.clear",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/AgentCredentialClearParams",
+    "resultSchema": "#/$defs/AgentCredentialStatusResult",
+    "classification": "mutation",
+    "execution": "sync",
+    "permission": "agent.write",
+    "idempotency": "required",
+    "confirmation": "none",
+    "errorCodes": [
+      "PERMISSION_DENIED",
+      "RESOURCE_BUSY",
+      "AGENT_STORAGE",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "Remove the saved Agent API key from the OS credential vault.",
+    "cli": [
+      "agent",
+      "credentials",
+      "clear"
+    ],
+    "agentExposed": false
+  },
+  {
+    "method": "agent.connection.test",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/AgentConnectionTestParams",
+    "resultSchema": "#/$defs/AgentConnectionTestResult",
+    "classification": "read",
+    "execution": "sync",
+    "permission": "agent.write",
+    "idempotency": "none",
+    "confirmation": "none",
+    "errorCodes": [
+      "INVALID_ARGUMENT",
+      "PERMISSION_DENIED",
+      "AGENT_PROVIDER",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "Probe an OpenAI-compatible Agent endpoint and model through the daemon network broker.",
+    "cli": [
+      "agent",
+      "connection",
+      "test"
     ],
     "agentExposed": false
   }

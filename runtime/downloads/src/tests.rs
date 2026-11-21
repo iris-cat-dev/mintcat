@@ -435,6 +435,7 @@ fn seed_snapshot(
             source_url: None,
             file_size: artifact.map_or(0, |value| value.size),
             legacy_download_status: None,
+            display_version: String::new(),
         },
     )
     .collect::<Vec<_>>();

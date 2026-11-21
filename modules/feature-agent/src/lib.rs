@@ -104,6 +104,99 @@ pub(crate) async fn complete_with_broker(broker: &NetworkBroker, configuration: 
     if !(200..300).contains(&response.status) { return Err(AgentError::Provider); }
     serde_json::from_slice(&response.body).map_err(|_| AgentError::InvalidResponse)
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentConnectionProbe {
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_code: Option<u64>,
+    pub latency_ms: u64,
+    pub message: String,
+}
+
+pub async fn test_connection(
+    broker: &NetworkBroker,
+    configuration: &AgentConfiguration,
+    cancellation: &CancellationToken,
+) -> Result<AgentConnectionProbe, AgentError> {
+    if configuration.model.trim().is_empty() || configuration.model.len() > 400 {
+        return Err(AgentError::InvalidRequest);
+    }
+    let url = endpoint(configuration)?;
+    let origin = Origin::from_url(&url).map_err(|_| AgentError::InvalidRequest)?;
+    let body = serde_json::to_vec(&json!({
+        "model": configuration.model.trim(),
+        "messages": [{"role": "user", "content": "ping"}],
+        "max_tokens": 1
+    }))
+    .map_err(|_| AgentError::InvalidRequest)?;
+    let mut transport = NetworkRequest::get("mintcat.feature.agent.test", url, vec![origin.clone()]).with_body(body);
+    transport.method = HttpMethod::Post;
+    transport.headers.insert("content-type".into(), "application/json".into());
+    transport.max_redirects = 0;
+    transport.max_response_bytes = 256 * 1024;
+    transport.timeout = Duration::from_secs(20);
+    transport.credential = configuration
+        .credential_ref
+        .as_ref()
+        .map(|reference| {
+            Ok::<_, AgentError>(CredentialBinding {
+                reference: credential_reference(reference)?,
+                placement: CredentialPlacement::Bearer,
+                allowed_origins: vec![origin],
+            })
+        })
+        .transpose()?;
+    let started = std::time::Instant::now();
+    match broker.execute(&transport, cancellation).await {
+        Ok(response) => {
+            let latency_ms = started.elapsed().as_millis() as u64;
+            let ok = (200..300).contains(&response.status);
+            let message = if ok {
+                format!("连接成功（HTTP {}，{} ms）", response.status, latency_ms)
+            } else {
+                match response.status {
+                    401 | 403 => format!("鉴权失败（HTTP {}），请检查 API Key 是否有效", response.status),
+                    404 => format!("模型或接口地址不存在（HTTP 404），请检查 Base URL 与模型名称"),
+                    429 => "请求触发限流（HTTP 429），凭据已通过但配额受限".to_owned(),
+                    code => format!("服务返回异常状态（HTTP {code}）"),
+                }
+            };
+            Ok(AgentConnectionProbe {
+                ok,
+                status_code: Some(u64::from(response.status)),
+                latency_ms,
+                message,
+            })
+        }
+        Err(error) => {
+            let latency_ms = started.elapsed().as_millis() as u64;
+            let message = match error {
+                mintcat_runtime_broker::BrokerError::Http { status, .. } => match status {
+                    401 | 403 => format!("鉴权失败（HTTP {status}），请检查 API Key 是否有效"),
+                    404 => "模型或接口地址不存在（HTTP 404），请检查 Base URL 与模型名称".to_owned(),
+                    429 => "请求触发限流（HTTP 429），凭据已通过但配额受限".to_owned(),
+                    code => format!("服务返回异常状态（HTTP {code}）"),
+                },
+                mintcat_runtime_broker::BrokerError::Timeout { .. } => "连接超时，请检查网络或代理设置".to_owned(),
+                mintcat_runtime_broker::BrokerError::CredentialUnavailable(_)
+                | mintcat_runtime_broker::BrokerError::CredentialStore => "无法从本机钥匙串读取凭据，请重新保存 API Key".to_owned(),
+                _ => "网络不可达，请检查 Base URL 或网络代理设置".to_owned(),
+            };
+            let status_code = match error {
+                mintcat_runtime_broker::BrokerError::Http { status, .. } => Some(u64::from(status)),
+                _ => None,
+            };
+            Ok(AgentConnectionProbe {
+                ok: false,
+                status_code,
+                latency_ms,
+                message,
+            })
+        }
+    }
+}
 pub struct AgentSessions {
     db: Arc<Mutex<Connection>>, broker: NetworkBroker, gateway: Arc<dyn ApplicationGateway>,
     path: PathBuf, _writer_lock: std::fs::File,

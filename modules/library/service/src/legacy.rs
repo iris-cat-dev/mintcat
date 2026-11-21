@@ -825,6 +825,7 @@ fn build_snapshot(
                 current,
                 created_at_ms: legacy_ms(legacy_mod.created_at),
                 updated_at_ms: legacy_ms(legacy_mod.updated_at),
+                display_version: String::new(),
             });
         }
         if !legacy_mod.cache_path.trim().is_empty() {

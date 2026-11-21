@@ -77,7 +77,16 @@ fn source_credential_error(id: &str, error: super::sources::CredentialMutationEr
 }
 
 pub(super) async fn handle_request(state: Arc<DaemonState>, request: ValidatedRequest, principal: Principal) -> Result<Value> {
-    let _source_generation = if matches!(request.descriptor.method, "sources.list" | "sources.credentials.set" | "sources.credentials.clear" | "mods.add" | "mods.importLocal" | "mods.setVersion") {
+    let _source_generation = if matches!(
+        request.descriptor.method,
+        "sources.list"
+            | "sources.credentials.set"
+            | "sources.credentials.clear"
+            | "mods.add"
+            | "mods.importLocal"
+            | "mods.setVersion"
+            | "mods.updateBatch"
+    ) {
         Some(state.composition_lock.lock().await)
     } else { None };
     dispatch(state.clone(), request, principal).await
@@ -169,6 +178,37 @@ async fn dispatch(state: Arc<DaemonState>, request: ValidatedRequest, principal:
                 let _source_generation = state.composition_lock.lock().await;
                 source(&state, &id)?
             };
+            let sort_field = input
+                .sort_field
+                .as_deref()
+                .map(|raw| match raw {
+                    "updated" => Ok(mintcat_source_api::SearchSortField::Updated),
+                    "downloads" => Ok(mintcat_source_api::SearchSortField::Downloads),
+                    "subscribers" => Ok(mintcat_source_api::SearchSortField::Subscribers),
+                    "rating" => Ok(mintcat_source_api::SearchSortField::Rating),
+                    "name" => Ok(mintcat_source_api::SearchSortField::Name),
+                    _ => Err(failure(
+                        &id,
+                        "INVALID_ARGUMENT",
+                        "sources.search.sort",
+                        json!({"sortField": raw}),
+                    )),
+                })
+                .transpose()?;
+            let sort_direction = input
+                .sort_direction
+                .as_deref()
+                .map(|raw| match raw {
+                    "ascending" => Ok(mintcat_source_api::SortDirection::Ascending),
+                    "descending" => Ok(mintcat_source_api::SortDirection::Descending),
+                    _ => Err(failure(
+                        &id,
+                        "INVALID_ARGUMENT",
+                        "sources.search.sort",
+                        json!({"sortDirection": raw}),
+                    )),
+                })
+                .transpose()?;
             let result = application
                 .search(
                     &mintcat_source_service::SourceSearchRequest {
@@ -178,12 +218,143 @@ async fn dispatch(state: Arc<DaemonState>, request: ValidatedRequest, principal:
                         query: input.query.clone(),
                         cursor: input.cursor.clone(),
                         page_size: input.page_size.unwrap_or(20) as u32,
+                        sort_field,
+                        sort_direction,
                     },
                     &mintcat_runtime_broker::CancellationToken::default(),
                 )
                 .await
                 .map_err(|error| source_error(&id, error))?;
             value(&id, result)
+        }
+        Command::SourcesResolveUrl(input) => {
+            let application = {
+                let _source_generation = state.composition_lock.lock().await;
+                source(&state, &id)?
+            };
+            let result = application
+                .resolve_url(
+                    &input.game_id,
+                    &input.url,
+                    &mintcat_runtime_broker::CancellationToken::default(),
+                )
+                .await
+                .map_err(|error| source_error(&id, error))?;
+            value(&id, result)
+        }
+        Command::SourcesListSubscribed(input) => {
+            let application = {
+                let _source_generation = state.composition_lock.lock().await;
+                source(&state, &id)?
+            };
+            let result = application
+                .list_subscribed(
+                    &input.source_id,
+                    &input.game_id,
+                    input.remote_game_key.as_deref(),
+                    input.cursor.as_deref(),
+                    input.page_size.unwrap_or(50) as u32,
+                    &mintcat_runtime_broker::CancellationToken::default(),
+                )
+                .await
+                .map_err(|error| source_error(&id, error))?;
+            value(&id, result)
+        }
+        Command::ModsRefreshVersions(input) => {
+            let application = {
+                let _source_generation = state.composition_lock.lock().await;
+                source(&state, &id)?
+            };
+            let result = application
+                .refresh_mod_versions(
+                    &input.profile_id,
+                    &input.profile_mod_id,
+                    &mintcat_runtime_broker::CancellationToken::default(),
+                )
+                .await
+                .map_err(|error| source_error(&id, error))?;
+            value(&id, result)
+        }
+        Command::ModsCheckUpdates(input) => {
+            let application = {
+                let _source_generation = state.composition_lock.lock().await;
+                source(&state, &id)?
+            };
+            let result = application
+                .check_updates(
+                    &input.profile_id,
+                    input.profile_mod_ids.as_deref(),
+                    &mintcat_runtime_broker::CancellationToken::default(),
+                )
+                .await
+                .map_err(|error| source_error(&id, error))?;
+            value(&id, result)
+        }
+        Command::ModsCheckConflicts(input) => {
+            let input = input.clone();
+            let id2 = id.clone();
+            tokio::task::spawn_blocking(move || {
+                let result = super::artifacts_ops::check_profile_conflicts(
+                    &state,
+                    &id2,
+                    &input.profile_id,
+                    input.profile_mod_ids.as_deref(),
+                )?;
+                value(&id2, result)
+            })
+            .await
+            .map_err(|error| Box::new(internal_error(&id, error.to_string())))?
+        }
+        Command::ModsExportArtifact(input) => {
+            let input = input.clone();
+            let id2 = id.clone();
+            tokio::task::spawn_blocking(move || {
+                let result = super::artifacts_ops::export_mod_artifact(&state, &id2, &input)?;
+                value(&id2, result)
+            })
+            .await
+            .map_err(|error| Box::new(internal_error(&id, error.to_string())))?
+        }
+        Command::InstallReceipts(input) => {
+            let installation_id = input.installation_id.clone();
+            let id2 = id.clone();
+            tokio::task::spawn_blocking(move || {
+                let receipts = state
+                    .install
+                    .service()
+                    .active_receipts(&installation_id)
+                    .map_err(|error| Box::new(mintcat_install::install_app_error(&id2, &error)))?;
+                let items = receipts
+                    .into_iter()
+                    .map(|receipt| mintcat_sdk::InstallReceiptSummary {
+                        receipt_id: receipt.receipt_id,
+                        installation_id: receipt.installation_id,
+                        profile_revision: receipt.profile_revision,
+                        plan_hash: receipt.plan_hash,
+                        file_count: receipt.files.len() as u64,
+                        committed_at_ms: receipt.committed_at_ms.max(0) as u64,
+                    })
+                    .collect();
+                value(
+                    &id2,
+                    mintcat_sdk::InstallReceiptsResult {
+                        installation_id,
+                        items,
+                    },
+                )
+            })
+            .await
+            .map_err(|error| Box::new(internal_error(&id, error.to_string())))?
+        }
+        Command::InstallDetectInputs(input) => {
+            let profile_id = input.profile_id.clone();
+            let id2 = id.clone();
+            tokio::task::spawn_blocking(move || {
+                let result = super::artifacts_ops::detect_install_inputs(&state, &id2, &profile_id)?;
+                value(&id2, result)
+            })
+            .await
+            .map_err(|error| Box::new(internal_error(&id, error.to_string())))?
         }
         Command::ModsAdd(_) => {
             let application=source(&state,&id)?; let input:mintcat_library_service::SourceAddRequest=params(&request)?;
@@ -202,13 +373,23 @@ async fn dispatch(state: Arc<DaemonState>, request: ValidatedRequest, principal:
         Command::SettingsUpdate(input) => {
             let input=input.clone(); let key=request.envelope.idempotency_key.clone().expect("validated mutation key"); let id2=id.clone();
             let scope=serde_json::to_value(&input.scope).map_err(|error|Box::new(internal_error(&id,error.to_string())))?;
+            let is_global_network = scope["kind"]=="global" && input.section=="network";
+            let proxy_update = if is_global_network {
+                Some(super::parse_network_proxy_setting(&input.values).map_err(|message| failure(&id, "INVALID_ARGUMENT", "settings.network", json!({"message": message})))?)
+            } else { None };
             let schema=if scope["kind"]=="game" && input.section=="game" {
                 let game=scope["gameId"].as_str().ok_or_else(||failure(&id,"INVALID_ARGUMENT","settings.game",json!({})))?;
                 Some(state.install.catalog().current(game).map_err(|error|Box::new(mintcat_install::install_app_error(&id,&error)))?.descriptor().settings_schema.clone())
             } else {None};
             tokio::task::spawn_blocking(move || {
                 let _admission=MaintenanceGate::enter_mutation(&state.layout).map_err(|error|failure(&id2,"RESOURCE_BUSY","runtime.maintenance",json!({"message":error.to_string()})))?;
-                library_value(&id2,state.library.update_settings(&state.library_authorization,&key,&input,schema.as_ref()))
+                let updated = state.library.update_settings(&state.library_authorization,&key,&input,schema.as_ref());
+                if let (Ok(_), Some(proxy_url)) = (&updated, proxy_update) {
+                    if let Err(error) = state.network_broker.set_http_proxy(proxy_url.as_ref()) {
+                        return Err(failure(&id2, "INVALID_ARGUMENT", "settings.network", json!({"message": error.to_string()})));
+                    }
+                }
+                library_value(&id2, updated)
             }).await.map_err(|error|Box::new(internal_error(&id,error.to_string())))?
         }
         Command::InstallPlan(_) | Command::ModsPack(_) | Command::InstallApply(_) | Command::InstallUninstall(_) => {

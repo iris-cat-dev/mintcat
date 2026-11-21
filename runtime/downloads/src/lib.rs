@@ -205,6 +205,33 @@ impl DownloadCatalog {
         Ok((provider.provider.clone(), binding, provider.module_lock_digest.clone()))
     }
 
+    pub fn providers_for_game(
+        &self,
+        game_id: &str,
+    ) -> Result<Vec<(Arc<dyn SourceProvider>, SourceGameBinding, String)>, DownloadCoordinatorError> {
+        let catalog = self.inner.read().map_err(|_| DownloadCoordinatorError::CatalogPoisoned)?;
+        let mut results = Vec::new();
+        for ((source_id, _remote), binding) in &catalog.games {
+            if binding.game_id != game_id {
+                continue;
+            }
+            if let Some(entry) = catalog.providers.get(source_id) {
+                results.push((
+                    entry.provider.clone(),
+                    binding.clone(),
+                    entry.module_lock_digest.clone(),
+                ));
+            }
+        }
+        results.sort_by(|left, right| {
+            left.0
+                .source_id()
+                .cmp(right.0.source_id())
+                .then_with(|| left.1.remote_game_key.cmp(&right.1.remote_game_key))
+        });
+        Ok(results)
+    }
+
     fn resolve(
         &self,
         source_id: &str,

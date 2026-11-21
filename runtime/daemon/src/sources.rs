@@ -400,7 +400,7 @@ fn unavailable(state: &DaemonState, job_id: &str, reason: &str) -> Result<()> {
     state.jobs.append_event(job_id, event).map_err(message)?;
     Ok(())
 }
-fn collect_obsolete_sync(state: &Arc<DaemonState>) -> Result<()> {
+pub(super) fn collect_obsolete_sync(state: &DaemonState) -> Result<()> {
     let mut retained = pending(state)?.into_iter().map(|(_, digest)| digest).collect::<BTreeSet<_>>();
     if let Ok(current) = current_lock(state) { retained.insert(current); }
     let removed = {
@@ -417,7 +417,7 @@ fn collect_obsolete_sync(state: &Arc<DaemonState>) -> Result<()> {
 
 /// Drop terminal operations' configuration snapshots, never their content.
 pub(super) async fn collect_obsolete(state: &Arc<DaemonState>) -> Result<()> {
-    collect_obsolete_sync(state)
+    collect_obsolete_sync(state.as_ref())
 }
 
 #[cfg(test)]

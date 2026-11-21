@@ -3,9 +3,17 @@ import type { ProfilesContentStateResult } from '@mintcat/sdk-ts';
 
 import {
   canEditProfileContent,
+  compareModsForSort,
+  extractGameVersionTags,
   groupDropTarget,
+  matchesModFacets,
+  modDisplayVersion,
   modDropTarget,
+  modHasUpdate,
   modMetadataLabels,
+  modSourceUrl,
+  overlayProgressPercent,
+  parseModUrlLines,
   shouldRefreshLibrary,
 } from '../../../modules/library/ui/library-model';
 
@@ -108,5 +116,60 @@ describe('list drag sorting', () => {
     expect(groupDropTarget(groups, groups[0], groups[2], 'after', true)).toBeUndefined();
     const items = [mod('a', 0)];
     expect(modDropTarget(items, items[0], items[0], 'after', 'source')).toBeUndefined();
+  });
+});
+
+describe('parity helpers for metadata, facets, sorting, URLs and progress', () => {
+  it('maps unavailable approval to dash and separates game version tags from category tags', () => {
+    expect(modMetadataLabels(['1.40', 'v1.39.2', 'QoL', 'Verified', 'Optional'], 'unavailable')).toEqual({
+      category: 'QoL', multiplayer: '客户端可选', approval: '—',
+    });
+    expect(extractGameVersionTags(['1.40', 'QoL', 'v1.39.2', 'RequiredByAll'])).toEqual(['1.40', 'v1.39.2']);
+  });
+
+  it('prefers display versions and derives canonical source URLs', () => {
+    expect(modDisplayVersion({
+      appliedVersionId: 'file:123', appliedDisplayVersion: '2.1.0',
+      currentVersionId: 'file:456', currentDisplayVersion: '2.2.0',
+      versionSelection: { kind: 'auto' },
+    })).toBe('2.1.0');
+    expect(modDisplayVersion({
+      currentVersionId: 'file:456', currentDisplayVersion: '2.2.0',
+      versionSelection: { kind: 'auto' },
+    })).toBe('2.2.0');
+    expect(modSourceUrl({
+      url: 'https://mod.io/g/drg/m/better-flashlight',
+      mod: { sourceId: 'modio', remoteGameKey: 'drg', remoteModId: '100' },
+    })).toBe('https://mod.io/g/drg/m/better-flashlight');
+    expect(modSourceUrl({
+      mod: { sourceId: 'modcat', remoteGameKey: 'drg', remoteModId: 'abc-123' },
+    })).toBe('https://modcat.top/#/modDetail?ModId=abc-123');
+    expect(parseModUrlLines(' https://mod.io/g/drg/m/a \n\nhttps://mod.io/g/drg/m/a\nhttps://mod.io/g/drg/m/b ')).toEqual([
+      'https://mod.io/g/drg/m/a', 'https://mod.io/g/drg/m/b',
+    ]);
+  });
+
+  it('filters multi-facet combinations, detects updates, sorts by time and approval, and computes progress', () => {
+    const baseMod = {
+      profileModId: 'pm-1', incarnationId: 'inc-1', modId: 'm-1',
+      mod: { sourceId: 'modio', remoteGameKey: 'drg', remoteModId: '1' },
+      displayName: 'Alpha', tags: ['QoL', 'RequiredByAll'], approvalStatus: 'Verified',
+      entityRevision: 1, enabled: false, sortOrder: 0, versionSelection: { kind: 'auto' as const },
+      currentVersionId: 'file:2', appliedVersionId: 'file:1', createdAtMs: 100,
+    };
+    const secondMod = {
+      ...baseMod, profileModId: 'pm-2', modId: 'm-2', displayName: 'Beta',
+      approvalStatus: 'Sandbox', enabled: true, createdAtMs: 200,
+    };
+    expect(modHasUpdate(baseMod)).toBe(true);
+    expect(matchesModFacets(baseMod, {
+      status: 'disabled', sourceId: 'modio', approval: 'Verified', multiplayer: '全员必装', category: 'QoL',
+    }, new Set(), new Set(['pm-1']))).toBe(true);
+    expect(matchesModFacets(secondMod, {
+      status: 'disabled', sourceId: '', approval: '', multiplayer: '', category: '',
+    }, new Set(), new Set())).toBe(false);
+    expect(compareModsForSort(baseMod, secondMod, 'approval-asc')).toBeLessThan(0);
+    expect(compareModsForSort(baseMod, secondMod, 'time-desc')).toBeGreaterThan(0);
+    expect(overlayProgressPercent({ operation: busyState.operations[0], item: busyState.operations[0].items[0] })).toBe(25);
   });
 });

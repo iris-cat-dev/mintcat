@@ -718,6 +718,7 @@ fn library_snapshot(
                 source_url: None,
                 file_size: artifact.size,
                 legacy_download_status: None,
+                display_version: String::new(),
             });
             snapshot.profile_mods.push(ProfileModRecord {
                 profile_mod_id: profile_mod_id.clone(),

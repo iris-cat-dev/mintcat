@@ -43,6 +43,19 @@ pub struct GameEnrollmentResult {
     pub installation: Option<crate::GameInstallation>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileModArtifactInfo {
+    pub profile_mod_id: String,
+    pub mod_id: String,
+    pub display_name: String,
+    pub source_id: String,
+    pub enabled: bool,
+    pub sort_order: u64,
+    pub artifact_digest: Option<String>,
+    pub file_size: u64,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct EnrolledDefinition {
@@ -1476,13 +1489,26 @@ pub fn list_mods(
                 pm.selected_version_id, selected.remote_file_id, binding.version_id,
                 m.tags_json, m.approval_status,
                 (SELECT CASE WHEN count(*) = 1 THEN NULLIF(NULLIF(max(version_id), '-'), 'legacy-unversioned') END
-                 FROM library_mod_versions WHERE mod_id = m.mod_id AND current = 1)
+                 FROM library_mod_versions WHERE mod_id = m.mod_id AND current = 1),
+                (SELECT CASE WHEN count(*) = 1 THEN NULLIF(max(display_version), '') END
+                 FROM library_mod_versions WHERE mod_id = m.mod_id AND current = 1),
+                NULLIF(applied_v.display_version, ''),
+                binding.artifact_digest,
+                NULLIF(m.url, ''),
+                m.online_available,
+                m.local_missing,
+                m.last_update_at_ms,
+                m.online_update_at_ms,
+                pm.created_at_ms,
+                pm.updated_at_ms
          FROM library_profile_mods pm
          JOIN library_mods m ON m.mod_id = pm.mod_id
          LEFT JOIN library_mod_versions selected
            ON selected.mod_id = pm.mod_id AND selected.version_id = pm.selected_version_id
          LEFT JOIN library_profile_content_bindings binding
            ON binding.profile_mod_id = pm.profile_mod_id
+         LEFT JOIN library_mod_versions applied_v
+           ON applied_v.mod_id = pm.mod_id AND applied_v.version_id = binding.version_id
          WHERE pm.profile_id = ?1
            AND (?2 IS NULL OR instr(lower(m.display_name), lower(?2)) > 0)
            AND (?3 IS NULL OR m.source_id = ?3)
@@ -1538,8 +1564,10 @@ pub fn get_mod(
     authorize_profile(authorization, &profile)?;
     let summary = query_mod_summary(&connection, &request.profile_id, &request.profile_mod_id)?;
     let mut statement = connection.prepare(
-        "SELECT version_id, remote_file_id, artifact_digest, availability, current, file_size
-         FROM library_mod_versions WHERE mod_id = ?1 ORDER BY version_id",
+        "SELECT version_id, remote_file_id, artifact_digest, availability, current, file_size,
+                NULLIF(display_version, '')
+         FROM library_mod_versions WHERE mod_id = ?1
+         ORDER BY current DESC, updated_at_ms DESC, version_id DESC",
     )?;
     let rows = statement.query_map(params![summary.mod_id], |row| {
         Ok(ModVersionSummary {
@@ -1549,6 +1577,7 @@ pub fn get_mod(
             availability: row.get(3)?,
             current: row.get(4)?,
             file_size: row.get(5)?,
+            display_version: row.get(6)?,
         })
     })?;
     Ok(ModDetails {
@@ -1968,7 +1997,7 @@ pub fn cleanup_missing_mods(
             "SELECT DISTINCT pm.group_id
              FROM library_profile_mods pm
              JOIN library_mods m ON m.mod_id = pm.mod_id
-             WHERE pm.profile_id = ?1 AND m.game_id = ?2 AND m.local_missing = 1",
+             WHERE pm.profile_id = ?1 AND m.game_id = ?2 AND m.source_id = 'local' AND m.local_missing = 1",
         )?;
         let rows = statement
             .query_map(params![request.profile_id, request.game_id], |row| {
@@ -1980,7 +2009,7 @@ pub fn cleanup_missing_mods(
         "DELETE FROM library_profile_mods
          WHERE profile_id = ?1 AND mod_id IN (
              SELECT mod_id FROM library_mods
-             WHERE game_id = ?2 AND local_missing = 1
+             WHERE game_id = ?2 AND source_id = 'local' AND local_missing = 1
          )",
         params![request.profile_id, request.game_id],
     )?;
@@ -2019,6 +2048,99 @@ pub fn cleanup_missing_mods(
     )?;
     transaction.commit()?;
     Ok(result)
+}
+
+pub fn get_profile_mod_artifact(
+    &self,
+    authorization: &LibraryAuthorization,
+    profile_id: &str,
+    profile_mod_id: &str,
+) -> Result<ProfileModArtifactInfo, LibraryError> {
+    authorization.require(READ_PERMISSION)?;
+    let connection = self.connection()?;
+    let profile = load_profile_connection(&connection, profile_id)?;
+    authorize_profile(authorization, &profile)?;
+    connection
+        .query_row(
+            "SELECT pm.profile_mod_id, m.mod_id, m.display_name, m.source_id,
+                    pm.enabled, pm.sort_order, binding.artifact_digest,
+                    COALESCE(content.size, 0)
+             FROM library_profile_mods pm
+             JOIN library_mods m ON m.mod_id = pm.mod_id
+             LEFT JOIN library_profile_content_bindings binding
+               ON binding.profile_mod_id = pm.profile_mod_id
+             LEFT JOIN library_content_refs content
+               ON content.digest = binding.artifact_digest AND content.verified = 1
+             WHERE pm.profile_id = ?1 AND pm.profile_mod_id = ?2",
+            params![profile_id, profile_mod_id],
+            |row| {
+                Ok(ProfileModArtifactInfo {
+                    profile_mod_id: row.get(0)?,
+                    mod_id: row.get(1)?,
+                    display_name: row.get(2)?,
+                    source_id: row.get(3)?,
+                    enabled: row.get(4)?,
+                    sort_order: row.get(5)?,
+                    artifact_digest: row.get(6)?,
+                    file_size: row.get(7)?,
+                })
+            },
+        )
+        .optional()?
+        .ok_or_else(|| LibraryError::NotFound(profile_mod_id.to_owned()))
+}
+
+pub fn list_profile_mod_artifacts(
+    &self,
+    authorization: &LibraryAuthorization,
+    profile_id: &str,
+    profile_mod_ids: Option<&[String]>,
+    enabled_only: bool,
+) -> Result<Vec<ProfileModArtifactInfo>, LibraryError> {
+    authorization.require(READ_PERMISSION)?;
+    let connection = self.connection()?;
+    let profile = load_profile_connection(&connection, profile_id)?;
+    authorize_profile(authorization, &profile)?;
+    let mut statement = connection.prepare(
+        "SELECT pm.profile_mod_id, m.mod_id, m.display_name, m.source_id,
+                pm.enabled, pm.sort_order, binding.artifact_digest,
+                COALESCE(content.size, 0)
+         FROM library_profile_mods pm
+         JOIN library_mods m ON m.mod_id = pm.mod_id
+         LEFT JOIN library_profile_content_bindings binding
+           ON binding.profile_mod_id = pm.profile_mod_id
+         LEFT JOIN library_content_refs content
+           ON content.digest = binding.artifact_digest AND content.verified = 1
+         WHERE pm.profile_id = ?1
+           AND (?2 = 0 OR pm.enabled = 1)
+         ORDER BY pm.sort_order, pm.profile_mod_id",
+    )?;
+    let filter: Option<HashSet<&str>> = profile_mod_ids
+        .filter(|ids| !ids.is_empty())
+        .map(|ids| ids.iter().map(String::as_str).collect());
+    let rows = statement.query_map(params![profile_id, enabled_only], |row| {
+        Ok(ProfileModArtifactInfo {
+            profile_mod_id: row.get(0)?,
+            mod_id: row.get(1)?,
+            display_name: row.get(2)?,
+            source_id: row.get(3)?,
+            enabled: row.get(4)?,
+            sort_order: row.get(5)?,
+            artifact_digest: row.get(6)?,
+            file_size: row.get(7)?,
+        })
+    })?;
+    let mut items = Vec::new();
+    for row in rows {
+        let item = row?;
+        if filter
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(item.profile_mod_id.as_str()))
+        {
+            items.push(item);
+        }
+    }
+    Ok(items)
 } }
 
 #[derive(Debug)]
@@ -2453,13 +2575,26 @@ fn query_mod_summary(
                     pm.selected_version_id, selected.remote_file_id, binding.version_id,
                     m.tags_json, m.approval_status,
                     (SELECT CASE WHEN count(*) = 1 THEN NULLIF(NULLIF(max(version_id), '-'), 'legacy-unversioned') END
-                     FROM library_mod_versions WHERE mod_id = m.mod_id AND current = 1)
+                     FROM library_mod_versions WHERE mod_id = m.mod_id AND current = 1),
+                    (SELECT CASE WHEN count(*) = 1 THEN NULLIF(max(display_version), '') END
+                     FROM library_mod_versions WHERE mod_id = m.mod_id AND current = 1),
+                    NULLIF(applied_v.display_version, ''),
+                    binding.artifact_digest,
+                    NULLIF(m.url, ''),
+                    m.online_available,
+                    m.local_missing,
+                    m.last_update_at_ms,
+                    m.online_update_at_ms,
+                    pm.created_at_ms,
+                    pm.updated_at_ms
              FROM library_profile_mods pm
              JOIN library_mods m ON m.mod_id = pm.mod_id
              LEFT JOIN library_mod_versions selected
                ON selected.mod_id = pm.mod_id AND selected.version_id = pm.selected_version_id
              LEFT JOIN library_profile_content_bindings binding
                ON binding.profile_mod_id = pm.profile_mod_id
+             LEFT JOIN library_mod_versions applied_v
+               ON applied_v.mod_id = pm.mod_id AND applied_v.version_id = binding.version_id
              WHERE pm.profile_id = ?1 AND pm.profile_mod_id = ?2",
             params![profile_id, profile_mod_id],
             map_mod_summary,
@@ -2477,6 +2612,10 @@ fn map_mod_summary(row: &rusqlite::Row<'_>) -> Result<ModSummary, rusqlite::Erro
     let tags = serde_json::from_str(tags).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(15, rusqlite::types::Type::Text, Box::new(error))
     })?;
+    let last_update_at_ms: i64 = row.get(24)?;
+    let online_update_at_ms: i64 = row.get(25)?;
+    let created_at_ms: i64 = row.get(26)?;
+    let updated_at_ms: i64 = row.get(27)?;
     Ok(ModSummary {
         profile_mod_id: row.get(0)?,
         incarnation_id: row.get(1)?,
@@ -2492,6 +2631,16 @@ fn map_mod_summary(row: &rusqlite::Row<'_>) -> Result<ModSummary, rusqlite::Erro
         tags,
         approval_status: row.get(16)?,
         current_version_id: row.get(17)?,
+        current_display_version: row.get(18)?,
+        applied_display_version: row.get(19)?,
+        applied_artifact_digest: row.get(20)?,
+        url: row.get(21)?,
+        online_available: Some(row.get(22)?),
+        local_missing: Some(row.get(23)?),
+        last_update_at_ms: u64::try_from(last_update_at_ms.max(0)).ok(),
+        online_update_at_ms: u64::try_from(online_update_at_ms.max(0)).ok(),
+        created_at_ms: u64::try_from(created_at_ms.max(0)).ok(),
+        updated_at_ms: u64::try_from(updated_at_ms.max(0)).ok(),
         entity_revision: row.get(7)?,
         enabled: row.get(8)?,
         sort_order: row.get(9)?,

@@ -1,4 +1,5 @@
 mod agent_proxy;
+mod artifacts_ops;
 mod backup;
 mod composition;
 mod application;
@@ -184,6 +185,17 @@ impl BoundDaemon {
         };
         let credential_vault = CredentialVault::new(credential_store);
         let network_broker = NetworkBroker::new(&credential_vault, None)?;
+        if let Ok(saved_network) = library.get_settings(
+            &library_authorization,
+            &mintcat_sdk::SettingsGetParams {
+                scope: mintcat_sdk::SettingsScope::Value(json!({"kind": "global"})),
+                section: "network".to_owned(),
+            },
+        ) {
+            if let Ok(proxy_url) = parse_network_proxy_setting(&saved_network.values) {
+                let _ = network_broker.set_http_proxy(proxy_url.as_ref());
+            }
+        }
         let transfers = TransferManager::open(
             database.clone(), artifacts.clone(), network_broker.clone(),
             layout.runtime_dir.join("transfers"), TransferConfig::default(),
@@ -322,6 +334,39 @@ fn spawn_download(
 }
 
 const LOCAL_OWNER_SCOPE: &str = "local-user";
+
+pub(crate) fn parse_network_proxy_setting(values: &Value) -> Result<Option<url::Url>, String> {
+    let Some(object) = values.as_object() else {
+        return Err("network settings must be an object".to_owned());
+    };
+    let mode = object
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or("direct");
+    match mode {
+        "direct" => Ok(None),
+        "manual" => {
+            let raw = object
+                .get("proxyUrl")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("");
+            if raw.is_empty() || raw.len() > 2048 || raw.chars().any(char::is_control) {
+                return Err("manual proxy mode requires a valid http:// or https:// proxyUrl".to_owned());
+            }
+            let parsed = url::Url::parse(raw)
+                .map_err(|_| "proxyUrl must be a valid http:// or https:// URL".to_owned())?;
+            if !matches!(parsed.scheme(), "http" | "https")
+                || parsed.host_str().is_none_or(str::is_empty)
+                || parsed.cannot_be_a_base()
+            {
+                return Err("proxyUrl must use http:// or https:// with a valid host".to_owned());
+            }
+            Ok(Some(parsed))
+        }
+        other => Err(format!("unsupported network proxy mode: {other}")),
+    }
+}
 
 fn replay_library_outbox(library: &LibraryStore, jobs: &JobStore) -> Result<usize, DaemonError> {
     let mut delivered = 0usize;
@@ -621,6 +666,39 @@ fn handle_core_request(state: &DaemonState, request: ValidatedRequest) -> Result
             }
             job_value(&request_id, Ok(job))
         }
+        ApplicationCommand::ModsUpdateBatch(params) => {
+            let started = state
+                .library
+                .start_batch_version_download(
+                    &state.library_authorization,
+                    mutation_key.expect("validated mutation has an idempotency key"),
+                    &state.generation_id,
+                    &sources::current_lock(state).map_err(|reason| Box::new(AppError {
+                        code: "MODULE_UNAVAILABLE".into(), message_key: "source.unprovisioned".into(),
+                        details: json!({"reason":reason}), request_id: request_id.clone(),
+                        job_id: None, retryable: false, recovery_actions: vec![],
+                    }))?,
+                    &params,
+                )
+                .map_err(|error| Box::new(library_error(&request_id, error)))?;
+            replay_library_outbox(&state.library, &state.jobs)
+                .map_err(|error| Box::new(internal_error(&request_id, error.to_string())))?;
+            let operation_id = started.operation.operation_id.clone();
+            let job = state
+                .jobs
+                .find_operation(LOCAL_OWNER_SCOPE, "library.download.apply", &operation_id)
+                .and_then(|job| job.ok_or_else(|| JobError::NotFound(operation_id.clone())))
+                .map_err(|error| Box::new(job_error(&request_id, error)))?;
+            if started.created {
+                spawn_download(
+                    sources::for_job(state, &job.job_id).map_err(|error| Box::new(internal_error(&request_id, error)))?.downloads,
+                    job.job_id.clone(),
+                    operation_id,
+                    None,
+                );
+            }
+            job_value(&request_id, Ok(job))
+        }
         ApplicationCommand::JobsGet(params) => job_value(
             &request_id,
             state.jobs.get_job(LOCAL_OWNER_SCOPE, &params.job_id),
@@ -641,7 +719,7 @@ fn handle_core_request(state: &DaemonState, request: ValidatedRequest) -> Result
                 .expect("validated mutation has an idempotency key");
             let hash = request_hash(&envelope.params)
                 .map_err(|error| Box::new(job_error(&request_id, error)))?;
-            let snapshot = state
+            let mut snapshot = state
                 .jobs
                 .request_cancel(
                     LOCAL_OWNER_SCOPE,
@@ -668,6 +746,16 @@ fn handle_core_request(state: &DaemonState, request: ValidatedRequest) -> Result
                 sources::for_job(state, &params.job_id).map_err(|error| Box::new(internal_error(&request_id, error)))?.downloads
                     .cancel(&params.job_id, operation_id)
                     .map_err(|error| Box::new(internal_error(&request_id, error.to_string())))?;
+            } else if matches!(snapshot.command.as_str(), "mods.importLocal" | "mods.add")
+                && snapshot.state == JobState::Cancelling
+            {
+                snapshot = state
+                    .jobs
+                    .cancel_at_safe_point(&params.job_id)
+                    .map_err(|error| Box::new(job_error(&request_id, error)))?;
+                if snapshot.state == JobState::Cancelled {
+                    let _ = sources::collect_obsolete_sync(state);
+                }
             }
             job_value(&request_id, Ok(snapshot))
         }
@@ -1389,7 +1477,7 @@ mod tests {
         source.import_legacy(&legacy_fixture(),&EmptyVault).unwrap();
         let runtime=||Ok(BackupRuntimeState {
             blockers:Default::default(),
-            modules:std::collections::BTreeMap::from([("mintcat.library".into(),ModuleVersion {version:"0.1.0".into(),schema_version:5})]),
+            modules:std::collections::BTreeMap::from([("mintcat.library".into(),ModuleVersion {version:"0.1.0".into(),schema_version:mintcat_feature_backup::LIBRARY_SCHEMA_VERSION})]),
         });
         let bytes=BackupService::new(source_layout,source).unwrap().export_bytes(runtime).unwrap();
         let mut archive:BackupArchive=serde_json::from_slice(&bytes).unwrap();

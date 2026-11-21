@@ -84,4 +84,15 @@ describe('human error presentation boundaries', () => {
     expect(vault.retryable).toBe(true);
     expect(vault.diagnostics.join('\n')).toContain('系统凭据库不可用');
   });
+  it('explains recovery-required frozen snapshot errors in plain language', () => {
+    const stale = presentUiError({
+      code: 'RECOVERY_REQUIRED',
+      messageKey: 'source.frozen_configuration_unavailable',
+      requestId: 'job-stale',
+      details: { reason: 'source snapshot identity mismatch' },
+    }, 'host');
+    expect(stale.title).toBe('旧版未完成任务已失效');
+    expect(stale.description).toContain('移除这条记录');
+    expect(stale.retryable).toBe(false);
+  });
 });

@@ -295,8 +295,140 @@ struct ProxyStart { digest: String, options: StartOptions }
 struct ProxyPrivilege { digest: String, operation: PrivilegeOperation }
 
 pub(crate) async fn handle(state: &Arc<DaemonState>, request: &ValidatedRequest) -> Option<Result<Value>> {
-    if !matches!(request.envelope.method.as_str(), "agent.sessions.create" | "agent.sessions.get" | "agent.sessions.send" | "agent.sessions.delete" | "proxy.status" | "proxy.start" | "proxy.stop" | "proxy.privilege") { return None; }
+    if !matches!(
+        request.envelope.method.as_str(),
+        "agent.sessions.create"
+            | "agent.sessions.get"
+            | "agent.sessions.send"
+            | "agent.sessions.delete"
+            | "agent.credentials.status"
+            | "agent.credentials.set"
+            | "agent.credentials.clear"
+            | "agent.connection.test"
+            | "proxy.status"
+            | "proxy.start"
+            | "proxy.stop"
+            | "proxy.privilege"
+    ) {
+        return None;
+    }
     Some(route(state, request).await)
+}
+
+const AGENT_CREDENTIAL_MIGRATION: &str = "CREATE TABLE agent_credentials (slot TEXT PRIMARY KEY, credential_ref TEXT NOT NULL, updated_at_ms INTEGER NOT NULL);";
+const AGENT_DEFAULT_SLOT: &str = "default";
+
+fn ensure_agent_credential_migration(state: &DaemonState, id: &str) -> Result<()> {
+    state
+        .jobs
+        .database()
+        .apply_migration("runtime.agent_credentials", 1, AGENT_CREDENTIAL_MIGRATION)
+        .map(|_| ())
+        .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))
+}
+
+fn load_agent_credential_ref(state: &DaemonState, id: &str) -> Result<Option<mintcat_runtime_broker::CredentialRef>> {
+    use rusqlite::OptionalExtension;
+    ensure_agent_credential_migration(state, id)?;
+    let connection = state
+        .jobs
+        .database()
+        .connection()
+        .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))?;
+    let raw: Option<String> = connection
+        .query_row(
+            "SELECT credential_ref FROM agent_credentials WHERE slot = ?1",
+            [AGENT_DEFAULT_SLOT],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))?;
+    raw.map(|value| {
+        serde_json::from_value(Value::String(value))
+            .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))
+    })
+    .transpose()
+}
+
+fn upsert_agent_credential_ref(
+    state: &DaemonState,
+    reference: &mintcat_runtime_broker::CredentialRef,
+    updated_at_ms: i64,
+    id: &str,
+) -> Result<Option<mintcat_runtime_broker::CredentialRef>> {
+    use rusqlite::{params, OptionalExtension, TransactionBehavior};
+    ensure_agent_credential_migration(state, id)?;
+    let mut connection = state
+        .jobs
+        .database()
+        .connection()
+        .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))?;
+    let previous: Option<String> = transaction
+        .query_row(
+            "SELECT credential_ref FROM agent_credentials WHERE slot = ?1",
+            [AGENT_DEFAULT_SLOT],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))?;
+    transaction
+        .execute(
+            "INSERT INTO agent_credentials(slot, credential_ref, updated_at_ms) VALUES (?1, ?2, ?3)
+             ON CONFLICT(slot) DO UPDATE SET credential_ref = excluded.credential_ref, updated_at_ms = excluded.updated_at_ms",
+            params![AGENT_DEFAULT_SLOT, reference.as_str(), updated_at_ms],
+        )
+        .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))?;
+    transaction
+        .commit()
+        .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))?;
+    previous
+        .map(|value| {
+            serde_json::from_value(Value::String(value))
+                .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))
+        })
+        .transpose()
+}
+
+fn delete_agent_credential_ref(
+    state: &DaemonState,
+    id: &str,
+) -> Result<Option<mintcat_runtime_broker::CredentialRef>> {
+    use rusqlite::{OptionalExtension, TransactionBehavior};
+    ensure_agent_credential_migration(state, id)?;
+    let mut connection = state
+        .jobs
+        .database()
+        .connection()
+        .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))?;
+    let previous: Option<String> = transaction
+        .query_row(
+            "SELECT credential_ref FROM agent_credentials WHERE slot = ?1",
+            [AGENT_DEFAULT_SLOT],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))?;
+    transaction
+        .execute(
+            "DELETE FROM agent_credentials WHERE slot = ?1",
+            [AGENT_DEFAULT_SLOT],
+        )
+        .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))?;
+    transaction
+        .commit()
+        .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))?;
+    previous
+        .map(|value| {
+            serde_json::from_value(Value::String(value))
+                .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", id))
+        })
+        .transpose()
 }
 async fn route(state: &Arc<DaemonState>, request: &ValidatedRequest) -> Result<Value> {
     let runtime = &state.features;
@@ -309,6 +441,107 @@ async fn route(state: &Arc<DaemonState>, request: &ValidatedRequest) -> Result<V
         return encode(replay.job, &id);
     }
     match request.envelope.method.as_str() {
+        "agent.credentials.status" => {
+            let state = Arc::clone(state);
+            let id2 = id.clone();
+            tokio::task::spawn_blocking(move || {
+                let saved = load_agent_credential_ref(&state, &id2)?;
+                encode(
+                    mintcat_sdk::AgentCredentialStatusResult {
+                        credential_configured: saved.is_some(),
+                        credential_ref: saved.map(|reference| reference.as_str().to_owned()),
+                    },
+                    &id2,
+                )
+            })
+            .await
+            .map_err(|_| error("INTERNAL", "agent.executor", &id))?
+        }
+        "agent.credentials.set" => {
+            let input: mintcat_sdk::AgentCredentialSetParams = decode(params, &id)?;
+            let secret = super::sources::parse_secret_input(&input.secret)
+                .map_err(|_| error("INVALID_ARGUMENT", "agent.credentials.invalid", &id))?;
+            let state = Arc::clone(state);
+            let id2 = id.clone();
+            tokio::task::spawn_blocking(move || {
+                let _admission = MaintenanceGate::enter_mutation(&state.layout)
+                    .map_err(|_| error("RESOURCE_BUSY", "runtime.maintenance", &id2))?;
+                let new_ref = state
+                    .credential_vault
+                    .store(secret)
+                    .map_err(|_| error("AGENT_STORAGE", "agent.credentials.vault", &id2))?;
+                let now = super::now_ms()
+                    .map_err(|_| error("AGENT_STORAGE", "agent.credentials.storage", &id2))?;
+                let previous = match upsert_agent_credential_ref(&state, &new_ref, now, &id2) {
+                    Ok(prev) => prev,
+                    Err(err) => {
+                        let _ = state.credential_vault.delete(&new_ref);
+                        return Err(err);
+                    }
+                };
+                if let Some(previous_ref) = previous {
+                    if previous_ref != new_ref {
+                        let _ = state.credential_vault.delete(&previous_ref);
+                    }
+                }
+                encode(
+                    mintcat_sdk::AgentCredentialStatusResult {
+                        credential_configured: true,
+                        credential_ref: Some(new_ref.as_str().to_owned()),
+                    },
+                    &id2,
+                )
+            })
+            .await
+            .map_err(|_| error("INTERNAL", "agent.executor", &id))?
+        }
+        "agent.credentials.clear" => {
+            let state = Arc::clone(state);
+            let id2 = id.clone();
+            tokio::task::spawn_blocking(move || {
+                let _admission = MaintenanceGate::enter_mutation(&state.layout)
+                    .map_err(|_| error("RESOURCE_BUSY", "runtime.maintenance", &id2))?;
+                let previous = delete_agent_credential_ref(&state, &id2)?;
+                if let Some(previous_ref) = previous {
+                    let _ = state.credential_vault.delete(&previous_ref);
+                }
+                encode(
+                    mintcat_sdk::AgentCredentialStatusResult {
+                        credential_configured: false,
+                        credential_ref: None,
+                    },
+                    &id2,
+                )
+            })
+            .await
+            .map_err(|_| error("INTERNAL", "agent.executor", &id))?
+        }
+        "agent.connection.test" => {
+            let input: mintcat_sdk::AgentConnectionTestParams = decode(params, &id)?;
+            let credential_ref = if input.credential_ref.is_some() {
+                input.credential_ref
+            } else {
+                let state_ref = Arc::clone(state);
+                let id_ref = id.clone();
+                tokio::task::spawn_blocking(move || load_agent_credential_ref(&state_ref, &id_ref))
+                    .await
+                    .map_err(|_| error("INTERNAL", "agent.executor", &id))??
+                    .map(|reference| reference.as_str().to_owned())
+            };
+            let config = mintcat_feature_agent::AgentConfiguration {
+                base_url: input.base_url,
+                model: input.model,
+                credential_ref,
+            };
+            let probe = mintcat_feature_agent::test_connection(
+                &state.network_broker,
+                &config,
+                &mintcat_runtime_broker::CancellationToken::default(),
+            )
+            .await
+            .map_err(|failure| agent_error(failure, &id))?;
+            encode(probe, &id)
+        }
         "agent.sessions.get" => {
             let lookup: SessionLookup = decode(params, &id)?;
             encode(agent_call(runtime, move |agent| agent.get(&lookup.session_id), &id).await?, &id)

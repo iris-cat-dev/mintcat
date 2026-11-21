@@ -138,10 +138,13 @@ impl SourceProvider for ModioProvider {
         if !matches!(url.host_str(), Some("mod.io" | "www.mod.io")) {
             return Ok(None);
         }
-        let segments = url
+        let mut segments = url
             .path_segments()
             .map(Iterator::collect::<Vec<_>>)
             .unwrap_or_default();
+        if segments.last() == Some(&"") {
+            segments.pop();
+        }
         if segments.len() != 4
             || segments[0] != "g"
             || segments[1] != game.remote_game_key
@@ -345,6 +348,74 @@ impl SourceProvider for ModioProvider {
             expires_at: download.date_expires,
             expected_size: version.file_size,
             expected_md5: version.md5,
+        })
+    }
+
+    async fn list_subscribed(
+        &self,
+        game: &SourceGameBinding,
+        cursor: Option<&str>,
+        page_size: u32,
+        cancellation: &CancellationToken,
+    ) -> Result<SearchPage, SourceError> {
+        if page_size == 0 || page_size > MAX_PAGE_SIZE {
+            return Err(SourceError::InvalidArgument(format!(
+                "page size must be between 1 and {MAX_PAGE_SIZE}"
+            )));
+        }
+        if self.config.credential.is_none() {
+            return Err(SourceError::Unauthorized);
+        }
+        let provider_game_id = provider_game_id(game)?;
+        let scope_value = json!({
+            "kind": "subscribed",
+            "sourceId": SOURCE_ID,
+            "gameId": game.game_id,
+            "remoteGameKey": game.remote_game_key,
+            "providerGameId": game.provider_game_id,
+            "pageSize": page_size,
+        });
+        let scope_hash = format!(
+            "sha256:{:x}",
+            Sha256::digest(
+                serde_json::to_vec(&scope_value)
+                    .map_err(|error| SourceError::InvalidResponse(error.to_string()))?
+            )
+        );
+        let offset = cursor
+            .map(|raw| decode_cursor(raw, &scope_hash))
+            .transpose()?
+            .unwrap_or(0);
+        let mut endpoint = self.endpoint("me/subscribed")?;
+        {
+            let mut query = endpoint.query_pairs_mut();
+            query
+                .append_pair("game_id", &provider_game_id.to_string())
+                .append_pair("_limit", &page_size.to_string())
+                .append_pair("_offset", &offset.to_string());
+        }
+        let response: ApiPage<ApiMod> = self.request_json(endpoint, cancellation).await?;
+        let count = u64::try_from(response.data.len())
+            .map_err(|_| SourceError::InvalidResponse("mod.io page length overflow".to_owned()))?;
+        let items = response
+            .data
+            .into_iter()
+            .filter(|item| item.game_id.to_string() == game.provider_game_id)
+            .map(|item| map_mod(game, item))
+            .collect::<Result<Vec<_>, _>>()?;
+        let next_offset = offset + count;
+        let has_more = response
+            .result_total
+            .is_some_and(|total| next_offset < total)
+            || (response.result_total.is_none() && count == u64::from(page_size));
+        Ok(SearchPage {
+            items,
+            next_cursor: has_more
+                .then(|| encode_cursor(&scope_hash, next_offset))
+                .transpose()?,
+            live_pagination: true,
+            total: response.result_total,
+            warnings: Vec::new(),
         })
     }
 }

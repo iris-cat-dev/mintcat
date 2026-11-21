@@ -12,9 +12,9 @@ mod import_outcome;
 mod digest;
 mod settings;
 pub use import_outcome::LegacyImportOutcome;
-pub use source_add::{SourceAddRequest, SourceAddTarget, SourceAddMetadata, SourceAddVersion, SourceAddResult};
+pub use source_add::{RemoteModMetadataUpdate, SourceAddRequest, SourceAddTarget, SourceAddMetadata, SourceAddVersion, SourceAddResult};
 pub use client::LibraryStore;
-pub use library_api::{GameEnrollmentRequest, GameEnrollmentResult};
+pub use library_api::{GameEnrollmentRequest, GameEnrollmentResult, ProfileModArtifactInfo};
 pub(crate) use store::OwnerStore;
 #[cfg(test)]
 mod tests;

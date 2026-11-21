@@ -1,5 +1,5 @@
 use std::{fs, path::Path};
-use mintcat_library_service::{LibraryAuthorization, LibraryError, LibrarySnapshot, LibraryStore, READ_PERMISSION, METADATA_WRITE_PERMISSION};
+use mintcat_library_service::{LibraryAuthorization, LibraryError, LibraryStore, READ_PERMISSION, METADATA_WRITE_PERMISSION};
 use mintcat_runtime_kernel::{RuntimeEnvironment, RuntimeLayout, RuntimePaths};
 use mintcat_sdk::{SettingsGetParams, SettingsScope, SettingsUpdateParams};
 use sha2::{Digest, Sha256};
@@ -42,10 +42,10 @@ fn unsupported_schema_is_rejected_without_mutating_database() {
     let path = library.database_path().to_owned();
     drop(library);
     let connection = rusqlite::Connection::open(&path).unwrap();
-    connection.execute("INSERT INTO library_schema VALUES(6,0)", []).unwrap();
+    connection.execute("INSERT INTO library_schema VALUES(7,0)", []).unwrap();
     drop(connection);
     let bytes = fs::read(&path).unwrap();
-    assert!(matches!(LibraryStore::open(&fixture.layout), Err(LibraryError::UnsupportedSchema(6))));
+    assert!(matches!(LibraryStore::open(&fixture.layout), Err(LibraryError::UnsupportedSchema(7))));
     assert_eq!(fs::read(path).unwrap(), bytes);
 }
 #[test]

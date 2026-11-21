@@ -1775,6 +1775,327 @@
         "discover"
       ],
       "agentExposed": false
+    },
+    {
+      "method": "mods.refreshVersions",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsRefreshVersionsParams",
+      "resultSchema": "#/$defs/ModDetails",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.metadata.write",
+      "idempotency": "optional",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "SOURCE_UNAUTHORIZED",
+        "SOURCE_NOT_FOUND",
+        "SOURCE_RATE_LIMITED",
+        "SOURCE_UNAVAILABLE",
+        "SOURCE_INVALID_RESPONSE",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Fetch live remote versions for one mod, persist them in the Library, and return updated mod details.",
+      "cli": [
+        "mods",
+        "refresh-versions"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "mods.checkUpdates",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsCheckUpdatesParams",
+      "resultSchema": "#/$defs/ModsCheckUpdatesResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.metadata.write",
+      "idempotency": "optional",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "SOURCE_UNAUTHORIZED",
+        "SOURCE_RATE_LIMITED",
+        "SOURCE_UNAVAILABLE",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Refresh remote metadata and latest versions for remote mods in a profile.",
+      "cli": [
+        "mods",
+        "check-updates"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "mods.updateBatch",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsUpdateBatchParams",
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "policy",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "RESOURCE_BUSY",
+        "STALE_TARGET",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Start one atomic download operation to update selected or updatable remote mods to their latest version.",
+      "cli": [
+        "mods",
+        "update-batch"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "mods.checkConflicts",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsCheckConflictsParams",
+      "resultSchema": "#/$defs/ModsCheckConflictsResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Inspect verified cached mod artifacts in a profile and report overlapping file paths.",
+      "cli": [
+        "mods",
+        "check-conflicts"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "mods.exportArtifact",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/ModsExportArtifactParams",
+      "resultSchema": "#/$defs/ModsExportArtifactResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "ARTIFACT_NOT_VERIFIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Export one verified cached mod artifact to an explicitly selected destination file path.",
+      "cli": [
+        "mods",
+        "export-artifact"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "sources.resolveUrl",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/SourcesResolveUrlParams",
+      "resultSchema": "#/$defs/SourceSearchItem",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "sources.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "SOURCE_UNAUTHORIZED",
+        "SOURCE_NOT_FOUND",
+        "SOURCE_RATE_LIMITED",
+        "SOURCE_UNAVAILABLE",
+        "SOURCE_INVALID_RESPONSE",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Resolve a remote mod webpage URL through registered sources for a game.",
+      "cli": [
+        "sources",
+        "resolve-url"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "sources.listSubscribed",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/SourcesListSubscribedParams",
+      "resultSchema": "#/$defs/SourceSearchResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "sources.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "SOURCE_UNAUTHORIZED",
+        "SOURCE_NOT_FOUND",
+        "SOURCE_RATE_LIMITED",
+        "SOURCE_UNAVAILABLE",
+        "SOURCE_INVALID_RESPONSE",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "List mods subscribed by the authenticated account on a configured remote source.",
+      "cli": [
+        "sources",
+        "list-subscribed"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "install.receipts",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/InstallReceiptsParams",
+      "resultSchema": "#/$defs/InstallReceiptsResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "List active installation receipts recorded for an installation.",
+      "cli": [
+        "install",
+        "receipts"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "install.detectInputs",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/InstallDetectInputsParams",
+      "resultSchema": "#/$defs/InstallDetectInputsResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Inspect verified cached artifacts for enabled profile mods and infer exact Unreal input formats.",
+      "cli": [
+        "install",
+        "detect-inputs"
+      ],
+      "agentExposed": true
+    },
+    {
+      "method": "agent.credentials.status",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/AgentCredentialStatusParams",
+      "resultSchema": "#/$defs/AgentCredentialStatusResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "agent.write",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "PERMISSION_DENIED",
+        "AGENT_STORAGE",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Check whether an OpenAI-compatible API key is saved in the OS credential vault for Agent sessions.",
+      "cli": [
+        "agent",
+        "credentials",
+        "status"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "agent.credentials.set",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/AgentCredentialSetParams",
+      "resultSchema": "#/$defs/AgentCredentialStatusResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "agent.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "PERMISSION_DENIED",
+        "RESOURCE_BUSY",
+        "AGENT_STORAGE",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Store or replace the Agent API key in the OS credential vault and return only its reference metadata.",
+      "cli": [
+        "agent",
+        "credentials",
+        "set"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "agent.credentials.clear",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/AgentCredentialClearParams",
+      "resultSchema": "#/$defs/AgentCredentialStatusResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "agent.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "PERMISSION_DENIED",
+        "RESOURCE_BUSY",
+        "AGENT_STORAGE",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Remove the saved Agent API key from the OS credential vault.",
+      "cli": [
+        "agent",
+        "credentials",
+        "clear"
+      ],
+      "agentExposed": false
+    },
+    {
+      "method": "agent.connection.test",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/AgentConnectionTestParams",
+      "resultSchema": "#/$defs/AgentConnectionTestResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "agent.write",
+      "idempotency": "none",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "PERMISSION_DENIED",
+        "AGENT_PROVIDER",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Probe an OpenAI-compatible Agent endpoint and model through the daemon network broker.",
+      "cli": [
+        "agent",
+        "connection",
+        "test"
+      ],
+      "agentExposed": false
     }
   ]
 }

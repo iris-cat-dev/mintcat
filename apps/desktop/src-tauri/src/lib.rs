@@ -352,6 +352,334 @@ async fn open_external_url(window: tauri::WebviewWindow, url: String) -> Result<
     }
 }
 
+fn validate_steam_app_id(app_id: &str) -> Result<tauri::Url, String> {
+    let trimmed = app_id.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > 12
+        || !trimmed.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err("Steam App ID must be a positive numeric identifier".to_owned());
+    }
+    tauri::Url::parse(&format!("steam://rungameid/{trimmed}"))
+        .map_err(|_| "Unable to construct Steam launch URI".to_owned())
+}
+
+#[tauri::command]
+async fn launch_steam_game(window: tauri::WebviewWindow, app_id: String) -> Result<(), String> {
+    let parsed = validate_steam_app_id(&app_id)?;
+    #[cfg(target_os = "macos")]
+    {
+        let (sender, mut receiver) = tauri::async_runtime::channel(1);
+        window
+            .run_on_main_thread(move || {
+                let _ = sender.try_send(launch_external_url(&parsed));
+            })
+            .map_err(|error| error.to_string())?;
+        receiver
+            .recv()
+            .await
+            .ok_or_else(|| "Game launcher callback was released".to_owned())?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        launch_external_url(&parsed)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn pick_local_path_native(
+    kind: &str,
+    title: Option<String>,
+    extensions: Option<Vec<String>>,
+) -> Result<Option<String>, String> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSModalResponseOK, NSOpenPanel};
+    use objc2_foundation::{NSArray, NSString};
+
+    let mtm = MainThreadMarker::new()
+        .ok_or_else(|| "Native file picker must run on the main thread".to_owned())?;
+    let panel = NSOpenPanel::openPanel(mtm);
+    let choose_directory = kind == "directory";
+    panel.setCanChooseFiles(!choose_directory);
+    panel.setCanChooseDirectories(choose_directory);
+    panel.setAllowsMultipleSelection(false);
+    panel.setResolvesAliases(true);
+    if let Some(title) = title.filter(|value| !value.trim().is_empty()) {
+        panel.setTitle(Some(&NSString::from_str(&title)));
+    }
+    if !choose_directory {
+        if let Some(exts) = extensions.filter(|items| !items.is_empty()) {
+            let ns_exts: Vec<_> = exts
+                .iter()
+                .map(|ext| NSString::from_str(ext.trim_start_matches('.')))
+                .collect();
+            let array = NSArray::from_retained_slice(&ns_exts);
+            #[allow(deprecated)]
+            panel.setAllowedFileTypes(Some(&array));
+        }
+    }
+    let response = panel.runModal();
+    if response != NSModalResponseOK {
+        return Ok(None);
+    }
+    let Some(url) = panel.URL() else {
+        return Ok(None);
+    };
+    Ok(url.path().map(|path| path.to_string()))
+}
+
+#[cfg(target_os = "macos")]
+fn pick_save_path_native(
+    title: Option<String>,
+    default_name: Option<String>,
+    extensions: Option<Vec<String>>,
+) -> Result<Option<String>, String> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSModalResponseOK, NSSavePanel};
+    use objc2_foundation::{NSArray, NSString};
+
+    let mtm = MainThreadMarker::new()
+        .ok_or_else(|| "Native save picker must run on the main thread".to_owned())?;
+    let panel = NSSavePanel::savePanel(mtm);
+    panel.setCanCreateDirectories(true);
+    if let Some(title) = title.filter(|value| !value.trim().is_empty()) {
+        panel.setTitle(Some(&NSString::from_str(&title)));
+    }
+    if let Some(name) = default_name.filter(|value| !value.trim().is_empty()) {
+        panel.setNameFieldStringValue(&NSString::from_str(&name));
+    }
+    if let Some(exts) = extensions.filter(|items| !items.is_empty()) {
+        let ns_exts: Vec<_> = exts
+            .iter()
+            .map(|ext| NSString::from_str(ext.trim_start_matches('.')))
+            .collect();
+        let array = NSArray::from_retained_slice(&ns_exts);
+        #[allow(deprecated)]
+        panel.setAllowedFileTypes(Some(&array));
+    }
+    let response = panel.runModal();
+    if response != NSModalResponseOK {
+        return Ok(None);
+    }
+    let Some(url) = panel.URL() else {
+        return Ok(None);
+    };
+    Ok(url.path().map(|path| path.to_string()))
+}
+
+#[cfg(windows)]
+fn pick_local_path_native(
+    kind: &str,
+    title: Option<String>,
+    _extensions: Option<Vec<String>>,
+) -> Result<Option<String>, String> {
+    use windows::core::HSTRING;
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::{
+        FileOpenDialog, IFileOpenDialog, FOS_FORCEFILESYSTEM, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+    };
+
+    unsafe {
+        let initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
+        let result = (|| -> Result<Option<String>, String> {
+            let dialog: IFileOpenDialog =
+                CoCreateInstance(&FileOpenDialog, None, CLSCTX_ALL).map_err(|e| e.to_string())?;
+            let mut options = dialog.GetOptions().map_err(|e| e.to_string())?;
+            options |= FOS_FORCEFILESYSTEM;
+            if kind == "directory" {
+                options |= FOS_PICKFOLDERS;
+            }
+            dialog.SetOptions(options).map_err(|e| e.to_string())?;
+            if let Some(title) = title.filter(|value| !value.trim().is_empty()) {
+                let htitle = HSTRING::from(title);
+                dialog.SetTitle(&htitle).map_err(|e| e.to_string())?;
+            }
+            if dialog.Show(None).is_err() {
+                return Ok(None);
+            }
+            let item = dialog.GetResult().map_err(|e| e.to_string())?;
+            let path = item
+                .GetDisplayName(SIGDN_FILESYSPATH)
+                .map_err(|e| e.to_string())?;
+            let text = path.to_string().map_err(|e| e.to_string())?;
+            windows::Win32::System::Com::CoTaskMemFree(Some(path.0 as _));
+            Ok(Some(text))
+        })();
+        if initialized {
+            CoUninitialize();
+        }
+        result
+    }
+}
+
+#[cfg(windows)]
+fn pick_save_path_native(
+    title: Option<String>,
+    default_name: Option<String>,
+    _extensions: Option<Vec<String>>,
+) -> Result<Option<String>, String> {
+    use windows::core::HSTRING;
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::{
+        FileSaveDialog, IFileSaveDialog, FOS_FORCEFILESYSTEM, FOS_OVERWRITEPROMPT,
+        SIGDN_FILESYSPATH,
+    };
+
+    unsafe {
+        let initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
+        let result = (|| -> Result<Option<String>, String> {
+            let dialog: IFileSaveDialog =
+                CoCreateInstance(&FileSaveDialog, None, CLSCTX_ALL).map_err(|e| e.to_string())?;
+            let mut options = dialog.GetOptions().map_err(|e| e.to_string())?;
+            options |= FOS_FORCEFILESYSTEM | FOS_OVERWRITEPROMPT;
+            dialog.SetOptions(options).map_err(|e| e.to_string())?;
+            if let Some(title) = title.filter(|value| !value.trim().is_empty()) {
+                let htitle = HSTRING::from(title);
+                dialog.SetTitle(&htitle).map_err(|e| e.to_string())?;
+            }
+            if let Some(name) = default_name.filter(|value| !value.trim().is_empty()) {
+                let hname = HSTRING::from(name);
+                dialog.SetFileName(&hname).map_err(|e| e.to_string())?;
+            }
+            if dialog.Show(None).is_err() {
+                return Ok(None);
+            }
+            let item = dialog.GetResult().map_err(|e| e.to_string())?;
+            let path = item
+                .GetDisplayName(SIGDN_FILESYSPATH)
+                .map_err(|e| e.to_string())?;
+            let text = path.to_string().map_err(|e| e.to_string())?;
+            windows::Win32::System::Com::CoTaskMemFree(Some(path.0 as _));
+            Ok(Some(text))
+        })();
+        if initialized {
+            CoUninitialize();
+        }
+        result
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn pick_local_path_native(
+    _kind: &str,
+    _title: Option<String>,
+    _extensions: Option<Vec<String>>,
+) -> Result<Option<String>, String> {
+    Err("Native path picker is not supported on this platform".to_owned())
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn pick_save_path_native(
+    _title: Option<String>,
+    _default_name: Option<String>,
+    _extensions: Option<Vec<String>>,
+) -> Result<Option<String>, String> {
+    Err("Native save picker is not supported on this platform".to_owned())
+}
+
+#[tauri::command]
+async fn open_data_dir(window: tauri::WebviewWindow, data_dir: String) -> Result<(), String> {
+    let path = RuntimePaths::new(data_dir)
+        .map_err(|error| error.to_string())?
+        .layout()
+        .data_dir;
+    let metadata = std::fs::symlink_metadata(&path)
+        .map_err(|error| format!("Data directory is not available: {error}"))?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err("Data directory must be a real directory".to_owned());
+    }
+    let file_url = tauri::Url::from_directory_path(&path)
+        .map_err(|_| "Unable to format data directory path".to_owned())?;
+    #[cfg(target_os = "macos")]
+    {
+        let (sender, mut receiver) = tauri::async_runtime::channel(1);
+        window
+            .run_on_main_thread(move || {
+                let _ = sender.try_send(launch_external_url(&file_url));
+            })
+            .map_err(|error| error.to_string())?;
+        receiver
+            .recv()
+            .await
+            .ok_or_else(|| "Data directory opener callback was released".to_owned())?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        launch_external_url(&file_url)
+    }
+}
+
+#[tauri::command]
+async fn pick_local_path(
+    window: tauri::WebviewWindow,
+    kind: String,
+    title: Option<String>,
+    extensions: Option<Vec<String>>,
+) -> Result<Option<String>, String> {
+    if !matches!(kind.as_str(), "file" | "directory") {
+        return Err("Picker kind must be 'file' or 'directory'".to_owned());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let (sender, mut receiver) = tauri::async_runtime::channel(1);
+        window
+            .run_on_main_thread(move || {
+                let _ = sender.try_send(pick_local_path_native(&kind, title, extensions));
+            })
+            .map_err(|error| error.to_string())?;
+        receiver
+            .recv()
+            .await
+            .ok_or_else(|| "Native path picker callback was released".to_owned())?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        tauri::async_runtime::spawn_blocking(move || {
+            pick_local_path_native(&kind, title, extensions)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
+}
+
+#[tauri::command]
+async fn pick_save_path(
+    window: tauri::WebviewWindow,
+    title: Option<String>,
+    default_name: Option<String>,
+    extensions: Option<Vec<String>>,
+) -> Result<Option<String>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let (sender, mut receiver) = tauri::async_runtime::channel(1);
+        window
+            .run_on_main_thread(move || {
+                let _ = sender.try_send(pick_save_path_native(title, default_name, extensions));
+            })
+            .map_err(|error| error.to_string())?;
+        receiver
+            .recv()
+            .await
+            .ok_or_else(|| "Native save picker callback was released".to_owned())?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        tauri::async_runtime::spawn_blocking(move || {
+            pick_save_path_native(title, default_name, extensions)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
+}
+
 pub fn run() {
     let context = tauri::generate_context!();
     if std::env::args_os().any(|argument| argument == "--verify-embedded-ui") {
@@ -403,6 +731,10 @@ pub fn run() {
             desktop_environment,
             rescue_log,
             open_external_url,
+            open_data_dir,
+            launch_steam_game,
+            pick_local_path,
+            pick_save_path,
             window_surface::desktop_window_surface
         ])
         .build(context)
@@ -424,7 +756,23 @@ mod tests {
     use tempfile::tempdir;
     use tokio::sync::oneshot;
 
-    use super::{request_running_daemon, validate_external_https_url};
+    use super::{request_running_daemon, validate_external_https_url, validate_steam_app_id};
+
+    #[test]
+    fn steam_app_id_validation_allows_only_digits() {
+        for valid in ["548430", "2605790", "2860770"] {
+            assert_eq!(
+                validate_steam_app_id(valid).unwrap().as_str(),
+                format!("steam://rungameid/{valid}")
+            );
+        }
+        for rejected in ["", "drg", "548430/../../etc", "548430?a=1", "1234567890123"] {
+            assert!(
+                validate_steam_app_id(rejected).is_err(),
+                "expected rejection for {rejected:?}"
+            );
+        }
+    }
 
     #[test]
     fn external_url_validation_allows_only_credential_free_https_urls() {

@@ -218,6 +218,19 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext): Pr
       if (!Object.prototype.hasOwnProperty.call(mutationMethods, snapshot.command)) throw new Error('该任务不是备份或 Library 导入操作');
       track({ jobId: snapshot.jobId }); await poll();
     },
+    clearCompletedTasks: () => {
+      if (!active()) return;
+      const keep = tasks.jobs.filter(task => !['succeeded', 'failed', 'cancelled'].includes(model.views.get(task.jobId)?.snapshot?.state ?? ''));
+      for (const task of tasks.jobs) {
+        if (!keep.some(item => item.jobId === task.jobId)) {
+          model.views.delete(task.jobId);
+          model.expandedJobs.delete(task.jobId);
+        }
+      }
+      tasks.jobs = keep;
+      persistTasks();
+      changed();
+    },
   };
   const { React } = getSharedRuntime();
   const mounted = mountReactView(root, React.createElement(BackupView, { model }));

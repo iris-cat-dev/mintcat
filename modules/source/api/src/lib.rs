@@ -254,5 +254,18 @@ pub trait SourceProvider: Send + Sync {
         )))
     }
 
+    async fn list_subscribed(
+        &self,
+        game: &SourceGameBinding,
+        cursor: Option<&str>,
+        page_size: u32,
+        cancellation: &CancellationToken,
+    ) -> Result<SearchPage, SourceError> {
+        let _ = (game, cursor, page_size, cancellation);
+        Err(SourceError::InvalidArgument(format!(
+            "source {} does not support subscribed mod listing",
+            self.source_id()
+        )))
+    }
 }
 

@@ -17,6 +17,11 @@
   border-radius: var(--mc-radius-lg, 14px);
   background: var(--mc-card-bg, rgba(255, 255, 255, .74));
   box-shadow: 0 4px 16px rgba(24, 34, 60, .035), inset 0 1px 0 var(--mc-frame-edge);
+  transition: border-color .2s ease, box-shadow .22s ease;
+}
+.mintcat-install-page > .ant-card:hover {
+  border-color: color-mix(in srgb, var(--mc-accent, #ec4899) 22%, var(--mc-border-strong, rgba(100, 116, 148, .24)));
+  box-shadow: 0 8px 24px rgba(24, 34, 60, .06), inset 0 1px 0 var(--mc-frame-edge);
 }
 .mintcat-install-header {
   display: flex;

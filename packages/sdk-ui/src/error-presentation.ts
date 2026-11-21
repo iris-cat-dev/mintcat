@@ -55,7 +55,17 @@ export function presentUiError(cause: unknown, context: UiErrorContext = 'host')
   let title = '操作未完成';
   let description = '请稍后重试；如果仍然失败，请展开技术详情并联系支持。';
   let retryable = failure?.retryable ?? true;
-  if (code === 'CLOUD_PREREQUISITE') {
+  if (code === 'RECOVERY_REQUIRED' || key === 'source.frozen_configuration_unavailable') {
+    kind = 'generic';
+    if (key === 'source.frozen_configuration_unavailable' || /snapshot identity mismatch/i.test(reason)) {
+      title = '旧版未完成任务已失效';
+      description = '由于应用或游戏插件版本已更新，上次中断的后台任务无法自动继续。您可以直接移除这条记录，然后重新执行导入或下载操作。';
+    } else {
+      title = '后台任务已中断';
+      description = '该任务在后台异常中断，无法自动续传。请移除这条记录后重新发起操作。';
+    }
+    retryable = false;
+  } else if (code === 'CLOUD_PREREQUISITE') {
     kind = 'cloud-prerequisite';
     title = '云备份未配置';
     description = '需要维护者配置 HTTPS 备份服务与下载域名；离线备份仍可使用。';
@@ -126,6 +136,7 @@ export function presentUiError(cause: unknown, context: UiErrorContext = 'host')
     credential_empty: '凭据内容为空',
     credential_invalid_format: '凭据包含空白或无效字符',
     credential_vault_unavailable: '系统凭据库不可用',
+    'source snapshot identity mismatch': '应用或游戏插件版本已更新，旧任务的快照版本不再匹配',
   };
   if (reason) diagnostics.push(`原因：${safeReasons[reason] ?? technicalText(reason)}`);
   const message = typeof failure?.details?.message === 'string' ? failure.details.message : ordinary;

@@ -20,7 +20,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 pub const BACKUP_FORMAT_VERSION: u32 = 2;
-pub const LIBRARY_SCHEMA_VERSION: u32 = 5;
+pub const LIBRARY_SCHEMA_VERSION: u32 = 6;
 #[derive(Debug, Error)]
 pub enum BackupError {
     #[error(transparent)] Io(#[from] std::io::Error),
@@ -208,11 +208,11 @@ fn decode(bytes: &[u8], modules: &BTreeMap<String, ModuleVersion>) -> Result<(Ba
     if manifest.content_size != archive.content.len() as u64 || manifest.content_digest != digest(archive.content.as_bytes()) {
         return Err(BackupError::Invalid("content digest/size mismatch".into()));
     }
-    // SQL migration 5 only adds profile content guards, which are never part of
-    // LibrarySnapshot. Format 2/schema 4 therefore has the same logical payload
-    // as schema 5; only this migration is accepted into the current owner.
+    // SQL migration 5 only adds profile content guards (never in LibrarySnapshot),
+    // and migration 6 only adds an optional display_version column with default "".
+    // Historical schema 4 and 5 archives therefore decode cleanly into schema 6.
     let library_schema = manifest.module_versions.get("mintcat.library").ok_or_else(|| BackupError::Module("mintcat.library".into()))?.schema_version;
-    if !matches!(library_schema, 4 | LIBRARY_SCHEMA_VERSION) { return Err(BackupError::Module("mintcat.library".into())); }
+    if !matches!(library_schema, 4 | 5 | LIBRARY_SCHEMA_VERSION) { return Err(BackupError::Module("mintcat.library".into())); }
     // Stateless archived packages are metadata, not dependencies of data restore.
     for id in std::iter::once("mintcat.library").chain(manifest.owner_schemas.keys().filter(|id| id.as_str() != "mintcat.library").map(String::as_str)) {
         let required = manifest.module_versions.get(id).ok_or_else(|| BackupError::Module(id.into()))?;

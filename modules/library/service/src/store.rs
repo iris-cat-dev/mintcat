@@ -19,7 +19,7 @@ use crate::{
         MutationResultRecord, OperationLeaseRecord, OutboxRecord, ProfileContentBindingRecord,
         ProfileModRecord, ProfileRecord, SettingRecord, GLOBAL_SETTING_SCOPE,
     },
-    schema::{MIGRATION_1, MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5},
+    schema::{MIGRATION_1, MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5, MIGRATION_6},
     LibraryError,
 };
 
@@ -76,7 +76,7 @@ impl OwnerStore {
             [],
             |row| row.get(0),
         )?;
-        if version > 5 {
+        if version > 6 {
             return Err(LibraryError::UnsupportedSchema(version));
         }
         if version == 0 {
@@ -120,6 +120,15 @@ impl OwnerStore {
             transaction.execute(
                 "INSERT INTO library_schema(version, applied_at_ms)
                  VALUES (5, CAST(strftime('%s', 'now') AS INTEGER) * 1000)",
+                [],
+            )?;
+            version = 5;
+        }
+        if version == 5 {
+            transaction.execute_batch(MIGRATION_6)?;
+            transaction.execute(
+                "INSERT INTO library_schema(version, applied_at_ms)
+                 VALUES (6, CAST(strftime('%s', 'now') AS INTEGER) * 1000)",
                 [],
             )?;
         }
@@ -166,7 +175,7 @@ impl OwnerStore {
 
     fn check_read_only_health(connection: &Connection, require_current: bool) -> Result<(), LibraryError> {
         let version: u32 = connection.query_row("SELECT COALESCE(MAX(version), 0) FROM library_schema", [], |r| r.get(0))?;
-        if version > 5 || version == 0 || (require_current && version != 5) {
+        if version > 6 || version == 0 || (require_current && version != 6) {
             return Err(LibraryError::UnsupportedSchema(version));
         }
         let check: String = connection.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
@@ -537,7 +546,7 @@ fn query_versions(transaction: &Transaction<'_>) -> Result<Vec<ModContentVersion
     let mut statement = transaction.prepare(
         "SELECT mod_id, version_id, remote_file_id, artifact_digest, legacy_location,
                 source_url, file_size, legacy_download_status, availability, current,
-                created_at_ms, updated_at_ms
+                created_at_ms, updated_at_ms, display_version
          FROM library_mod_versions ORDER BY mod_id, version_id",
     )?;
     {
@@ -555,6 +564,7 @@ fn query_versions(transaction: &Transaction<'_>) -> Result<Vec<ModContentVersion
                 current: row.get(9)?,
                 created_at_ms: row.get(10)?,
                 updated_at_ms: row.get(11)?,
+                display_version: row.get(12)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -980,7 +990,11 @@ pub(crate) fn insert_snapshot(
     }
     for record in &snapshot.versions {
         transaction.execute(
-            "INSERT INTO library_mod_versions VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            "INSERT INTO library_mod_versions(
+               mod_id, version_id, remote_file_id, artifact_digest, legacy_location,
+               source_url, file_size, legacy_download_status, availability, current,
+               created_at_ms, updated_at_ms, display_version
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 record.mod_id,
                 record.version_id,
@@ -993,7 +1007,8 @@ pub(crate) fn insert_snapshot(
                 record.availability,
                 record.current,
                 record.created_at_ms,
-                record.updated_at_ms
+                record.updated_at_ms,
+                record.display_version
             ],
         )?;
     }

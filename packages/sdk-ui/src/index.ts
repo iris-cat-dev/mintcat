@@ -1,6 +1,6 @@
 export { mountGameSettings } from './game-settings';
 export type { GameUiDescriptor, GameModuleList } from './game-settings';
-export { getUiTheme, mountReactView, navigateUi, publishUiSelection, setUiTheme } from './react-view';
+export { getLastUiSelection, getUiTheme, mountReactView, navigateUi, publishUiSelection, setUiTheme, subscribeUiSelection } from './react-view';
 export type { UiNavigationIcon, UiSelection, UiThemeName } from './react-view';
 export { presentUiError, renderUiError } from './error-presentation';
 export type { UiErrorContext, UiErrorKind, UiErrorPresentation } from './error-presentation';
@@ -140,6 +140,16 @@ export const kit = Object.freeze({
 
 // Official pages share the desktop's React, ReactDOM and UI kit binding.
 const runtimeSlot = Symbol.for('mintcat.shared-ui-runtime.v1');
+export interface PickLocalPathOptions {
+  kind: 'file' | 'directory';
+  title?: string;
+  extensions?: string[];
+}
+export interface PickSavePathOptions {
+  title?: string;
+  defaultName?: string;
+  extensions?: string[];
+}
 export interface SharedRuntime {
   React: typeof ReactRuntime;
   ReactDOMClient: typeof ReactDOMRuntime;
@@ -149,6 +159,11 @@ export interface SharedRuntime {
   Icons: typeof IconsRuntime;
   kit: typeof kit;
   openExternalUrl?: (url: string) => Promise<void>;
+  openDataDir?: (dataDir: string) => Promise<void>;
+  pickLocalPath?: (options: PickLocalPathOptions) => Promise<string | null>;
+  pickSavePath?: (options: PickSavePathOptions) => Promise<string | null>;
+  launchSteamGame?: (appId: string) => Promise<void>;
+  onFileDrop?: (handler: (paths: string[]) => void) => () => void;
 }
 const runtimeRealm = globalThis as typeof globalThis & Record<symbol, Readonly<SharedRuntime> | undefined>;
 export function bindSharedRuntime(runtime: SharedRuntime): void {
@@ -173,4 +188,30 @@ export async function openExternalUrl(rawUrl: string): Promise<void> {
     return;
   }
   window.open(normalized, '_blank', 'noopener,noreferrer');
+}
+export async function openDataDir(dataDir: string): Promise<void> {
+  const opener = runtimeRealm[runtimeSlot]?.openDataDir;
+  if (!opener) throw new Error('当前环境不支持直接打开系统目录');
+  await opener(dataDir);
+}
+export async function pickLocalPath(options: PickLocalPathOptions): Promise<string | null> {
+  const picker = runtimeRealm[runtimeSlot]?.pickLocalPath;
+  if (!picker) return null;
+  return picker(options);
+}
+export async function pickSavePath(options: PickSavePathOptions): Promise<string | null> {
+  const picker = runtimeRealm[runtimeSlot]?.pickSavePath;
+  if (!picker) return null;
+  return picker(options);
+}
+export async function launchSteamGame(appId: string): Promise<void> {
+  const trimmed = appId.trim();
+  if (!/^\d{1,12}$/.test(trimmed)) throw new Error('无效的 Steam App ID');
+  const launcher = runtimeRealm[runtimeSlot]?.launchSteamGame;
+  if (!launcher) throw new Error('当前环境不支持直接启动游戏');
+  await launcher(trimmed);
+}
+export function subscribeFileDrop(handler: (paths: string[]) => void): () => void {
+  const subscribe = runtimeRealm[runtimeSlot]?.onFileDrop;
+  return subscribe ? subscribe(handler) : () => {};
 }

@@ -36,11 +36,25 @@ export function mountChrome(header: HTMLElement, footer: HTMLElement, brandRoot:
       window.addEventListener('mintcat-ui-selection', selected);
       window.addEventListener('mintcat-ui-active-page', paged);
       window.addEventListener('mintcat-ui-theme', themed);
+      const onGlobalSearchKey = (event: KeyboardEvent): void => {
+        if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'k') return;
+        const pageSearch = document.querySelector<HTMLInputElement>('.library-search input, .mintcat-search-box input:not(:disabled)');
+        if (pageSearch) {
+          event.preventDefault();
+          pageSearch.focus();
+          pageSearch.select();
+          return;
+        }
+        event.preventDefault();
+        navigateUi('search');
+      };
+      window.addEventListener('keydown', onGlobalSearchKey);
       return () => {
         window.removeEventListener('mintcat-ui-contributions', changed);
         window.removeEventListener('mintcat-ui-selection', selected);
         window.removeEventListener('mintcat-ui-active-page', paged);
         window.removeEventListener('mintcat-ui-theme', themed);
+        window.removeEventListener('keydown', onGlobalSearchKey);
       };
     }, []);
     const available = (icon: UiNavigationIcon): boolean => contributions.icons.includes(icon);
@@ -108,7 +122,7 @@ export function mountChrome(header: HTMLElement, footer: HTMLElement, brandRoot:
         h(Antd.Tooltip, { title: 'Agent 助手' }, h(Antd.Button, { type: 'text', icon: h(Icons.RobotOutlined), 'aria-label': 'Agent 助手', disabled: !available('robot'), onClick: () => navigateUi('robot') })),
         h(Antd.Tooltip, { title: '安装与打包' }, h(Antd.Button, { type: 'text', icon: h(Icons.DeploymentUnitOutlined), 'aria-label': '安装与打包', disabled: !available('install'), onClick: () => navigateUi('install') })),
         h('span', { className: 'chrome-utility-divider', 'aria-hidden': true }),
-        h(Antd.Tooltip, { title: theme === 'Dark' ? '切换浅色主题' : '切换深色主题' }, h(Antd.Button, { type: 'text', icon: h(theme === 'Dark' ? Icons.SunOutlined : Icons.MoonOutlined), 'aria-label': '切换主题', onClick: () => setUiTheme(theme === 'Dark' ? 'Light' : 'Dark') })),
+        h(Antd.Tooltip, { title: theme === 'Dark' ? '切换浅色主题' : '切换深色主题' }, h(Antd.Button, { type: 'text', className: 'chrome-theme-btn', icon: h(theme === 'Dark' ? Icons.SunOutlined : Icons.MoonOutlined), 'aria-label': '切换主题', onClick: () => setUiTheme(theme === 'Dark' ? 'Light' : 'Dark') })),
         h(Antd.Dropdown, { trigger: ['click'], menu: { selectedKeys: [`theme:${theme}`], items: utilities, onClick: ({ key }) => {
           if (key === 'rescue') openRescue();
           else if (key.startsWith('theme:')) setUiTheme(key.slice(6) as UiThemeName);

@@ -293,3 +293,7 @@ CREATE TABLE library_profile_content_guards (
 CREATE INDEX library_profile_content_guards_profile
   ON library_profile_content_guards(profile_id, state);
 "#;
+
+pub(crate) const MIGRATION_6: &str = r#"
+ALTER TABLE library_mod_versions ADD COLUMN display_version TEXT NOT NULL DEFAULT '';
+"#;

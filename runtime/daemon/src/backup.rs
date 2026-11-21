@@ -537,7 +537,7 @@ fn portable_snapshot(state:&DaemonState)->Result<PortableSnapshot,BackupError> {
 
 fn modules(state: &DaemonState) -> Result<BTreeMap<String, ModuleVersion>, BackupError> {
     let mut modules = BTreeMap::from([
-        ("mintcat.library".into(), ModuleVersion { version: env!("CARGO_PKG_VERSION").into(), schema_version: 5 }),
+        ("mintcat.library".into(), ModuleVersion { version: env!("CARGO_PKG_VERSION").into(), schema_version: mintcat_feature_backup::LIBRARY_SCHEMA_VERSION }),
         ("mintcat.feature.agent".into(), ModuleVersion { version: env!("CARGO_PKG_VERSION").into(), schema_version: 1 }),
         ("mintcat.feature.backup".into(), ModuleVersion { version: env!("CARGO_PKG_VERSION").into(), schema_version: 1 }),
     ]);

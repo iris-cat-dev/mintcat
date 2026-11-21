@@ -1,4 +1,5 @@
-import type { JobRef, ModRef, ProfileSummary, SourceSearchItem } from '@mintcat/sdk-ts';
+import type { ReactNode } from 'react';
+import type { GroupSummary, JobRef, ModRef, ProfileSummary, SourceSearchItem } from '@mintcat/sdk-ts';
 import {
   copyTextToClipboard,
   getSharedRuntime,
@@ -26,15 +27,18 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
   const SEARCH_CACHE_TTL_MS = 60_000;
   const { React, Antd, Icons, createPortal } = getSharedRuntime();
   const h = React.createElement;
-  const saved = context.state('search', 1, { gameId: '', profileId: '', sourceId: '', query: '' });
+  const saved = context.state('search', 1, { gameId: '', profileId: '', sourceId: '', query: '', sort: 'default' });
   let alive = true;
   const active = (): boolean => alive && !context.signal.aborted;
-  let gameId = saved.gameId, profileId = saved.profileId, sourceId = saved.sourceId, query = saved.query;
+  let gameId = saved.gameId, profileId = saved.profileId, sourceId = saved.sourceId, query = saved.query, sort = saved.sort || 'default';
+  let includeDependencies = true;
   let descriptors: GameUiDescriptor[] = [];
   let hasLoadedModules = false;
   let availableSources = new Set<string>();
   let sourceCredentials = new Map<string, boolean>();
   let profiles: ProfileSummary[] = [], items: SourceSearchItem[] = [];
+  let targetGroups: GroupSummary[] = [], targetGroupsLoading = false, targetGroupId: string | undefined;
+  let groupsGeneration = 0;
   let cursor: string | undefined, requestGeneration = 0, bindingGeneration = 0;
   let loading = false, bindingsLoading = false, adding = false, searched = false, error: UiErrorPresentation | undefined, errorContext: UiErrorContext = 'search';
   let profileHint = '', status = '', filter = '', selected: SourceSearchItem | undefined;
@@ -67,7 +71,7 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
       copyResetTimer = setTimeout(() => { copyResetTimer = undefined; copiedUrl = ''; update(); }, 2_000);
     });
   };
-  const persist = (): void => context.saveState('search', 1, { gameId, profileId, sourceId, query });
+  const persist = (): void => context.saveState('search', 1, { gameId, profileId, sourceId, query, sort });
   const selection = (): void => {
     const descriptor = descriptors.find(item => item.gameId === gameId);
     if (descriptor) publishUiSelection({ gameId, gameName: descriptor.displayName, profileId: profileId || undefined });
@@ -187,12 +191,32 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
       if (active() && generation === bindingGeneration && currentGame === gameId) { bindingsLoading = false; update(); }
     }
   };
+  const parseSort = (value: string): { sortField?: 'updated' | 'downloads' | 'subscribers' | 'rating' | 'name'; sortDirection?: 'ascending' | 'descending' } => {
+    if (!value || value === 'default') return {};
+    const [field, direction] = value.split(':');
+    return {
+      sortField: field as 'updated' | 'downloads' | 'subscribers' | 'rating' | 'name',
+      sortDirection: direction as 'ascending' | 'descending',
+    };
+  };
+  const formatCompactNumber = (value: number): string => {
+    if (value >= 100_000) return `${(value / 10_000).toFixed(1)}万`;
+    if (value >= 10_000) return `${(value / 10_000).toFixed(2)}万`;
+    if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+    return String(value);
+  };
+  const formatUnixDate = (seconds: number): string => {
+    const ms = seconds > 10_000_000_000 ? seconds : seconds * 1000;
+    const date = new Date(ms);
+    return Number.isNaN(date.getTime()) ? '' : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
   const search = async (next = false): Promise<void> => {
     if (!gameId || !sourceId) throw new Error('所选游戏没有已配置的在线来源绑定。');
     if (loading || (next && !cursor)) return;
     const generation = ++requestGeneration;
     const binding = descriptors.find(item => item.gameId === gameId)?.sourceBindings.find(item => item.sourceId === sourceId);
-    const params = { sourceId, gameId, query, pageSize: 50, ...(binding?.remoteGameKey ? { remoteGameKey: binding.remoteGameKey } : {}), ...(next && cursor ? { cursor } : {}) };
+    const sortParams = parseSort(sort);
+    const params = { sourceId, gameId, query, pageSize: 50, ...sortParams, ...(binding?.remoteGameKey ? { remoteGameKey: binding.remoteGameKey } : {}), ...(next && cursor ? { cursor } : {}) };
     loading = true; searched = true; error = undefined; status = ''; if (!next) items = []; update(); persist();
     try {
       const response = await context.query(JSON.stringify(params), () => context.call('sources.search', params), SEARCH_CACHE_TTL_MS);
@@ -202,6 +226,58 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
     } catch (cause) {
       if (active() && generation === requestGeneration) { cursor = undefined; fail(cause, 'search'); }
     } finally { if (active() && generation === requestGeneration) { loading = false; update(); } }
+  };
+  const ROOT_GROUP_VALUE = '__root__';
+  const loadTargetGroups = async (forProfileId: string): Promise<void> => {
+    const gen = ++groupsGeneration;
+    targetGroupId = undefined;
+    if (!forProfileId) {
+      targetGroups = [];
+      targetGroupsLoading = false;
+      update();
+      return;
+    }
+    targetGroupsLoading = true;
+    update();
+    try {
+      const result = await context.call('groups.list', { profileId: forProfileId });
+      if (!active() || gen !== groupsGeneration) return;
+      targetGroups = result.items;
+    } catch {
+      if (!active() || gen !== groupsGeneration) return;
+      targetGroups = [];
+    } finally {
+      if (active() && gen === groupsGeneration) {
+        targetGroupsLoading = false;
+        update();
+      }
+    }
+  };
+  interface GroupTreeNode {
+    value: string;
+    title: ReactNode;
+    children?: GroupTreeNode[];
+  }
+  const buildGroupTree = (): GroupTreeNode[] => {
+    const visited = new Set<string>();
+    const walk = (parentId?: string): GroupTreeNode[] => targetGroups
+      .filter(group => group.parentGroupId === parentId)
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .flatMap(group => {
+        if (visited.has(group.groupId)) return [];
+        visited.add(group.groupId);
+        const children = walk(group.groupId);
+        return [{
+          value: group.groupId,
+          title: h('span', { className: 'mintcat-search-tree-opt' }, h(Icons.FolderOutlined), ' ', group.name),
+          ...(children.length ? { children } : {}),
+        }];
+      });
+    return [{
+      value: ROOT_GROUP_VALUE,
+      title: h('span', { className: 'mintcat-search-tree-opt' }, h(Icons.HomeOutlined), ' 根目录（未分组）'),
+      children: walk(undefined),
+    }];
   };
   const add = async (reference: ModRef): Promise<void> => {
     if (adding) return;
@@ -213,10 +289,18 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
     try {
       const content = await context.call('profiles.contentState', { profileId: target.profileId });
       if (!active()) return;
-      if (!content.writable) throw new Error('配置内容正在处理或需要恢复，请稍后重试。');
-      const job = await context.request<JobRef>('mods.add', { profileId: target.profileId, reference, expectedContentRevision: content.contentRevision }, crypto.randomUUID());
+      if (!content.writable) throw new Error('配置正在处理中，请稍后再试。');
+      const job = await context.request<JobRef>('mods.add', {
+        profileId: target.profileId,
+        reference,
+        expectedContentRevision: content.contentRevision,
+        includeDependencies,
+        ...(targetGroupId ? { groupId: targetGroupId } : {}),
+      }, crypto.randomUUID());
       if (!active()) return;
-      selected = undefined; status = `添加任务 ${job.jobId} 已交给 daemon，关闭页面不会取消任务。`; context.notify(status);
+      selected = undefined;
+      status = `已加入下载队列（${job.jobId.slice(0, 8)}）${includeDependencies ? '，将自动解析前置依赖' : ''}。`;
+      context.notify(status);
     } catch (cause) {
       if (active() && generation === bindingGeneration && searchGeneration === requestGeneration) fail(cause, 'add');
     } finally { if (active()) { adding = false; update(); } }
@@ -398,6 +482,24 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
       sourceBindings.length ? h('div', { className: 'mintcat-search-subbar' },
         h(Antd.Tabs, { activeKey: sourceId, size: 'small', className: 'mintcat-search-tabs', items: sourceBindings.map(binding => ({ key: binding.sourceId, label: binding.sourceId })), onChange: switchSource }),
         h('div', { className: 'mintcat-search-filters' },
+          h(Antd.Select<string>, {
+            size: 'small',
+            value: sort,
+            'aria-label': '搜索排序方式',
+            popupMatchSelectWidth: false,
+            disabled: loading || !sourceId,
+            style: { minWidth: 112 },
+            options: [
+              { value: 'default', label: '默认排序' },
+              { value: 'updated:descending', label: '最新更新' },
+              { value: 'downloads:descending', label: '下载最多' },
+              { value: 'subscribers:descending', label: '订阅最多' },
+              { value: 'rating:descending', label: '评分最高' },
+              { value: 'name:ascending', label: '名称 A → Z' },
+              { value: 'name:descending', label: '名称 Z → A' },
+            ],
+            onChange: (value: string) => { sort = value; clearResults(); persist(); run(() => search()); },
+          }),
           items.length || filter ? h(React.Fragment, null,
             h(Antd.Input, { value: filter, allowClear: true, size: 'small', prefix: h(Icons.FilterOutlined), placeholder: '筛选已加载结果…', 'aria-label': '筛选已加载结果', onChange: (event: { target: { value: string } }) => { filter = event.target.value; update(); }, className: 'mintcat-search-filter-input' }),
             h('span', { className: 'mintcat-search-count-pill' }, `${visible.length} / ${items.length} 个结果`)) : null,
@@ -464,18 +566,48 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
           h('div', { className: 'mintcat-search-summary' }, item.summary || '此来源未提供模组简介。'),
           h('div', { className: 'mintcat-search-meta-tags' },
             h('span', { className: `mintcat-search-source-tag mintcat-search-source-tag--${item.reference.sourceId}` }, getSourceDisplayName(item.reference.sourceId)),
-            h('span', { className: 'mintcat-search-meta-chip' }, `游戏 ${item.reference.remoteGameKey}`),
+            item.author ? h('span', { className: 'mintcat-search-meta-chip' }, `作者 ${item.author}`) : null,
+            typeof item.downloads === 'number' ? h('span', { className: 'mintcat-search-meta-chip', title: `总下载量 ${item.downloads}` }, h(Icons.DownloadOutlined), ' ', formatCompactNumber(item.downloads)) : null,
+            typeof item.subscribers === 'number' ? h('span', { className: 'mintcat-search-meta-chip', title: `订阅数 ${item.subscribers}` }, h(Icons.StarOutlined), ' ', formatCompactNumber(item.subscribers)) : null,
+            typeof item.rating === 'number' && item.rating > 0 ? h('span', { className: 'mintcat-search-meta-chip', title: `评分 ${item.rating}` }, `评分 ${item.rating <= 1 ? `${Math.round(item.rating * 100)}%` : item.rating.toFixed(1)}`) : null,
+            typeof item.updatedAt === 'number' && formatUnixDate(item.updatedAt) ? h('span', { className: 'mintcat-search-meta-chip' }, formatUnixDate(item.updatedAt)) : null,
             h('span', { className: 'mintcat-search-meta-chip' }, `#${item.reference.remoteModId}`))),
         h('div', { className: 'mintcat-search-card-actions' },
-          h(Antd.Button, { size: 'small', className: 'mintcat-search-add-btn', icon: h(Icons.PlusOutlined), disabled: !profileId || adding, title: '添加到配置', onClick: () => { error = undefined; selected = item; update(); } }, '添加'))))) : null,
+          h(Antd.Button, { size: 'small', className: 'mintcat-search-add-btn', icon: h(Icons.PlusOutlined), disabled: !profileId || adding, title: '添加到配置', onClick: () => { error = undefined; selected = item; void loadTargetGroups(profileId); update(); } }, '添加'))))) : null,
       cursor ? h(Antd.Button, { block: true, className: 'mintcat-search-more-btn', loading, onClick: () => run(() => search(true)) }, '加载更多结果') : null,
       showFooterStatus ? h('div', { className: 'mintcat-search-footer-status' },
         h(Antd.Typography.Text, { type: 'secondary', role: 'status' }, bindingsLoading ? '正在读取配置…' : status)) : null,
       h(Antd.Modal, { open: Boolean(selected), title: '添加模组到配置', okText: '确认添加', cancelText: '取消', confirmLoading: adding, okButtonProps: { disabled: !profileId || adding, className: 'glass-primary-action' }, onCancel: () => { if (!adding) { selected = undefined; if (errorContext === 'add') error = undefined; resetCredentialDraft(); update(); } }, onOk: () => { if (selected) run(() => add(selected!.reference), 'add'); } },
-        h(Antd.Typography.Paragraph, { strong: true, style: { marginBottom: 10 } }, selected?.displayName),
-        errorAlert,
-        h(Antd.Select<string>, { style: { width: '100%' }, value: profileId || undefined, placeholder: '选择目标配置', options: profiles.map(item => ({ value: item.profileId, label: item.displayName })), onChange: (value: string) => { profileId = value; persist(); selection(); update(); } }),
-        h(Antd.Alert, { style: { marginTop: 12 }, type: 'info', showIcon: true, title: '下载及添加由 daemon 执行；配置写锁与当前内容版本将由 Application API 校验。' })),
+        h('div', { className: 'mintcat-add-modal-body' },
+          h('div', { className: 'mintcat-add-modal-name' }, selected?.displayName),
+          errorAlert,
+          h('div', { className: 'mintcat-add-field' },
+            h('span', { className: 'mintcat-add-field-label' }, '目标配置'),
+            h(Antd.Select<string>, {
+              style: { width: '100%' },
+              value: profileId || undefined,
+              placeholder: '选择目标配置',
+              options: profiles.map(item => ({ value: item.profileId, label: item.displayName })),
+              onChange: (value: string) => { profileId = value; persist(); selection(); void loadTargetGroups(value); update(); },
+            })),
+          h('div', { className: 'mintcat-add-field' },
+            h('span', { className: 'mintcat-add-field-label' }, '导入目录'),
+            h(Antd.TreeSelect<string>, {
+              style: { width: '100%' },
+              'aria-label': '导入目标目录',
+              loading: targetGroupsLoading,
+              value: targetGroupId ?? ROOT_GROUP_VALUE,
+              treeData: buildGroupTree(),
+              treeDefaultExpandAll: true,
+              showSearch: true,
+              treeNodeFilterProp: 'title',
+              placeholder: '选择目标分组目录',
+              onChange: (value: string) => { targetGroupId = !value || value === ROOT_GROUP_VALUE ? undefined : value; update(); },
+            })),
+          h(Antd.Checkbox, {
+            checked: includeDependencies,
+            onChange: (event: { target: { checked: boolean } }) => { includeDependencies = event.target.checked; update(); },
+          }, '自动解析并添加所需前置依赖模组'))),
       h(Antd.Modal, {
         open: Boolean(credentialModalSource && modalGuide),
         title: modalGuide ? `${modalHasSavedCredential ? '更换' : '配置'} ${modalGuide.sourceName} 凭据` : '配置来源凭据',

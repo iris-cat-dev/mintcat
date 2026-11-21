@@ -13,7 +13,10 @@
   height: 36px;
   padding-inline: 16px;
   border-radius: 999px;
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--mc-accent, #ec4899) 24%, rgba(15, 23, 42, .16));
+  transition: transform .2s cubic-bezier(.22, 1, .36, 1), box-shadow .2s ease;
 }
+.mintcat-agent-reopen:hover { transform: translateY(-2px); }
 .mintcat-agent-surface > .ant-drawer { position: absolute; }
 .mintcat-agent-surface .ant-drawer-content {
   background: var(--mc-glass-bg, var(--ant-color-bg-container));
@@ -101,6 +104,7 @@
   box-shadow: 0 8px 24px color-mix(in srgb, var(--mc-accent, #ec4899) 14%, transparent);
   color: var(--mc-accent, #ec4899);
   font-size: 26px;
+  animation: mc-orb-float 4.2s ease-in-out infinite;
 }
 .mintcat-agent-empty-title { font-size: 14px; font-weight: 650; color: var(--mc-text); }
 .mintcat-agent-empty-desc { max-width: 280px; font-size: 12px; line-height: 1.6; color: var(--mc-muted); }
@@ -110,6 +114,15 @@
   gap: 9px;
   margin-bottom: 12px;
   max-width: 90%;
+  animation: mintcat-agent-msg-in .22s cubic-bezier(.22, 1, .36, 1) both;
+}
+@keyframes mintcat-agent-msg-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mintcat-agent-empty-orb,
+  .mintcat-agent-message { animation: none !important; }
 }
 .mintcat-agent-message-user {
   margin-left: auto;

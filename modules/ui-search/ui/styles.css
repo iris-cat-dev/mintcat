@@ -591,6 +591,7 @@
   margin: 4px 0 14px;
 }
 .mintcat-search-card {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -599,12 +600,18 @@
   border-radius: var(--mc-radius-lg, 14px);
   background: var(--mc-card-bg, rgba(255, 255, 255, .84));
   box-shadow: 0 2px 10px rgba(24, 34, 60, .03), inset 0 1px 0 var(--mc-frame-edge);
-  transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+  transition: transform .2s cubic-bezier(.22, 1, .36, 1), border-color .18s ease, box-shadow .22s ease, background-color .18s ease;
+  animation: mintcat-search-card-in .26s cubic-bezier(.22, 1, .36, 1) both;
 }
+.mintcat-search-card:nth-child(2) { animation-delay: 25ms; }
+.mintcat-search-card:nth-child(3) { animation-delay: 50ms; }
+.mintcat-search-card:nth-child(4) { animation-delay: 75ms; }
+.mintcat-search-card:nth-child(5) { animation-delay: 100ms; }
+.mintcat-search-card:nth-child(n+6) { animation-delay: 120ms; }
 .mintcat-search-card:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--mc-accent, #ec4899) 38%, var(--mc-border));
-  box-shadow: 0 8px 22px rgba(24, 34, 60, .07), inset 0 1px 0 var(--mc-frame-edge);
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--mc-accent, #ec4899) 42%, var(--mc-border));
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--mc-accent, #ec4899) 10%, rgba(24, 34, 60, .08)), inset 0 1px 0 var(--mc-frame-edge);
 }
 .mintcat-search-media {
   width: 104px;
@@ -620,6 +627,10 @@
   height: 100%;
   object-fit: cover;
   display: block;
+  transition: transform .36s cubic-bezier(.22, 1, .36, 1);
+}
+.mintcat-search-card:hover .mintcat-search-thumbnail {
+  transform: scale(1.06);
 }
 .mintcat-search-cover-placeholder {
   width: 100%;
@@ -705,14 +716,51 @@
   border-color: color-mix(in srgb, var(--mc-accent, #ec4899) 34%, var(--mc-border));
   color: var(--mc-accent, #ec4899);
   background: color-mix(in srgb, var(--mc-accent, #ec4899) 8%, var(--mc-control-bg));
+  transition: transform .16s cubic-bezier(.22, 1, .36, 1), box-shadow .18s ease, background-color .16s ease, color .16s ease;
 }
 .mintcat-search-add-btn.ant-btn:not(:disabled):hover {
   background: var(--mc-primary-bg, var(--mc-accent)) !important;
   border-color: transparent !important;
   color: #fff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--mc-accent, #ec4899) 30%, transparent);
+}
+.mintcat-search-add-btn.ant-btn:not(:disabled):active { transform: scale(.96); }
+@keyframes mintcat-search-card-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mintcat-search-card { animation: none !important; }
 }
 .mintcat-search-more-btn { margin-bottom: 10px; border-radius: 10px; height: 36px; flex-shrink: 0; }
 .mintcat-search-footer-status { padding: 4px 2px; font-size: 12px; flex-shrink: 0; }
+.mintcat-add-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 4px;
+}
+.mintcat-add-modal-name {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--mc-text, #1e2433);
+}
+.mintcat-add-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.mintcat-add-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mc-muted, #5b6478);
+}
+.mintcat-search-tree-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 
 @media (max-width: 1120px) {
   .mintcat-search-game-control { flex-basis: 176px; min-width: 136px; }

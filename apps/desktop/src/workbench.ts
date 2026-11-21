@@ -2,7 +2,7 @@ import { COMMAND_SPECS } from '@mintcat/sdk-ts';
 import type { CommandName, CommandParams, CommandResult } from '@mintcat/sdk-ts';
 import { Disposables, QueryCache, SessionStore, getSharedRuntime, kit, mountGameSettings, mountReactView, presentUiError, renderUiError } from '@mintcat/sdk-ui';
 import type { Disposable, GameModuleList, PageMount, UiContext, UiNavigationIcon } from '@mintcat/sdk-ui';
-import { mountLibrary, mountLocalImport, mountDownloads } from '../../../modules/library/ui';
+import { mountLibrary, mountDownloads } from '../../../modules/library/ui';
 import { mountSearch } from '../../../modules/ui-search/ui';
 import { mountInstall } from '../../../modules/install/ui';
 import { mountBackupPage } from '../../../modules/feature-backup/ui';
@@ -24,7 +24,6 @@ interface MountedPage { page: Page; disposable?: Disposable; controller: AbortCo
 const builtinPages: readonly Page[] = [
   { moduleId: 'mintcat.library', route: '/mintcat.library/library', title: '模组管理', icon: 'home', placement: 'sidebar', mount: mountLibrary },
   { moduleId: 'mintcat.ui.search', route: '/mintcat.ui.search/search', title: '在线模组', icon: 'search', placement: 'sidebar', mount: mountSearch },
-  { moduleId: 'mintcat.library', route: '/mintcat.library/local', title: '本地导入', icon: 'local', placement: 'sidebar', mount: mountLocalImport },
   { moduleId: 'mintcat.library', route: '/mintcat.library/downloads', title: '下载管理', icon: 'downloads', placement: 'sidebar', mount: mountDownloads },
   { moduleId: 'mintcat.feature.agent', route: '/mintcat.feature.agent/agent', title: 'Agent 助手', icon: 'robot', placement: 'titlebar', mount: mountAgentPage },
   { moduleId: 'mintcat.install', route: '/mintcat.install/tasks', title: '安装与打包', icon: 'install', placement: 'titlebar', mount: mountInstall },
@@ -98,6 +97,12 @@ export class Workbench implements Disposable {
   };
   private readonly navigationHandler = (event: Event): void => {
     const icon = (event as CustomEvent<UiNavigationIcon>).detail;
+    if (icon === 'local') {
+      void this.navigate('/mintcat.library/library').then(() => {
+        window.dispatchEvent(new CustomEvent('mintcat-open-import-modal', { detail: { tab: 'local' } }));
+      });
+      return;
+    }
     const page = icon === 'settings' ? this.settingsPages()[0] : this.pages.find(page => page.icon === icon);
     if (!page) return;
     if (icon === 'robot') void this.openAuxiliary(page);

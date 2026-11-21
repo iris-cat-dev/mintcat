@@ -1343,6 +1343,23 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 200
+            },
+            "sortField": {
+              "type": "string",
+              "enum": [
+                "updated",
+                "downloads",
+                "subscribers",
+                "rating",
+                "name"
+              ]
+            },
+            "sortDirection": {
+              "type": "string",
+              "enum": [
+                "ascending",
+                "descending"
+              ]
             }
           }
         }
@@ -1415,6 +1432,14 @@
             "expectedContentRevision": {
               "type": "integer",
               "minimum": 0
+            },
+            "groupId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "includeDependencies": {
+              "type": "boolean"
             }
           }
         }
@@ -1721,6 +1746,264 @@
         "permission": "proxy.system",
         "idempotency": "required",
         "confirmation": "required"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mods_refreshVersions",
+        "description": "Fetch live remote versions for one mod, persist them in the Library, and return updated mod details.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "profileModId"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "profileModId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "mods.refreshVersions",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.metadata.write",
+        "idempotency": "optional",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mods_checkUpdates",
+        "description": "Refresh remote metadata and latest versions for remote mods in a profile.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "profileModIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "mods.checkUpdates",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "sync",
+        "permission": "library.metadata.write",
+        "idempotency": "optional",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mods_updateBatch",
+        "description": "Start one atomic download operation to update selected or updatable remote mods to their latest version.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "expectedContentRevision"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "expectedContentRevision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "profileModIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "cache-only",
+                "prepare-and-apply"
+              ]
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "mods.updateBatch",
+        "contractVersion": 1,
+        "classification": "mutation",
+        "execution": "job",
+        "permission": "library.content.write",
+        "idempotency": "required",
+        "confirmation": "policy"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mods_checkConflicts",
+        "description": "Inspect verified cached mod artifacts in a profile and report overlapping file paths.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "profileModIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "mods.checkConflicts",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "library.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "sources_resolveUrl",
+        "description": "Resolve a remote mod webpage URL through registered sources for a game.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "gameId",
+            "url"
+          ],
+          "properties": {
+            "gameId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "sources.resolveUrl",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "sources.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "install_receipts",
+        "description": "List active installation receipts recorded for an installation.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "installationId"
+          ],
+          "properties": {
+            "installationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "install.receipts",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "library.read",
+        "idempotency": "none",
+        "confirmation": "none"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "install_detectInputs",
+        "description": "Inspect verified cached artifacts for enabled profile mods and infer exact Unreal input formats.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "xMintcat": {
+        "command": "install.detectInputs",
+        "contractVersion": 1,
+        "classification": "read",
+        "execution": "sync",
+        "permission": "library.read",
+        "idempotency": "none",
+        "confirmation": "none"
       }
     }
   ],
@@ -3258,6 +3541,23 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200
+          },
+          "sortField": {
+            "type": "string",
+            "enum": [
+              "updated",
+              "downloads",
+              "subscribers",
+              "rating",
+              "name"
+            ]
+          },
+          "sortDirection": {
+            "type": "string",
+            "enum": [
+              "ascending",
+              "descending"
+            ]
           }
         }
       },
@@ -3328,6 +3628,14 @@
           "expectedContentRevision": {
             "type": "integer",
             "minimum": 0
+          },
+          "groupId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "includeDependencies": {
+            "type": "boolean"
           }
         }
       },
@@ -3375,6 +3683,11 @@
           "expectedContentRevision": {
             "type": "integer",
             "minimum": 0
+          },
+          "groupId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
           }
         }
       },
@@ -4510,6 +4823,450 @@
       "classification": "read",
       "execution": "sync",
       "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "mods.refreshVersions",
+      "path": [
+        "mods",
+        "refresh-versions"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "profileModId"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "profileModId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ModDetails",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.metadata.write",
+      "idempotency": "optional",
+      "confirmation": "none"
+    },
+    {
+      "command": "mods.checkUpdates",
+      "path": [
+        "mods",
+        "check-updates"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "profileModIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ModsCheckUpdatesResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.metadata.write",
+      "idempotency": "optional",
+      "confirmation": "none"
+    },
+    {
+      "command": "mods.updateBatch",
+      "path": [
+        "mods",
+        "update-batch"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "expectedContentRevision"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedContentRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "profileModIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "cache-only",
+              "prepare-and-apply"
+            ]
+          }
+        }
+      },
+      "resultSchema": "#/$defs/JobRef",
+      "classification": "mutation",
+      "execution": "job",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "policy"
+    },
+    {
+      "command": "mods.checkConflicts",
+      "path": [
+        "mods",
+        "check-conflicts"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "profileModIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ModsCheckConflictsResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "mods.exportArtifact",
+      "path": [
+        "mods",
+        "export-artifact"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "profileModId",
+          "destinationPath"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "profileModId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "destinationPath": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        }
+      },
+      "resultSchema": "#/$defs/ModsExportArtifactResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "sources.resolveUrl",
+      "path": [
+        "sources",
+        "resolve-url"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gameId",
+          "url"
+        ],
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        }
+      },
+      "resultSchema": "#/$defs/SourceSearchItem",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "sources.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "sources.listSubscribed",
+      "path": [
+        "sources",
+        "list-subscribed"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceId",
+          "gameId"
+        ],
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "gameId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "remoteGameKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "resultSchema": "#/$defs/SourceSearchResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "sources.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "install.receipts",
+      "path": [
+        "install",
+        "receipts"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "installationId"
+        ],
+        "properties": {
+          "installationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/InstallReceiptsResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "install.detectInputs",
+      "path": [
+        "install",
+        "detect-inputs"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/InstallDetectInputsResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "library.read",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "agent.credentials.status",
+      "path": [
+        "agent",
+        "credentials",
+        "status"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "resultSchema": "#/$defs/AgentCredentialStatusResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "agent.write",
+      "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "agent.credentials.set",
+      "path": [
+        "agent",
+        "credentials",
+        "set"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "secret"
+        ],
+        "properties": {
+          "secret": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32768,
+            "writeOnly": true,
+            "description": "Raw OpenAI-compatible API key; stored only in the OS credential vault."
+          }
+        }
+      },
+      "resultSchema": "#/$defs/AgentCredentialStatusResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "agent.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "agent.credentials.clear",
+      "path": [
+        "agent",
+        "credentials",
+        "clear"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "resultSchema": "#/$defs/AgentCredentialStatusResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "agent.write",
+      "idempotency": "required",
+      "confirmation": "none"
+    },
+    {
+      "command": "agent.connection.test",
+      "path": [
+        "agent",
+        "connection",
+        "test"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "baseUrl",
+          "model"
+        ],
+        "properties": {
+          "baseUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 400
+          },
+          "credentialRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "resultSchema": "#/$defs/AgentConnectionTestResult",
+      "classification": "read",
+      "execution": "sync",
+      "permission": "agent.write",
       "idempotency": "none",
       "confirmation": "none"
     }

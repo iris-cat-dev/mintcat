@@ -651,3 +651,66 @@ async fn nullable_and_empty_object_modio_fields_and_dependency_objects_deseriali
     assert_eq!(dependencies.len(), 1);
     assert_eq!(dependencies[0].mod_ref.remote_mod_id, "88");
 }
+
+#[tokio::test]
+async fn list_subscribed_requires_credential_and_filters_to_game_binding() {
+    let server = spawn_server(|request| {
+        assert!(request.starts_with("GET /v1/me/subscribed?game_id=2475&"));
+        (
+            200,
+            json!({
+                "result_total": 2,
+                "data": [
+                    api_mod(101, "DRG Subscribed", 1),
+                    {
+                        "id": 202,
+                        "game_id": 9999,
+                        "name": "Other Game Mod",
+                        "name_id": "other-game",
+                        "status": 1,
+                        "visible": 1
+                    }
+                ]
+            }),
+        )
+    })
+    .await;
+    let vault = CredentialVault::new(Arc::new(MemoryCredentialStore::default()));
+    let unauthenticated = ModioProvider::new(
+        NetworkBroker::new(&vault, None).unwrap(),
+        ModioConfig {
+            api_base: server.origin.join("v1/").unwrap(),
+            credential: None,
+            proxy_policy: ProxyPolicy::Direct,
+            download_origins: Vec::new(),
+        },
+    )
+    .unwrap();
+    assert!(matches!(
+        unauthenticated
+            .list_subscribed(&game(), None, 20, &CancellationToken::default())
+            .await,
+        Err(SourceError::Unauthorized)
+    ));
+
+    let credential = vault
+        .store(SecretValue::new("subscribed-pat").unwrap())
+        .unwrap();
+    let authed = ModioProvider::new(
+        NetworkBroker::new(&vault, None).unwrap(),
+        ModioConfig {
+            api_base: server.origin.join("v1/").unwrap(),
+            credential: Some(credential),
+            proxy_policy: ProxyPolicy::Direct,
+            download_origins: Vec::new(),
+        },
+    )
+    .unwrap();
+    let page = authed
+        .list_subscribed(&game(), None, 20, &CancellationToken::default())
+        .await
+        .unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].name, "DRG Subscribed");
+    assert_eq!(page.items[0].mod_ref.remote_mod_id, "101");
+}

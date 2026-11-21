@@ -432,6 +432,15 @@ impl InstallService {
         Ok(stored.plan)
     }
 
+    pub fn active_receipts(
+        &self,
+        installation_id: &str,
+    ) -> Result<Vec<mintcat_runtime_file_transactions::InstallReceipt>, InstallError> {
+        Ok(self
+            .transactions
+            .active_receipts_for_installation(installation_id)?)
+    }
+
     pub fn recovery_build_request(&self, plan_id: &str) -> Result<BuildRequest, InstallError> {
         Ok(build_request_from_plan(self.plan(plan_id)?))
     }

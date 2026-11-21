@@ -19,7 +19,7 @@ fn setup(root: &Path, fixture: bool) -> (BackupService, LibraryStore, RuntimeLay
 }
 fn state() -> Result<BackupRuntimeState, BackupError> {
     Ok(BackupRuntimeState { blockers: BackupBlockers::default(), modules: BTreeMap::from([
-        ("mintcat.library".into(), ModuleVersion { version: "0.1.0".into(), schema_version: 5 }),
+        ("mintcat.library".into(), ModuleVersion { version: "0.1.0".into(), schema_version: LIBRARY_SCHEMA_VERSION }),
         ("mintcat.game-drg".into(), ModuleVersion { version: "0.1.0".into(), schema_version: 1 }),
         ("mintcat.game-rogue-core".into(), ModuleVersion { version: "0.1.0".into(), schema_version: 1 }),
     ]) })
@@ -72,7 +72,7 @@ impl PortableOwners for FixtureOwners {
 }
 fn settings_state() -> Result<BackupRuntimeState, BackupError> {
     Ok(BackupRuntimeState { blockers: BackupBlockers::default(), modules: BTreeMap::from([
-        ("mintcat.library".into(), ModuleVersion { version: "0.1.0".into(), schema_version: 5 }),
+        ("mintcat.library".into(), ModuleVersion { version: "0.1.0".into(), schema_version: LIBRARY_SCHEMA_VERSION }),
         (SETTINGS_OWNER.into(), ModuleVersion { version: "0.1.0".into(), schema_version: 1 }),
     ]) })
 }
@@ -86,7 +86,7 @@ fn export_schema_four_fixture(root: &Path) -> (Vec<u8>, PortableSnapshot) {
     // Migration 5 is exactly this guard table/index and its schema journal entry.
     connection.execute_batch(
         "DROP TABLE library_profile_content_guards;
-         DELETE FROM library_schema WHERE version = 5;
+         DELETE FROM library_schema WHERE version >= 5;
          UPDATE library_import_runs SET imported_at_ms = 0, source_label = 'mintcat-v0.6.sqlite';
          UPDATE library_settings SET created_at_ms = 0, updated_at_ms = 0 WHERE name = 'viewMode';"
     ).unwrap();
@@ -169,15 +169,15 @@ fn schema_four_archive_restores_complete_legacy_data_and_owner_settings_into_sch
     assert_eq!(library.get_global_setting("viewMode").unwrap().as_deref(), Some("compact"));
     assert_eq!(library.get_game_setting(&expected.library.games[0].game_id, "viewMode").unwrap().as_deref(), Some("expanded"));
     let database = rusqlite::Connection::open(library.database_path()).unwrap();
-    assert_eq!(database.query_row("SELECT MAX(version) FROM library_schema", [], |row| row.get::<_, u32>(0)).unwrap(), 5);
+    assert_eq!(database.query_row("SELECT MAX(version) FROM library_schema", [], |row| row.get::<_, u32>(0)).unwrap(), LIBRARY_SCHEMA_VERSION);
     assert_eq!(database.query_row("SELECT COUNT(*) FROM library_profile_content_guards", [], |row| row.get::<_, u32>(0)).unwrap(), 0);
     drop(database);
     assert!(MaintenanceGate::enter_mutation(&layout).is_ok());
     let current = target.export_bytes(settings_state).unwrap();
     let (current_manifest, current_snapshot) = BackupCodec.decode(&current, &settings_state().unwrap().modules).unwrap();
     assert_eq!(current_manifest.format_version, 2);
-    assert_eq!(current_manifest.owner_schemas["mintcat.library"], 5);
-    assert_eq!(current_manifest.module_versions["mintcat.library"].schema_version, 5);
+    assert_eq!(current_manifest.owner_schemas["mintcat.library"], LIBRARY_SCHEMA_VERSION);
+    assert_eq!(current_manifest.module_versions["mintcat.library"].schema_version, LIBRARY_SCHEMA_VERSION);
     assert_eq!(current_snapshot, expected);
     assert!(target.restore_bytes(&bytes, settings_state).is_err());
     assert_eq!(library.snapshot().unwrap(), expected.library);
@@ -212,7 +212,7 @@ fn schema_four_compatibility_rejects_mismatches_credentials_and_execution_author
             payload_json: "{}".into(), delivery_state: "pending".into(), delivery_ref: None, created_at_ms: 0, delivered_at_ms: None,
         })),
     ];
-    for schema in [0, 1, 2, 3, 6] {
+    for schema in [0, 1, 2, 3, 7] {
         rejected.push(rewrite_archive(&bytes, |archive| {
             archive.manifest.owner_schemas.insert("mintcat.library".into(), schema);
             archive.manifest.module_versions.get_mut("mintcat.library").unwrap().schema_version = schema;
@@ -224,7 +224,7 @@ fn schema_four_compatibility_rejects_mismatches_credentials_and_execution_author
         assert_eq!(owners.snapshot().unwrap(), empty_owners);
         assert!(MaintenanceGate::enter_mutation(&layout).is_ok());
     }
-    for (id, schema) in [("mintcat.library", 4), ("mintcat.library", 6), (SETTINGS_OWNER, 2)] {
+    for (id, schema) in [("mintcat.library", 4), ("mintcat.library", 7), (SETTINGS_OWNER, 2)] {
         assert!(target.restore_bytes(&bytes, || { let mut state = settings_state()?; state.modules.get_mut(id).unwrap().schema_version = schema; Ok(state) }).is_err());
     }
     for id in ["mintcat.library", SETTINGS_OWNER] {

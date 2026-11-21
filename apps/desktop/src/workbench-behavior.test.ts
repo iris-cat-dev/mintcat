@@ -52,9 +52,9 @@ describe('bundled workbench pages', () => {
   it('keeps official navigation and builtin services usable without any game plugin', async () => {
     emptyBackend(); const { root, toolbar, rescue } = await open();
     expect(root.textContent).toContain('尚未安装游戏支持插件');
-    for (const label of ['模组管理', '在线模组', '本地导入', '下载管理', '设置']) expect(root.textContent).toContain(label);
+    for (const label of ['模组管理', '在线模组', '下载管理', '设置']) expect(root.textContent).toContain(label);
     for (const [route, label] of [
-      ['/mintcat.library/local', '本地导入'], ['/mintcat.library/downloads', '下载管理'],
+      ['/mintcat.library/downloads', '下载管理'],
       ['/mintcat.install/tasks', 'daemon 持久任务'], ['/mintcat.feature.backup/backups', '离线便携归档'],
       ['/mintcat.ui.search/search', '尚未安装游戏支持插件'],
     ]) {
@@ -138,9 +138,12 @@ describe('bundled workbench pages', () => {
     expect(toolbar.querySelector<HTMLButtonElement>('.library-install-button')!.disabled).toBe(true);
     await React.act(async () => { root.querySelector<HTMLButtonElement>('tr[data-mod-id="profile-mod-1"] button[role="switch"]')!.click(); });
     expect(root.querySelector('tr[data-mod-id="profile-mod-1"] button[role="switch"]')!.getAttribute('aria-checked')).toBe('false');
-    await React.act(async () => { await workbench!.navigate('/mintcat.library/local'); });
-    expect([...root.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === '选择文件')!.disabled).toBe(true);
-    await React.act(async () => { await workbench!.navigate('/mintcat.library/library'); });
+    await React.act(async () => { toolbar.querySelector<HTMLButtonElement>('button[aria-label="导入 / 添加模组"]')!.click(); });
+    await React.act(async () => {
+      [...document.querySelectorAll<HTMLButtonElement>('.library-import-tab')].find(button => button.textContent?.includes('本地文件'))!.click();
+    });
+    expect([...document.querySelectorAll<HTMLButtonElement>('.ant-modal button')].find(button => button.textContent === '选择文件')!.disabled).toBe(true);
+    await React.act(async () => { document.querySelector<HTMLButtonElement>('.ant-modal-close')!.click(); });
     await React.act(async () => { root.querySelector<HTMLButtonElement>('button[aria-label="管理配置"]')!.click(); });
     await React.act(async () => { [...document.querySelectorAll('button')].find(button => button.textContent === '重命名')!.click(); });
     await React.act(async () => {
@@ -270,7 +273,7 @@ describe('bundled workbench pages', () => {
       [...document.querySelectorAll('.ant-modal')].find(modal => modal.textContent?.includes('添加模组到配置'))!
         .querySelector<HTMLButtonElement>('.ant-btn-primary')!.click();
     });
-    expect(root.querySelector('.module-notice')?.textContent).toContain('添加任务 job-add-1 已交给 daemon');
+    expect(root.querySelector('.module-notice')?.textContent).toContain('已加入下载队列');
 
     // Navigating away and back clears the stale banner and immediately restores cached catalog items.
     await React.act(async () => { await workbench!.navigate('/mintcat.library/library'); });
@@ -280,6 +283,61 @@ describe('bundled workbench pages', () => {
     expect(searchCalls).toBe(1);
     expect(root.textContent).toContain('热门 DRG 模组');
     expect(root.textContent).not.toContain('探索在线模组库');
+    expect(rescue).not.toHaveBeenCalled();
+  });
+  it('renders recovery-required local import tasks in Chinese and lets users dismiss them without crashing', async () => {
+    const game = { gameId: 'game:drg', gameKey: 'drg', displayName: 'Deep Rock Galactic', active: true, installations: [] };
+    const profile: ProfileSummary = { profileId: 'profile-drg', gameId: game.gameId, name: '深岩日常方案', displayName: '深岩日常方案', active: true, description: '', revision: 1, contentRevision: 1, incarnationId: 'inc-1' };
+    const session = new SessionStore(localStorage, `mintcat.workbench.session.v1/${encodeURIComponent('/isolated-test')}`);
+    session.set('mintcat.library/library', 1, {
+      gameId: game.gameId,
+      profileId: profile.profileId,
+      query: '',
+      jobs: [{ jobId: 'job-stale-import', profileId: profile.profileId }],
+    });
+    vi.mocked(requestApplication).mockImplementation(async (_directory, method) => {
+      if (method === 'modules.list') return { generationId: 'drg-gen', modules: [{ moduleId: 'mintcat.game.drg', enabled: true, game: { gameId: game.gameId, displayName: game.displayName, descriptor: { gameId: game.gameId, displayName: game.displayName, settingsSchemaVersion: 1, settingsSchema: { type: 'object', properties: {} }, variants: [{ variantId: 'steam', displayName: 'Steam' }], sourceBindings: [{ sourceId: 'local', remoteGameKey: 'drg' }] } } }] };
+      if (method === 'games.list') return { items: [game] };
+      if (method === 'profiles.list') return { items: [profile] };
+      if (method === 'mods.list') return { profileId: profile.profileId, contentRevision: 1, total: 0, items: [] };
+      if (method === 'groups.list') return { profileId: profile.profileId, contentRevision: 1, items: [] };
+      if (method === 'profiles.contentState') return { profileId: profile.profileId, contentRevision: 1, writable: true, recoveryRequired: false, operations: [] };
+      if (method === 'jobs.watch') return {
+        snapshot: {
+          jobId: 'job-stale-import',
+          command: 'mods.importLocal',
+          state: 'recovery-required',
+          generationId: 'drg-gen',
+          lastSeq: 3,
+          createdAt: '2026-11-21T06:55:00Z',
+          updatedAt: '2026-11-21T06:56:12Z',
+          error: {
+            code: 'RECOVERY_REQUIRED',
+            messageKey: 'source.frozen_configuration_unavailable',
+            requestId: 'job-stale-import',
+            retryable: false,
+            recoveryActions: [],
+            details: { reason: 'source snapshot identity mismatch' },
+          },
+        },
+        events: [],
+        nextAfterSeq: 3,
+        retentionStartSeq: 1,
+        resetRequired: false,
+      };
+      throw new Error(`Unexpected request ${method}`);
+    });
+    const { root, rescue } = await open();
+    expect(root.textContent).not.toContain('页面加载失败');
+    await React.act(async () => { await workbench!.navigate('/mintcat.library/downloads'); });
+    expect(root.textContent).toContain('导入本地模组');
+    expect(root.textContent).toContain('已中断（需重试）');
+    expect(root.textContent).toContain('旧版未完成任务已失效');
+    expect(root.textContent).toContain('深岩日常方案');
+    await React.act(async () => {
+      [...root.querySelectorAll('button')].find(button => button.textContent?.includes('移除记录'))!.click();
+    });
+    expect(root.textContent).toContain('当前没有进行中的下载或后台任务');
     expect(rescue).not.toHaveBeenCalled();
   });
 });
