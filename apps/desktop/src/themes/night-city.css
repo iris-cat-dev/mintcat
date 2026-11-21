@@ -129,11 +129,27 @@
       }
       &::after { animation: night-signal-tear var(--signal-timing) 160ms; }
       & .library-atlas-art::after { animation: night-signal-scan var(--signal-timing) 160ms; }
+      /* The ink stays legible underneath; only narrow strips of the overprint move. */
+      & h2 { position: relative; }
+      & h2::before, & h2::after {
+        content: attr(title) / '';
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: max-content;
+        pointer-events: none;
+        opacity: 0;
+        color: var(--neon-ink);
+        background: var(--neon-yellow);
+        text-shadow: -5px 0 var(--neon-cyan), 5px 0 var(--neon-coral);
+        transform-origin: left center;
+      }
+      & h2::before { animation: night-ink-slip 7.2s steps(1, end) 160ms infinite; }
       @media (hover: hover) {
         &:hover .library-atlas-art { transform: none; }
         &:hover .library-atlas-art::before { animation: night-signal-tear var(--signal-timing); }
         &:hover::before { z-index: 0; animation: night-signal-scan var(--signal-timing); }
-        &:hover h2 { animation: night-register var(--signal-timing); }
+        &:hover h2 { animation: night-register 1.45s ease-out; }
+        &:hover h2::after { animation: night-ink-slip 7.2s steps(1, end) 1; }
       }
     }
     [data-module="mintcat.library"] .library-mod-row[data-import-new] > td { animation-name: night-import; }
@@ -143,9 +159,19 @@
   }
 }
 @keyframes night-register {
-  0%, 65%, 100% { text-shadow: none; }
-  22% { text-shadow: -4px 0 var(--neon-cyan), 4px 1px var(--neon-coral); }
-  43% { text-shadow: 1px 0 var(--neon-cyan), -2px 0 var(--neon-coral); }
+  0%, 32%, 72%, 100% { text-shadow: none; }
+  14%, 22% { text-shadow: -5px 0 var(--neon-cyan), 5px 1px var(--neon-coral); }
+  52% { text-shadow: 3px 0 var(--neon-cyan), -4px 0 var(--neon-coral); }
+}
+/* Three ink slips in the first 1.3 s; the remaining six seconds are quiet. */
+@keyframes night-ink-slip {
+  0%, 4.5%, 11.5%, 18.5%, 100% { opacity: 0; }
+  1% { opacity: 1; clip-path: inset(28% 0 49%); transform: translateX(13px) skewX(-16deg) scaleX(1.08); }
+  3% { opacity: 1; clip-path: inset(52% 0 39%); transform: translateX(-6px) scaleX(1.13); }
+  8% { opacity: 1; clip-path: polygon(0 35%,100% 35%,100% 40%,0 40%,0 60%,100% 60%,100% 77%,0 77%); transform: translateX(-12px) scaleX(.97); }
+  10% { opacity: .9; clip-path: inset(56% 0 34%); transform: translateX(8px) scaleX(1.06); }
+  16% { opacity: .9; clip-path: inset(42% 0 49%); transform: translateX(6px) scaleX(1.18); }
+  17.5% { opacity: .7; clip-path: inset(43% 0 51%); transform: translateX(2px); }
 }
 @keyframes night-signal-tear {
   0%, 68%, 100% { opacity: 0; transform: none; }
