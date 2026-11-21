@@ -3,6 +3,7 @@
 ### 夜城霓虹主题
 
 - 新增可独立切换的「夜城霓虹」。参考 [CD Projekt RED 的界面设计演讲](https://media.gdcvault.com/2023+Showcase/Arkadiusz_Antonik_User_Interface_In_Cyberpunk_2077_Challanges_And_Optimizations.pdf#page=24)，DRG 横幅采用电黄黑字标题、珊瑚与青色斜切边和紫色矿区插画。侧栏以矿轨线图和珊瑚色标记当前页面；冰青标记筛选、分组方式和启用开关，模组列表保留深紫底色。
+- 在「夜城霓虹」下打开 DRG 横幅时会短暂出现横向错帧和扫描线；鼠标移入可重播，并短暂分离标题的青红色边缘。启用系统「减少动态效果」时保留静态海报。
 
 ### 草莓奶霜主题
 
