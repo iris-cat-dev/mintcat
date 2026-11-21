@@ -49,13 +49,13 @@ const THEME_OPTIONS: readonly ThemeOption[] = [
   },
   {
     id: 'Pink',
-    name: '樱粉微光',
-    desc: '柔和暖调樱花粉氛围配色',
-    windowBg: '#f6edf4',
-    sidebarBg: '#fbf1f8',
-    cardBg: '#ffffff',
-    accent: '#e84393',
-    text: '#2b1e28',
+    name: '草莓奶霜',
+    desc: '奶霜白底、莓果粉按钮与手绘草莓纹样',
+    windowBg: '#fff5f8',
+    sidebarBg: '#fbe2eb',
+    cardBg: '#fffbfd',
+    accent: '#ba376d',
+    text: '#42263a',
   },
   {
     id: 'Blue',
@@ -98,7 +98,7 @@ export function mountAppearanceSettings(root: HTMLElement): Disposable {
         h('div', { className: 'settings-group-head' },
           h('div', null,
             h('h3', { className: 'settings-group-title' }, '主题配色'),
-            h('p', { className: 'settings-group-subtitle' }, '支持浅色、深色及两套氛围强调色方案，偏好自动保存在本机'))),
+            h('p', { className: 'settings-group-subtitle' }, '切换后立即生效，并记住本机的选择。'))),
         h('div', { className: 'settings-theme-grid', role: 'radiogroup', 'aria-label': '界面主题选择' },
           ...THEME_OPTIONS.map(option => {
             const selected = theme === option.id;

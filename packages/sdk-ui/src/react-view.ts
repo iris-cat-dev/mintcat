@@ -34,7 +34,7 @@ export function setUiTheme(name: UiThemeName): void {
 function themeConfig(name: UiThemeName): ThemeConfig {
   const { Antd } = getSharedRuntime();
   const dark = name === 'Dark';
-  const accent = name === 'Blue' ? '#3b82f6' : name === 'Pink' ? '#e84393' : '#ec4899';
+  const accent = name === 'Blue' ? '#3b82f6' : name === 'Pink' ? '#ba376d' : '#ec4899';
   const accentSoft = name === 'Blue'
     ? (dark ? 'rgba(59, 130, 246, .22)' : 'rgba(59, 130, 246, .11)')
     : (dark ? 'rgba(236, 72, 153, .22)' : 'rgba(236, 72, 153, .11)');
@@ -50,11 +50,11 @@ function themeConfig(name: UiThemeName): ThemeConfig {
       colorSuccess: '#10b981',
       colorWarning: '#f59e0b',
       colorError: '#ef4444',
-      colorText: dark ? '#edf2fc' : '#1e2433',
-      colorTextSecondary: dark ? '#9aa8c2' : '#5b6478',
+      colorText: name === 'Pink' ? '#42263a' : dark ? '#edf2fc' : '#1e2433',
+      colorTextSecondary: name === 'Pink' ? '#75566a' : dark ? '#9aa8c2' : '#5b6478',
       colorTextTertiary: dark ? '#73829e' : '#8590a6',
-      colorBgContainer: dark ? 'rgba(28, 39, 62, .62)' : 'rgba(255, 255, 255, .74)',
-      colorBgElevated: dark ? '#1f2b44' : '#ffffff',
+      colorBgContainer: name === 'Pink' ? '#fffbfd' : dark ? 'rgba(28, 39, 62, .62)' : 'rgba(255, 255, 255, .74)',
+      colorBgElevated: name === 'Pink' ? '#fffbfd' : dark ? '#1f2b44' : '#ffffff',
       colorBgLayout: 'transparent',
       colorBorder: dark ? 'rgba(177, 196, 230, .16)' : 'rgba(100, 116, 148, .18)',
       colorBorderSecondary: dark ? 'rgba(177, 196, 230, .11)' : 'rgba(100, 116, 148, .12)',
@@ -89,7 +89,7 @@ function themeConfig(name: UiThemeName): ThemeConfig {
         cellPaddingInline: 12,
       },
       Card: {
-        colorBgContainer: dark ? 'rgba(26, 37, 58, .56)' : 'rgba(255, 255, 255, .72)',
+        colorBgContainer: name === 'Pink' ? '#fffbfd' : dark ? 'rgba(26, 37, 58, .56)' : 'rgba(255, 255, 255, .72)',
         headerBg: 'transparent',
         paddingLG: 16,
       },
@@ -108,7 +108,7 @@ function themeConfig(name: UiThemeName): ThemeConfig {
         optionSelectedBg: accentSoft,
       },
       Input: {
-        colorBgContainer: dark ? 'rgba(140, 165, 206, .12)' : 'rgba(255, 255, 255, .78)',
+        colorBgContainer: name === 'Pink' ? '#fffbfd' : dark ? 'rgba(140, 165, 206, .12)' : 'rgba(255, 255, 255, .78)',
         activeShadow: '0 0 0 3px rgba(236, 72, 153, .14)',
       },
       Modal: {
@@ -116,7 +116,7 @@ function themeConfig(name: UiThemeName): ThemeConfig {
         headerBg: 'transparent',
       },
       Drawer: {
-        colorBgElevated: dark ? 'rgba(24, 34, 54, .92)' : 'rgba(250, 251, 255, .92)',
+        colorBgElevated: name === 'Pink' ? '#fffbfd' : dark ? 'rgba(24, 34, 54, .92)' : 'rgba(250, 251, 255, .92)',
       },
       Switch: { handleBg: '#fff' },
     },

@@ -1,5 +1,9 @@
 ## 模块化重构（工作区）
 
+### 草莓奶霜主题
+
+- 「草莓奶霜」替换原粉色皮肤：奶霜白工作区、莓果粉按钮和手绘草莓侧栏。可从设置的「外观偏好」切换；已选粉色的用户自动沿用新外观，布局与游戏横幅不变。
+
 ### 2026-11-18：内置业务与独立游戏插件
 
 - 官方 UI/CSS、Library、ModCat/mod.io/Nexus 来源、Agent 与备份随应用构建；删除业务 worker、签名 UI/ESM、UI generation/session/barrier 及 platform 激活入口。Proxy 改为显式 `experimental-proxy`。

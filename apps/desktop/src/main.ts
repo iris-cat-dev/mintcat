@@ -1,4 +1,5 @@
 import './style.css';
+import './themes/strawberry.css';
 import { mountDesktop } from './bootstrap';
 
 const app = document.querySelector<HTMLElement>('#app');

@@ -1,0 +1,54 @@
+/* The saved Pink preference follows the new skin; no geometry or motion overrides. */
+:root[data-ui-theme="Pink"] {
+  --mc-accent: #ba376d;
+  --mc-accent-strong: #96244f;
+  --mc-text: #42263a;
+  --mc-muted: #75566a;
+  --mc-subtle: #87667a;
+  --mc-window-bg: #fff5f8;
+  --mc-sidebar-bg: #fbe2eb;
+  --mc-card-bg: #fffbfd;
+  --mc-control-bg: #fffafd;
+  --mc-header-bg: #fff8fb;
+  --mc-border: #e9d3de;
+  --mc-border-control: #dcb9cb;
+  --mc-border-strong: #c59aae;
+  --mc-hover: #fae4ef;
+  --mc-selected: #f6d8e6;
+  --mc-table-header-bg: #f8eaf2;
+  --mc-primary-bg: linear-gradient(112deg, #ad3169, #bf3a70 70%, #c64372);
+  --mc-primary-shadow: 0 2px 6px #ae376222, inset 0 1px #ffffff45;
+  --mc-shadow: 0 9px 28px #6c2e5424;
+}
+:root[data-ui-theme="Pink"] .app-sidebar-host {
+  background: url('./strawberries.svg') right 13px bottom 68px / 86px auto no-repeat,
+    linear-gradient(162deg, #fbdde8, #fff0f5 38%, #f9eafa 100%);
+}
+:root[data-ui-theme="Pink"] .app:has(.sidebar-toggle[aria-expanded="false"]) .app-sidebar-host {
+  background-size: 45px auto, auto;
+  background-position: center bottom 68px, center;
+}
+:root[data-ui-theme="Pink"] .brand-icon-shell { box-shadow: var(--mc-primary-shadow); }
+:root[data-ui-theme="Pink"] .app-sidebar .ant-menu-item-selected {
+  background: #f8cddd !important;
+  color: #822346 !important;
+  box-shadow: inset 0 0 0 1px #eeb3c9;
+}
+:root[data-ui-theme="Pink"] .app-sidebar .ant-menu-item-selected::before {
+  background: var(--mc-accent);
+  box-shadow: none;
+}
+:root[data-ui-theme="Pink"] [data-module="mintcat.library"].library {
+  --library-name-ink: var(--mc-text);
+  --library-mint: #d17da3;
+}
+:root[data-ui-theme="Pink"] [data-module="mintcat.library"] .library-mod-row .ant-switch-small.ant-switch-checked {
+  background: var(--mc-accent);
+}
+:root[data-ui-theme="Pink"] [data-module="mintcat.library"] .library-mod-row .ant-switch-checked .ant-switch-handle::before {
+  background: #fff8fc;
+}
+:root[data-ui-theme="Pink"] [data-module="mintcat.library"] .library-groupby-opt.is-active {
+  background: var(--mc-selected);
+  color: var(--mc-accent-strong);
+}

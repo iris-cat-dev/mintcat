@@ -42,16 +42,6 @@
   --mc-scrollbar: rgba(114, 128, 158, .26);
   --mc-scrollbar-hover: rgba(114, 128, 158, .44);
 }
-:root[data-ui-theme="Pink"] {
-  --mc-accent: #e84393;
-  --mc-accent-strong: #d6307f;
-  --mc-window-bg: #f6edf4;
-  --mc-window-tint: rgba(250, 240, 248, .64);
-  --mc-ambient-glow: radial-gradient(680px 420px at 10% -4%, rgba(232, 67, 147, .13), transparent 70%),
-    radial-gradient(540px 360px at 92% 6%, rgba(192, 132, 252, .09), transparent 66%);
-  --mc-sidebar-bg: rgba(251, 241, 248, .56);
-  --mc-table-header-bg: rgba(249, 239, 246, .92);
-}
 :root[data-ui-theme="Blue"] {
   --mc-accent: #3b82f6;
   --mc-accent-strong: #2563eb;
