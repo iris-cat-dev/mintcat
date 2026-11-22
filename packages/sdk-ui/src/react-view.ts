@@ -41,33 +41,32 @@ function themeConfig(name: UiThemeName): ThemeConfig {
   const { Antd } = getSharedRuntime();
   if (name === 'NightCity') return { ...nightCityConfig, algorithm: Antd.theme.darkAlgorithm };
   const dark = name === 'Dark';
-  const accent = name === 'Blue' ? '#3b82f6' : name === 'Pink' ? '#ba376d' : '#ec4899';
-  const accentSoft = name === 'Blue'
-    ? (dark ? 'rgba(59, 130, 246, .22)' : 'rgba(59, 130, 246, .11)')
-    : (dark ? 'rgba(236, 72, 153, .22)' : 'rgba(236, 72, 153, .11)');
-  const accentHover = name === 'Blue'
-    ? (dark ? 'rgba(59, 130, 246, .14)' : 'rgba(59, 130, 246, .075)')
-    : (dark ? 'rgba(236, 72, 153, .13)' : 'rgba(236, 72, 153, .075)');
+  const accent = { Light: '#176b57', Dark: '#7ac8a9', Pink: '#ba376d', Blue: '#346883' }[name];
+  const text = { Light: '#192b29', Dark: '#e3ebe5', Pink: '#42263a', Blue: '#24333e' }[name];
+  const muted = { Light: '#52625c', Dark: '#b2bfb6', Pink: '#75566a', Blue: '#516573' }[name];
+  const surface = { Light: '#fcfdf9', Dark: '#202d28', Pink: '#fffbfd', Blue: '#fbfcfd' }[name];
+  const accentSoft = `${accent}22`;
+  const accentHover = `${accent}12`;
   return {
     cssVar: { key: `mintcat-${name}` },
     ...(dark ? { algorithm: Antd.theme.darkAlgorithm } : {}),
     token: {
       colorPrimary: accent,
-      colorInfo: '#3b82f6',
-      colorSuccess: '#10b981',
-      colorWarning: '#f59e0b',
-      colorError: '#ef4444',
-      colorText: name === 'Pink' ? '#42263a' : dark ? '#edf2fc' : '#1e2433',
-      colorTextSecondary: name === 'Pink' ? '#75566a' : dark ? '#9aa8c2' : '#5b6478',
-      colorTextTertiary: dark ? '#73829e' : '#8590a6',
-      colorBgContainer: name === 'Pink' ? '#fffbfd' : dark ? 'rgba(28, 39, 62, .62)' : 'rgba(255, 255, 255, .74)',
-      colorBgElevated: name === 'Pink' ? '#fffbfd' : dark ? '#1f2b44' : '#ffffff',
+      colorInfo: '#376d90',
+      colorSuccess: '#28815d',
+      colorWarning: '#aa7423',
+      colorError: '#b24245',
+      colorText: text,
+      colorTextSecondary: muted,
+      colorTextTertiary: dark ? '#96a59d' : muted,
+      colorBgContainer: surface,
+      colorBgElevated: surface,
       colorBgLayout: 'transparent',
-      colorBorder: dark ? 'rgba(177, 196, 230, .16)' : 'rgba(100, 116, 148, .18)',
-      colorBorderSecondary: dark ? 'rgba(177, 196, 230, .11)' : 'rgba(100, 116, 148, .12)',
-      borderRadius: 10,
-      borderRadiusSM: 7,
-      borderRadiusLG: 14,
+      colorBorder: `${text}38`,
+      colorBorderSecondary: `${text}24`,
+      borderRadius: 6,
+      borderRadiusSM: 4,
+      borderRadiusLG: 9,
       controlHeight: 36,
       controlHeightSM: 28,
       fontSize: 13,
@@ -77,53 +76,55 @@ function themeConfig(name: UiThemeName): ThemeConfig {
       Layout: { bodyBg: 'transparent', footerBg: 'transparent', headerBg: 'transparent', siderBg: 'transparent' },
       Menu: {
         itemBg: 'transparent',
-        itemColor: dark ? '#9aa8c2' : '#5b6478',
-        itemHoverBg: dark ? 'rgba(148, 172, 214, .10)' : 'rgba(100, 116, 148, .08)',
-        itemHoverColor: dark ? '#edf2fc' : '#1e2433',
+        itemColor: muted,
+        itemHoverBg: accentHover,
+        itemHoverColor: text,
         itemSelectedBg: accentSoft,
-        itemSelectedColor: dark ? '#ff9ed0' : (name === 'Blue' ? '#1d4ed8' : '#be185d'),
-        itemBorderRadius: 10,
+        itemSelectedColor: accent,
+        itemBorderRadius: 6,
       },
       Table: {
         colorBgContainer: 'transparent',
-        headerBg: dark ? 'rgba(30, 42, 66, .88)' : 'rgba(241, 244, 251, .92)',
-        headerColor: dark ? '#9aa8c2' : '#5b6478',
+        headerBg: `${text}09`,
+        headerColor: muted,
         headerSplitColor: 'transparent',
         rowHoverBg: accentHover,
         rowSelectedBg: accentSoft,
-        rowSelectedHoverBg: dark ? 'rgba(236, 72, 153, .30)' : 'rgba(236, 72, 153, .17)',
+        rowSelectedHoverBg: `${accent}30`,
         cellPaddingBlock: 8,
         cellPaddingInline: 12,
       },
       Card: {
-        colorBgContainer: name === 'Pink' ? '#fffbfd' : dark ? 'rgba(26, 37, 58, .56)' : 'rgba(255, 255, 255, .72)',
+        colorBgContainer: surface,
         headerBg: 'transparent',
         paddingLG: 16,
       },
       Collapse: {
-        headerBg: dark ? 'rgba(32, 45, 70, .46)' : 'rgba(246, 248, 254, .72)',
+        headerBg: `${text}08`,
         contentBg: 'transparent',
       },
       Button: {
-        defaultBg: dark ? 'rgba(140, 165, 206, .12)' : 'rgba(255, 255, 255, .78)',
-        defaultBorderColor: dark ? 'rgba(177, 196, 230, .18)' : 'rgba(100, 116, 148, .20)',
-        primaryShadow: '0 4px 14px rgba(236, 72, 153, .28)',
+        defaultBg: surface,
+        defaultBorderColor: `${text}38`,
+        defaultShadow: 'none',
+        primaryShadow: 'none',
+        primaryColor: dark ? '#13211c' : '#fff',
         fontWeight: 500,
       },
       Select: {
-        selectorBg: dark ? 'rgba(140, 165, 206, .12)' : 'rgba(255, 255, 255, .78)',
+        selectorBg: surface,
         optionSelectedBg: accentSoft,
       },
       Input: {
-        colorBgContainer: name === 'Pink' ? '#fffbfd' : dark ? 'rgba(140, 165, 206, .12)' : 'rgba(255, 255, 255, .78)',
-        activeShadow: '0 0 0 3px rgba(236, 72, 153, .14)',
+        colorBgContainer: surface,
+        activeShadow: `0 0 0 2px ${accent}24`,
       },
       Modal: {
-        contentBg: dark ? '#1d2840' : '#fcfdff',
+        contentBg: surface,
         headerBg: 'transparent',
       },
       Drawer: {
-        colorBgElevated: name === 'Pink' ? '#fffbfd' : dark ? 'rgba(24, 34, 54, .92)' : 'rgba(250, 251, 255, .92)',
+        colorBgElevated: surface,
       },
       Switch: { handleBg: '#fff' },
     },

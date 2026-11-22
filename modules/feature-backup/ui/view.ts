@@ -205,7 +205,7 @@ export function BackupView({ model }: { model: BackupModel }) {
             actionButton('restore', '恢复归档', model.restoreArchive, { icon: icon('RollbackOutlined') }))))),
 
     /* Group 2: Cloud Backup */
-    h('div', { className: 'mintcat-backup-group' },
+    h('div', { className: 'mintcat-backup-group', id: 'cloud-snapshot-sync', role: 'region', 'aria-label': '云端快照同步', tabIndex: -1 },
       h('div', { className: 'mintcat-backup-group-header' },
         h('div', { className: 'mintcat-backup-group-title-row' },
           h('h3', { className: 'mintcat-backup-group-title' }, '云端快照同步'),

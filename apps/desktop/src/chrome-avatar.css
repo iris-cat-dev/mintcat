@@ -1,0 +1,14 @@
+.chrome-avatar-button svg,
+.chrome-avatar-identity svg { display: block; flex: none; }
+.chrome-avatar-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 170px;
+  padding: 4px 0 10px;
+  border-bottom: 1px solid var(--mc-border);
+}
+.chrome-avatar-identity strong,
+.chrome-avatar-identity small { display: block; }
+.chrome-avatar-identity strong { color: var(--mc-text); font-size: 14px; font-weight: 650; }
+.chrome-avatar-identity small { margin-top: 2px; color: var(--mc-muted); font-size: 12px; }

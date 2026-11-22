@@ -1,0 +1,137 @@
+/* A specimen plate above the working ledger. The image is local, decorative, and never intercepts input. */
+.atlas-stage { position: relative; flex: 0 0 auto; margin: 18px 22px 4px; border-radius: 12px; overflow: hidden; }
+.atlas-stage .atlas-leaving { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.library-atlas {
+  position: relative;
+  isolation: isolate;
+  flex: 0 0 auto;
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  height: clamp(138px, 18vh, 174px);
+  margin: 0;
+  padding: 18px clamp(22px, 2.4vw, 38px);
+  overflow: hidden;
+  border-radius: 12px;
+  color: #f0f6e9;
+  background: linear-gradient(106deg, #102b29 9%, #183932 59%, #1f453c);
+  box-shadow: inset 0 0 0 1px rgb(211 239 215 / 9%);
+}
+.library-atlas::before,
+.library-atlas::after,
+.library-atlas-art { content: ''; position: absolute; pointer-events: none; z-index: -1; }
+.library-atlas::before {
+  inset: 0;
+  background-image: radial-gradient(circle, #a7ceaf59 .7px, transparent .85px);
+  background-size: 13px 13px;
+  opacity: .37;
+  mask-image: linear-gradient(115deg, transparent 12%, #000 82%);
+}
+.library-atlas-art {
+  inset: 0 0 0 auto;
+  width: min(70%, 760px);
+  background: url('./art/quartz-plate.svg') right 38% center / auto 96% no-repeat;
+  mask-image: linear-gradient(to right, transparent 0, #000 23%);
+}
+.library-atlas::after {
+  inset: 0 0 0 38%;
+  background: linear-gradient(115deg, transparent 38%, rgb(189 238 195 / 11%) 48%, rgb(225 255 224 / 20%) 50%, transparent 60%) no-repeat;
+  background-size: 70% 100%;
+  background-position: -260% 0;
+}
+.library-atlas-kicker, .library-atlas-caption {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font: 600 10px/1.25 ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: .17em;
+  color: #b9d5bf;
+}
+.library-atlas-kicker::before, .library-atlas-kicker::after {
+  content: ''; width: 19px; height: 2px;
+  background: var(--atlas-rule, #bdde86);
+}
+.library-atlas h2 {
+  margin: 0;
+  font-size: clamp(30px, 2.65vw, 42px);
+  line-height: 1.14;
+  font-weight: 650;
+  max-width: 78%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: -.025em;
+  color: inherit;
+}
+.library-atlas-caption {
+  position: absolute; right: 19px; bottom: 13px;
+  gap: 7px; font-size: 9px; letter-spacing: .15em; color: #b8cfba;
+}
+.library-atlas-caption::before { content: ''; width: 17px; height: 1px; background: currentColor; }
+
+.library-atlas--drg { background: #102622; }
+.library-atlas--drg::before, .library-atlas--drg::after { content: none; }
+.library-atlas--drg .library-atlas-art {
+  inset: 0;
+  width: 100%;
+  background: url('./art/hoxxes-expedition.webp') right center / auto 100% no-repeat;
+  mask-image: none;
+}
+/* Anchor the shafts to the cave opening, not to the viewport or the title. */
+.library-atlas--drg .library-atlas-art::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 auto;
+  height: 100%;
+  aspect-ratio: 2516 / 343;
+  background: linear-gradient(116deg, transparent 55%, #ffd59119 56.1%, #ffd59104 57.2%, transparent 58%,
+    transparent 60%, #ffe1ab22 61.4%, #ffcc7812 62.8%, transparent 64%);
+  mask-image: linear-gradient(to bottom, black 10%, #000a 60%, transparent);
+  transform-origin: 65% 0;
+}
+.library-atlas--drg .library-atlas-kicker { color: #ead8a5; }
+.library-atlas--drg { --atlas-rule: #efb451; }
+
+.library-survey { position: absolute; inset: 0; pointer-events: none; z-index: -1; overflow: hidden; }
+.library-survey::before { content: ''; position: absolute; inset: 7px; background: linear-gradient(90deg,#dcb97d,transparent) left top/47px 1px, linear-gradient(#dcb97d,transparent) left top/1px 19px, linear-gradient(270deg,#eac487,transparent) right bottom/47px 1px, linear-gradient(0deg,#eac487,transparent) right bottom/1px 19px; background-repeat: no-repeat; }
+.survey-dust { position: absolute; inset: -18% 0; background-image: radial-gradient(ellipse 2px 3px at 30% 38%, #ffc26f, transparent), radial-gradient(ellipse 2px 4px at 72% 41%, #ffe3a3, transparent), radial-gradient(ellipse 3px 4px at 82% 76%, #ffca79, transparent), radial-gradient(ellipse 2px 3px at 94% 29%, #ffecb0, transparent), radial-gradient(circle at 63% 80%, #ffdda2 1px, transparent 2.5px); }
+.survey-dust--far { inset: -21% 6% -8% 13%; transform: scaleX(-1); opacity: .6; }
+.survey-lamp { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .library-atlas--drg .library-atlas-art::after { animation: cavern-light 9s ease-in-out infinite alternate; }
+  .survey-dust { animation: survey-rise 4.8s linear -1.8s infinite; }
+  .survey-dust--far { animation-duration: 6.5s; animation-delay: -5s; }
+  .survey-lamp { display: block; position: absolute; inset: 0; opacity: 0; transition: opacity .4s; background: radial-gradient(ellipse 155px 120px at var(--lamp-x, 50%) var(--lamp-y, 50%), #d8ffc32e, #a4ffd30c 48%, transparent 100%); }
+  .library-atlas:hover .survey-lamp { opacity: 1; }
+  .library-survey::after { content: ''; position: absolute; left: -23%; width: 23%; bottom: 0; height: 2px; background: linear-gradient(90deg, transparent, #84eabd 76%, #ffdf93 98%, transparent); box-shadow: 0 2px 8px #a1ffda77; animation: survey-trace 5.8s ease-in-out infinite; }
+  @keyframes cavern-light { from { opacity: .5; transform: skewX(-3deg); } to { opacity: 1; transform: skewX(2deg); } }
+  @keyframes survey-rise { 0% { opacity: 0; translate: 0 27%; } 22%, 68% { opacity: .95; } 100% { opacity: 0; translate: 18px -28%; } }
+  @keyframes survey-trace { 80%, 100% { transform: translateX(550%); } }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .atlas-stage--switch .atlas-leaving { animation: atlas-strata-cut 350ms cubic-bezier(.43,.04,.22,1) both; }
+  .atlas-stage--switch header h2 { animation: atlas-name-enter 270ms ease-out 80ms both; }
+  @keyframes atlas-strata-cut { from { clip-path: polygon(0 0,118% 0,100% 100%,0 100%); } to { clip-path: polygon(0 0,0 0,-18% 100%,0 100%); } }
+  @keyframes atlas-name-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+  .atlas-stage { animation: atlas-unveil 440ms cubic-bezier(.16, 1, .3, 1) both; }
+  .library-atlas-art { transition: transform 650ms cubic-bezier(.2,.65,.3,1); }
+  .library-atlas:hover .library-atlas-art { transform: translateY(-2px) scale(1.018); }
+  .library-atlas:hover::after { animation: atlas-refraction 1.25s ease-out; }
+  @keyframes atlas-unveil { from { opacity: .3; translate: 8px 3px; } to { opacity: 1; translate: 0; } }
+  @keyframes atlas-refraction { from { background-position: -260% 0; } to { background-position: 360% 0; } }
+}
+@media (max-width: 1100px), (max-height: 740px) {
+  .atlas-stage { margin-top: 12px; }
+  .library-atlas { gap: 7px; height: 108px; }
+  .library-atlas h2 { font-size: 28px; }
+  .library-atlas-caption { right: 13px; bottom: 10px; }
+}
+@media (max-height: 660px) {
+  .library-atlas { height: 78px; padding-block: 9px; gap: 5px; }
+  .library-atlas h2 { font-size: 24px; }
+  .library-atlas-kicker { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .atlas-stage .atlas-leaving { display: none; }
+}

@@ -1,0 +1,37 @@
+.mc-profiles .ant-modal-container { padding: 24px; border: 1px solid var(--mc-border); border-radius: 16px; background: var(--mc-card-bg); }
+.mc-profiles .ant-modal-header { margin-bottom: 18px; background: transparent; }
+.mc-profiles-heading { display: grid; gap: 5px; padding-right: 28px; color: var(--mc-text); }
+.mc-profiles-heading strong { font-size: 22px; line-height: 1.3; font-weight: 650; }
+.mc-profiles-game { display: flex; align-items: center; gap: 8px; color: var(--mc-muted); font: 550 11px/1.4 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.mc-profiles-game::before { content: ''; width: 16px; height: 2px; background: var(--mc-accent); }
+.mc-profile-plate { position: relative; isolation: isolate; overflow: hidden; box-sizing: border-box; min-height: 142px; padding: 20px 34% 19px 20px; border: 1px solid #486758; border-radius: 10px; background: radial-gradient(ellipse at 97% 45%, #2e5145, transparent 68%), #17332c; color: #f4f5e9; }
+.mc-profile-plate::before, .mc-profile-plate::after { content: ''; position: absolute; z-index: -1; pointer-events: none; }
+.mc-profile-plate::before { inset: 0 0 0 54%; background-image: radial-gradient(circle, #b4d5bd55 .7px, transparent .9px); background-size: 9px 9px; mask-image: linear-gradient(to right, transparent, black); }
+.mc-profile-plate::after { right: 0; top: 50%; width: 34%; aspect-ratio: 184/140; background: url('./art/profile-stack.svg') center/contain no-repeat; transform: translateY(-50%); }
+.mc-profile-marker { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: #b8dcc8; }
+.mc-profile-marker::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: #a9ddac; }
+.mc-profile-plate h3 { margin: 8px 0 0; color: inherit; font-size: 29px; font-weight: 620; letter-spacing: -.025em; line-height: 1.15; overflow-wrap: anywhere; }
+.mc-profile-description { max-height: 5em; overflow-y: auto; margin: 7px 0 0; font-size: 13px; color: #d7e5da; white-space: pre-line; overflow-wrap: anywhere; }
+.mc-profile-counts { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 13px; color: #c3d7c9; font-size: 12px; font-variant-numeric: tabular-nums; }
+.mc-profile-counts span + span::before { content: '·'; margin-right: 7px; }
+.mc-profiles-actions, .mc-profiles-form-actions { display: flex; align-items: center; gap: 5px; margin-top: 16px; }
+.mc-profiles-actions > :first-child { margin-right: auto; }
+.mc-profiles-actions .ant-btn, .mc-profiles-form .ant-btn { box-shadow: none; }
+.mc-profiles-actions .ant-btn-text { color: var(--mc-muted); }
+.mc-profiles-others h4 { margin: 16px 0 5px; font-size: 12px; color: var(--mc-muted); font-weight: 550; }
+.mc-profiles-others ul { margin: 0; padding: 0; list-style: none; max-height: min(220px, 26vh); overflow: auto; }
+.mc-profiles-others li + li { border-top: 1px solid var(--mc-border); }
+.mc-profiles-others button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 8px; border: none; border-radius: 5px; color: var(--mc-muted); background: transparent; text-align: start; font: inherit; cursor: pointer; }
+.mc-profiles-others button:hover, .mc-profiles-others button:focus-visible { background: var(--mc-hover); color: var(--mc-accent); }
+.mc-profiles-others button > span:nth-child(2) { display: grid; flex: 1; min-width: 0; }
+.mc-profiles-others :is(strong, small) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-profiles-others strong { color: var(--mc-text); }
+.mc-profiles-empty { margin: 0; padding-block: 14px; color: var(--mc-muted); }
+.mc-profiles-form label { display: grid; gap: 7px; margin-top: 15px; font-size: 13px; font-weight: 550; }
+.mc-profiles-form label :is(input,textarea) { font-weight: 400; }
+.mc-profiles-form-actions { justify-content: flex-end; }
+.mc-profiles-form [role='alert'] { color: var(--mc-danger); overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: no-preference) {
+  .mc-profile-plate::after { animation: mc-profile-arrive .34s ease-out both; }
+  @keyframes mc-profile-arrive { from { opacity: 0; transform: translateY(calc(-50% + 5px)); } to { opacity: 1; transform: translateY(-50%); } }
+}

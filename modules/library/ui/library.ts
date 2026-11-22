@@ -1,6 +1,6 @@
 import type {
-  ActionRequired, DownloadOverlay, GameInstallationCandidate, GameSummary, GroupSummary,
-  InstallReceiptSummary, JobSnapshot, ModConflictItem, ModDetails, ModSummary,
+  ActionRequired, DownloadOverlay, GameSummary, GroupSummary,
+  InstallReceiptsResult, JobEvent, JobSnapshot, ModConflictItem, ModDetails, ModSummary,
   ModUpdateCheckItem, ModsListResult, ProfileSummary, ProfilesContentStateResult,
   SourceSearchItem,
 } from '@mintcat/sdk-ts';
@@ -14,32 +14,22 @@ import {
   pickLocalPath,
   pickSavePath,
   publishUiSelection,
-  subscribeFileDrop,
 } from '@mintcat/sdk-ui';
 import {
   canEditProfileContent,
   compareModsForSort,
+  deploymentStatus,
+  deployJobProgress,
+  sameDeployTarget,
   modSourceUrl,
   shouldRefreshLibrary,
 } from './library-model';
-import type { ModSortMode } from './library-model';
+import type { DeployProgress, DeployTarget, ModSortMode } from './library-model';
 import { LibraryView } from './library-view';
 import type { LibraryPage } from './library-view';
 
-export interface AvailableGameVariant {
-  variantId: string;
-  displayName: string;
-  store?: string;
-  storeAppId?: string;
-}
-
-export interface AvailableGame {
-  gameId: string;
-  displayName: string;
-  variants: AvailableGameVariant[];
-  localRemoteGameKey?: string;
-  sourceIds: string[];
-}
+import { librarySession, loadAvailableGames, selectedTarget } from './game-inventory';
+import type { AvailableGame } from './game-inventory';
 
 export interface LibraryTask { profileId: string; job: JobSnapshot; action?: ActionRequired }
 
@@ -52,9 +42,12 @@ export interface LibraryState {
   games: AvailableGame[]; installations: GameSummary['installations']; profiles: ProfileSummary[];
   gameId: string; profileId: string; installationId: string; variantId: string; query: string;
   mods?: ModsListResult; groups: GroupSummary[]; content?: ProfilesContentStateResult;
-  versions: Record<string, ModDetails>; candidates: GameInstallationCandidate[];
+  versions: Record<string, ModDetails>;
   tasks: LibraryTask[]; loading: boolean; pending: boolean; message: string; generation: number;
-  receipts: InstallReceiptSummary[];
+  newImportRowId?: string;
+  receipts?: InstallReceiptsResult;
+  deploying?: DeployProgress & { target: DeployTarget; jobId?: string };
+  deploySweep?: string;
   conflicts: ModConflictItem[];
   conflictChecked: boolean;
   conflictSkippedIds: string[];
@@ -69,9 +62,8 @@ export interface LibraryState {
 export interface LibraryActions {
   run(action: () => Promise<void>): void;
   selectGame(id: string): Promise<void>; selectProfile(id: string): Promise<void>;
-  selectInstallation(id: string): void; selectVariant(id: string): void; search(query: string): void;
-  refresh(): Promise<void>; discover(rootPath: string): Promise<void>; register(rootPath: string): Promise<void>;
-  browseGameDirectory(): Promise<string | null>;
+  search(query: string): void;
+  refresh(): Promise<void>;
   createProfile(name: string): Promise<void>; editProfile(name: string, description: string): Promise<void>;
   cloneProfile(name: string): Promise<void>; deleteProfile(): Promise<void>;
   createGroup(name: string, parentGroupId?: string): Promise<void>; renameGroup(group: GroupSummary, name: string): Promise<void>;
@@ -117,29 +109,50 @@ export function mountDownloads(root: HTMLElement, context: UiContext): Disposabl
 
 function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPage): Disposable {
   root.classList.add('library');
-  const saved = context.state('library', 1, { gameId: '', profileId: '', query: '', jobs: [] as Array<{ jobId: string; profileId: string }> });
+  const saved = librarySession(context);
+  let rememberedProfileId = saved.profileId;
   let state: LibraryState = {
     games: [], installations: [], profiles: [], gameId: saved.gameId, profileId: '', installationId: '', variantId: '',
-    query: saved.query, groups: [], versions: {}, candidates: [], tasks: [], loading: false, pending: false, message: '', generation: 0,
-    receipts: [], conflicts: [], conflictChecked: false, conflictSkippedIds: [], updateChecks: {},
+    query: saved.query, groups: [], versions: {}, tasks: [], loading: false, pending: false, message: '', generation: 0,
+    conflicts: [], conflictChecked: false, conflictSkippedIds: [], updateChecks: {},
     checkingUpdates: false, checkingConflicts: false, loadingSubscribed: false, subscribedItems: [],
   };
   let closed = false, epoch = 0, renderGeneration = 0, inventoryGeneration = 0, profileGeneration = 0;
   let pollPending = false;
+  let selectionEpoch = 0;
+  let sweepTimer: number | undefined;
+  let localApply: { jobId: string; planHash: string; selection: number; contentRevision: number } | undefined;
+  let receiptGeneration = 0, contentGeneration = 0, lastReceiptRead = 0;
   let searchTimer: number | undefined;
+  let importJobs = new Set<string>(), importMarkTimer: number | undefined;
   const listeners = new Set<() => void>();
   const cache = new Map<string, { mods: ModsListResult; groups: GroupSummary[] }>();
-  const tracked = new Map<string, { profileId: string; afterSeq: number; actionId?: string; refreshed?: boolean }>();
-  for (const task of saved.jobs ?? []) tracked.set(task.jobId, { profileId: task.profileId, afterSeq: 0 });
+  const tracked = new Map<string, { profileId: string; afterSeq: number; actionId?: string; refreshed?: boolean; deployTarget?: DeployTarget; lastEvent?: JobEvent }>();
+  for (const task of saved.jobs ?? []) {
+    tracked.set(task.jobId, { ...task, afterSeq: 0 });
+    if (task.deployTarget) state.deploying = { target: task.deployTarget, jobId: task.jobId, label: '读取部署状态' };
+  }
   const alive = (): boolean => !closed && !context.signal.aborted;
   const update = (patch: Partial<LibraryState>): void => {
     if (!alive()) return;
-    state = { ...state, ...patch };
+    if ((patch.profileId !== undefined && patch.profileId !== state.profileId)
+      || (patch.gameId !== undefined && patch.gameId !== state.gameId)
+      || (patch.generation !== undefined && patch.generation !== state.generation)) {
+      importJobs = new Set();
+      clearTimeout(importMarkTimer);
+      patch.newImportRowId = undefined;
+    }
+    const next = { ...state, ...patch };
+    if (!sameDeployTarget(state, next) || state.generation !== next.generation) {
+      selectionEpoch++;
+      next.deploySweep = undefined;
+    } else if (next.deploySweep && deploymentStatus(next) !== 'applied') next.deploySweep = undefined;
+    state = next;
     for (const listener of listeners) listener();
   };
   const persist = (): void => context.saveState('library', 1, {
-    gameId: state.gameId, profileId: state.profileId, query: state.query,
-    jobs: [...tracked].map(([jobId, task]) => ({ jobId, profileId: task.profileId })),
+    gameId: state.gameId, profileId: rememberedProfileId, query: state.query,
+    jobs: [...tracked].map(([jobId, { profileId, deployTarget }]) => ({ jobId, profileId, ...(deployTarget ? { deployTarget } : {}) })),
   });
   const publish = (): void => publishUiSelection({ gameId: state.gameId,
     gameName: state.games.find(game => game.gameId === state.gameId)?.displayName ?? '',
@@ -150,17 +163,22 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     for (const key of cache.keys()) if (key.startsWith(`${profileId}\u0000`)) cache.delete(key);
   };
   const loadReceipts = async (installationId = state.installationId): Promise<void> => {
-    const session = epoch;
+    const generation = ++receiptGeneration, session = epoch;
+    lastReceiptRead = Date.now();
     if (!installationId || !alive()) {
-      update({ receipts: [] });
+      update({ receipts: undefined });
       return;
     }
     try {
       const result = await context.call('install.receipts', { installationId });
-      if (!alive() || session !== epoch || installationId !== state.installationId) return;
-      update({ receipts: result.items });
-    } catch {
-      if (alive() && session === epoch && installationId === state.installationId) update({ receipts: [] });
+      if (alive() && session === epoch && generation === receiptGeneration && installationId === state.installationId) {
+        update({ receipts: result });
+      }
+    } catch (error) {
+      if (alive() && session === epoch && generation === receiptGeneration && installationId === state.installationId) {
+        update({ receipts: undefined });
+        throw error;
+      }
     }
   };
   const loadMods = async (profileId: string, force = false): Promise<void> => {
@@ -195,15 +213,25 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     }
   };
   const pollContent = async (): Promise<void> => {
-    const profileId = state.profileId, session = epoch;
+    const profileId = state.profileId, session = epoch, generation = ++contentGeneration;
     if (!profileId || !alive()) return;
-    const content = await context.call('profiles.contentState', { profileId });
-    if (!alive() || session !== epoch || profileId !== state.profileId) return;
+    let content: ProfilesContentStateResult;
+    try {
+      content = await context.call('profiles.contentState', { profileId });
+    } catch (error) {
+      if (alive() && session === epoch && generation === contentGeneration && profileId === state.profileId) {
+        update({ content: undefined });
+        throw error;
+      }
+      return;
+    }
+    if (!alive() || session !== epoch || generation !== contentGeneration || profileId !== state.profileId) return;
     update({ content });
     if (shouldRefreshLibrary(state.mods?.contentRevision, content)) await loadMods(profileId, true);
   };
   const selectProfile = async (profileId: string): Promise<void> => {
     if (!alive()) return;
+    rememberedProfileId = profileId;
     renderGeneration++;
     update({
       profileId, mods: undefined, content: undefined, groups: [], versions: {}, message: '', pending: false,
@@ -212,7 +240,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     publish(); persist();
     if (profileId) await Promise.all([loadMods(profileId), pollContent()]);
   };
-  const loadProfiles = async (desiredProfileId = state.profileId || saved.profileId): Promise<void> => {
+  const loadProfiles = async (desiredProfileId = rememberedProfileId): Promise<void> => {
     const generation = ++profileGeneration, session = epoch, gameId = state.gameId;
     if (!gameId) { await selectProfile(''); return; }
     const games = await context.call('games.list', { gameId, pageSize: 100 });
@@ -235,64 +263,15 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     if (!alive() || session !== epoch || generation !== profileGeneration || gameId !== state.gameId) return;
     const support = state.games.find(item => item.gameId === gameId);
     if (!support?.variants.length && alive()) update({ message: '此游戏的支持插件不可用；已有配置和模组元数据仍可浏览、编辑。发现安装目录、安装与本地导入需先安装游戏支持。' });
-    else if (!selectedProfile && alive()) update({ message: installations.length ? '请选择或新建配置。' : '请在游戏设置中发现并注册真实安装目录，再创建配置。' });
+    else if (!selectedProfile && alive()) update({ message: installations.length ? '请选择或新建配置。' : '请先在「设置 → 游戏安装目录」注册目录，再创建配置。' });
   };
   const loadInventory = async (): Promise<void> => {
     const generation = ++inventoryGeneration, session = epoch;
-    const [inventory, first] = await Promise.all([
-      context.call('modules.list', {}), context.call('games.list', { pageSize: 100 }),
-    ]);
+    const available = await loadAvailableGames(context);
     if (!alive() || session !== epoch || generation !== inventoryGeneration) return;
-    const registered = [...first.items];
-    let cursor = first.nextCursor;
-    while (cursor) {
-      const pageResult = await context.call('games.list', { pageSize: 100, cursor });
-      if (!alive() || session !== epoch || generation !== inventoryGeneration) return;
-      registered.push(...pageResult.items); cursor = pageResult.nextCursor;
-    }
-    const games = new Map<string, AvailableGame>(registered.map(game => [game.gameId, {
-      gameId: game.gameId, displayName: game.displayName, variants: [], sourceIds: [],
-    }]));
-    for (const entry of inventory.modules) {
-      if (!entry.enabled || !entry.game || !Array.isArray(entry.game.descriptor.variants)) continue;
-      const variants: AvailableGameVariant[] = entry.game.descriptor.variants.flatMap(value => {
-        if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
-        const record = value as Record<string, unknown>;
-        return typeof record.variantId === 'string' && typeof record.displayName === 'string'
-          ? [{
-            variantId: record.variantId,
-            displayName: record.displayName,
-            ...(typeof record.store === 'string' ? { store: record.store } : {}),
-            ...(typeof record.storeAppId === 'string' ? { storeAppId: record.storeAppId } : {}),
-          }] : [];
-      });
-      const rawBindings = entry.game.descriptor.sourceBindings;
-      const sourceIds: string[] = [];
-      let localRemoteGameKey: string | undefined;
-      if (Array.isArray(rawBindings)) {
-        for (const value of rawBindings) {
-          if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
-          const record = value as Record<string, unknown>;
-          if (typeof record.sourceId === 'string') {
-            sourceIds.push(record.sourceId);
-            if (record.sourceId === 'local' && typeof record.remoteGameKey === 'string') {
-              localRemoteGameKey = record.remoteGameKey;
-            }
-          }
-        }
-      }
-      games.set(entry.game.gameId, {
-        gameId: entry.game.gameId,
-        displayName: entry.game.displayName,
-        variants,
-        sourceIds,
-        ...(localRemoteGameKey ? { localRemoteGameKey } : {}),
-      });
-    }
-    const available = [...games.values()];
-    const game = games.get(state.gameId) ?? available[0];
-    update({ games: available, gameId: game?.gameId ?? '', variantId: game?.variants.some(item => item.variantId === state.variantId)
-      ? state.variantId : game?.variants[0]?.variantId ?? '', candidates: [],
+    const game = available.find(item => item.gameId === state.gameId) ?? available[0];
+    update({ games: available, gameId: game?.gameId ?? '',
+      ...(game ? selectedTarget(context, game) : { variantId: '', installationId: '' }),
       message: available.length ? '' : '尚未安装游戏支持插件。安装游戏支持后可注册游戏并创建配置；备份和 Agent 仍可使用。' });
     publish();
   };
@@ -310,7 +289,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     finally {
       invalidate(profileId);
       if (alive() && session === epoch && profileId === state.profileId) {
-        update({ pending: false, versions: {} });
+        update({ pending: false, versions: {}, content: undefined });
         await Promise.all([loadMods(profileId, true), pollContent()]);
       }
     }
@@ -320,25 +299,27 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     if (!selected) throw new Error('请选择配置');
     return selected;
   };
-  const track = (jobId: string, profileId: string): void => {
+  const track = (jobId: string, profileId: string, deployTarget?: DeployTarget): void => {
     if (!alive()) {
       const latest = context.state('library', 1, saved);
       latest.jobs ??= [];
-      if (!latest.jobs.some(task => task.jobId === jobId)) latest.jobs.push({ jobId, profileId });
+      if (!latest.jobs.some(task => task.jobId === jobId)) latest.jobs.push({ jobId, profileId, ...(deployTarget ? { deployTarget } : {}) });
       context.saveState('library', 1, latest);
       return;
     }
-    tracked.set(jobId, { profileId, afterSeq: 0 }); persist();
+    tracked.set(jobId, { profileId, afterSeq: 0, deployTarget }); persist();
     update({ message: '任务已启动，可在下载管理查看进度。' });
   };
-  const waitForJobActionOrTerminal = async (jobId: string): Promise<{ snapshot: JobSnapshot; action?: ActionRequired }> => {
+  const waitForJobActionOrTerminal = async (jobId: string, progress?: (value: DeployProgress) => void): Promise<{ snapshot: JobSnapshot; action?: ActionRequired }> => {
     let afterSeq = 0;
     let actionId: string | undefined;
+    let lastEvent: JobEvent | undefined;
     for (let attempt = 0; attempt < 240; attempt++) {
       if (!alive()) throw new Error('页面已关闭');
       let pageResult = await context.call('jobs.watch', { jobId, afterSeq, limit: 200 });
       for (;;) {
         for (const event of pageResult.events) {
+          lastEvent = event;
           if (typeof event.details?.actionId === 'string') actionId = event.details.actionId;
         }
         const previous = afterSeq;
@@ -346,7 +327,10 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
         if (pageResult.nextAfterSeq >= pageResult.snapshot.lastSeq || pageResult.nextAfterSeq <= previous) break;
         pageResult = await context.call('jobs.watch', { jobId, afterSeq, limit: 200 });
       }
-      if (pageResult.snapshot.state === 'awaiting-approval' && actionId) {
+      if (progress) progress(deployJobProgress(pageResult.snapshot, lastEvent));
+      // install.plan publishes the pending action before appending its verified plan result.
+      if (pageResult.snapshot.state === 'awaiting-approval' && actionId
+        && (pageResult.snapshot.command !== 'install.plan' || pageResult.snapshot.result != null)) {
         const action = await context.call('actions.get', { actionId });
         return { snapshot: pageResult.snapshot, action };
       }
@@ -364,6 +348,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       for (;;) {
         if (!alive() || session !== epoch) return;
         for (const event of pageResult.events) if (typeof event.details?.actionId === 'string') trackedTask.actionId = event.details.actionId;
+        if (trackedTask.deployTarget && pageResult.events.length) trackedTask.lastEvent = pageResult.events[pageResult.events.length - 1];
         const previous = trackedTask.afterSeq;
         trackedTask.afterSeq = pageResult.nextAfterSeq;
         if (pageResult.nextAfterSeq >= pageResult.snapshot.lastSeq || pageResult.nextAfterSeq <= previous) break;
@@ -374,12 +359,48 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
         ? await context.call('actions.get', { actionId: trackedTask.actionId }) : undefined;
       if (!alive() || session !== epoch) return;
       tasks.push({ profileId: trackedTask.profileId, job: pageResult.snapshot, action });
-      if (pageResult.snapshot.state === 'succeeded' && !trackedTask.refreshed) {
-        trackedTask.refreshed = true; invalidate(trackedTask.profileId);
-        if (trackedTask.profileId === state.profileId) await loadMods(trackedTask.profileId, true);
-        if (['install.apply', 'install.uninstall'].includes(pageResult.snapshot.command)) {
-          await loadReceipts();
+      const { command, state: jobState } = pageResult.snapshot;
+      const deployTarget = trackedTask.deployTarget;
+      const watchingApply = command === 'install.apply' && deployTarget && state.deploying?.jobId === jobId;
+      if (watchingApply) update({ deploying: { target: deployTarget, jobId, ...deployJobProgress(pageResult.snapshot, trackedTask.lastEvent) } });
+      if (TERMINAL_JOB_STATES.has(jobState) && !trackedTask.refreshed) {
+        if (['install.plan', 'install.apply', 'install.uninstall'].includes(command)) await loadReceipts();
+        if (!alive() || session !== epoch) return;
+        if (watchingApply) {
+          if (jobState === 'succeeded' && sameDeployTarget(state, deployTarget)) await pollContent();
+          if (!alive() || session !== epoch) return;
+          const current = sameDeployTarget(state, deployTarget);
+          const result = pageResult.snapshot.result;
+          const committed = result !== null && typeof result === 'object' && 'disposition' in result
+            && result.disposition === 'committed' && !('cancelRequestedDuringCommit' in result && result.cancelRequestedDuringCommit);
+          const sweep = current && jobState === 'succeeded' && committed && localApply?.jobId === jobId
+            && localApply.selection === selectionEpoch && localApply.contentRevision === state.content?.contentRevision
+            && state.receipts?.items[0]?.planHash === localApply.planHash && deploymentStatus(state) === 'applied';
+          update({ deploying: undefined, deploySweep: sweep ? jobId : undefined,
+            ...(current ? { message: jobState === 'succeeded' ? '' : deployJobProgress(pageResult.snapshot).label } : {}) });
+          if (sweep) {
+            clearTimeout(sweepTimer);
+            sweepTimer = window.setTimeout(() => update({ deploySweep: undefined }), 650);
+          }
+          localApply = undefined;
+          delete trackedTask.deployTarget;
+          persist();
         }
+        if (jobState === 'succeeded') {
+          invalidate(trackedTask.profileId);
+          if (trackedTask.profileId === state.profileId) await loadMods(trackedTask.profileId, true);
+        }
+        if (importJobs.delete(jobId) && command === 'mods.importLocal' && jobState === 'succeeded') {
+          const result = pageResult.snapshot.result;
+          if (result && typeof result === 'object' && 'profileModCreated' in result && result.profileModCreated === true
+            && 'profileId' in result && result.profileId === state.profileId
+            && 'profileModId' in result && typeof result.profileModId === 'string') {
+            clearTimeout(importMarkTimer);
+            update({ newImportRowId: result.profileModId });
+            importMarkTimer = window.setTimeout(() => update({ newImportRowId: undefined }), 1200);
+          }
+        }
+        trackedTask.refreshed = true;
       }
     }
     if (session === epoch) update({ tasks });
@@ -387,8 +408,11 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
   const poll = async (): Promise<void> => {
     if (pollPending || !alive()) return;
     pollPending = true;
-    try { await Promise.all([pollContent(), pollTasks()]); }
-    finally { pollPending = false; }
+    try {
+      // A different page or CLI can also deploy or uninstall without changing profile content.
+      await Promise.all([pollContent(), pollTasks(),
+        state.installationId && Date.now() - lastReceiptRead >= 5000 ? loadReceipts() : undefined]);
+    } finally { pollPending = false; }
   };
   const run = context.guard(async (action: () => Promise<void>) => {
     if (!alive()) return;
@@ -399,41 +423,22 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     run,
     async selectGame(gameId) {
       const game = state.games.find(item => item.gameId === gameId);
+      if (!game) return;
       profileGeneration++; renderGeneration++;
       update({
-        gameId, variantId: game?.variants[0]?.variantId ?? '', candidates: [], profiles: [], installations: [],
-        installationId: '', profileId: '', mods: undefined, groups: [], content: undefined, versions: {}, pending: false,
-        receipts: [], conflicts: [], conflictChecked: false, conflictSkippedIds: [], updateChecks: {},
+        gameId, ...selectedTarget(context, game), profiles: [], installations: [],
+        profileId: '', mods: undefined, groups: [], content: undefined, versions: {}, pending: false,
+        receipts: undefined, conflicts: [], conflictChecked: false, conflictSkippedIds: [], updateChecks: {},
         subscribedItems: [], subscribedNextCursor: undefined,
       });
       publish(); await loadProfiles('');
     },
     selectProfile,
-    selectInstallation: installationId => {
-      update({ installationId });
-      run(() => loadReceipts(installationId));
-    },
-    selectVariant: variantId => update({ variantId }),
     search(query) {
       update({ query }); clearTimeout(searchTimer);
       searchTimer = window.setTimeout(() => run(() => loadMods(state.profileId)), 200);
     },
     async refresh() { await loadInventory(); await loadProfiles(); await poll(); },
-    async discover(rootPath) {
-      const gameId = state.gameId, session = epoch;
-      const result = await context.call('games.discover', { gameId, includeSteam: true,
-        roots: rootPath.trim() ? [{ rootPath: rootPath.trim(), variantId: state.variantId }] : [] });
-      if (session === epoch && gameId === state.gameId) update({ candidates: result.items,
-        message: result.items.length ? '发现安装目录，请选择后注册；注册仍会执行原生验证。' : '未发现安装目录，请填写真实游戏目录。' });
-    },
-    async register(rootPath) {
-      const gameId = state.gameId, session = epoch;
-      await context.call('games.register', { gameId, variantId: state.variantId, rootPath: rootPath.trim() }, crypto.randomUUID());
-      if (session === epoch && gameId === state.gameId && alive()) await loadProfiles();
-    },
-    async browseGameDirectory() {
-      return await pickLocalPath({ kind: 'directory', title: '选择游戏安装目录' });
-    },
     async createProfile(name) {
       const gameId = state.gameId, session = epoch;
       if (!state.installationId) throw new Error('请先注册游戏安装目录');
@@ -550,9 +555,10 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     },
     async importLocal(inputKind, preselectedPath, groupId) {
       const { profileId, revision } = writable(), session = epoch;
+      const originJobs = importJobs;
       const remoteGameKey = state.games.find(game => game.gameId === state.gameId)?.localRemoteGameKey;
       if (!remoteGameKey) throw new Error('当前游戏暂不支持本地导入');
-      let chosenPath = preselectedPath?.trim() || null;
+      let chosenPath = preselectedPath ?? null;
       if (!chosenPath) {
         const picked = await pickLocalPath({
           kind: inputKind,
@@ -560,11 +566,12 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
           extensions: inputKind === 'file' ? ['zip', 'pak'] : undefined,
         });
         if (!picked) {
-          if (Boolean((globalThis as { isTauri?: unknown }).isTauri)) return;
+          if (getSharedRuntime().pickLocalPath) return;
         } else {
           chosenPath = picked;
         }
       }
+      if (!alive() || originJobs !== importJobs) return;
       const job = await context.call('mods.importLocal', {
         profileId,
         remoteGameKey,
@@ -572,6 +579,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
         expectedContentRevision: revision,
         ...(groupId ? { groupId } : {}),
       }, crypto.randomUUID());
+      originJobs.add(job.jobId);
       track(job.jobId, profileId);
       if (chosenPath) {
         const { action } = await waitForJobActionOrTerminal(job.jobId);
@@ -619,6 +627,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
         response: { selectedPath: path.trim() } }, crypto.randomUUID()); await poll();
     },
     dismissTask(jobId) {
+      if (tracked.get(jobId)?.deployTarget) return;
       tracked.delete(jobId);
       persist();
       update({ tasks: state.tasks.filter(task => task.job.jobId !== jobId) });
@@ -803,75 +812,82 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       update({ message: `已请求 Steam 启动 ${game?.displayName ?? state.gameId}（AppID ${variant.storeAppId}）。` });
     },
     async quickInstall() {
+      const status = deploymentStatus(state);
+      if (state.deploying || state.pending || (status !== 'changed' && status !== 'not-deployed')) return;
       const selected = profile();
-      const { profileId } = writable();
-      if (!state.installationId || !state.variantId) {
-        throw new Error('请先在“游戏设置与安装目录”中注册安装目录并选择游戏变体');
+      const { profileId, revision: contentRevision } = writable();
+      const { gameId, installationId, variantId } = state;
+      if (contentRevision !== state.content?.contentRevision) throw new Error('配置内容已变化，请刷新后重新应用');
+      if (!installationId || !variantId) {
+        throw new Error('请先在「设置 → 游戏安装目录」注册安装目录并选择游戏变体');
       }
-      const detected = await context.call('install.detectInputs', { profileId });
-      const missing = detected.items.filter(item => !item.verified || !item.format);
-      if (missing.length > 0) {
-        const names = missing
-          .map(item => state.mods?.items.find(mod => mod.profileModId === item.profileModId)?.displayName ?? item.profileModId)
-          .slice(0, 3)
-          .join('、');
-        throw new Error(`有 ${missing.length} 个已启用模组尚未下载缓存或无法识别格式（如 ${names}），请先更新下载或在“安装与打包”页处理。`);
-      }
-      const settings = await context.request<{ values: Record<string, Json>; revision: number }>('settings.get', {
-        scope: { kind: 'game', gameId: state.gameId },
-        section: 'game',
-      });
-      const planJob = await context.call('install.plan', {
-        profileId,
-        revision: selected.revision,
-        contentRevision: selected.contentRevision,
-        gameId: state.gameId,
-        installationId: state.installationId,
-        options: {
-          variantId: state.variantId,
-          settingsRevision: settings.revision,
-          settings: settings.values,
-          inputMetadata: detected.items.map(item => ({
-            profileModId: item.profileModId,
-            format: item.format!,
-            audioOnlyHint: item.audioOnlyHint,
-          })),
-        },
-      }, crypto.randomUUID());
-      track(planJob.jobId, profileId);
-      const { snapshot, action } = await waitForJobActionOrTerminal(planJob.jobId);
-      if (!action || action.kind !== 'install-approval') {
-        throw new Error(`安装计划未进入待批准状态：${snapshot.error?.messageKey ?? snapshot.state}`);
-      }
-      const planResult = snapshot.result as { planId?: string; planHash?: string } | undefined;
-      if (!planResult?.planId || planResult.planHash !== action.planHash) {
-        throw new Error('安装计划校验哈希不匹配，已拒绝部署');
-      }
-      if (!window.confirm(`确认将配置“${selected.displayName}”应用到游戏目录？\n\n启用模组数：${detected.items.length}\n计划哈希：${planResult.planHash.slice(0, 20)}…`)) {
-        await context.call('actions.reject', {
-          actionId: action.actionId,
-          expectedRevision: action.revision,
-          reason: '用户取消应用更改',
+      const target = { gameId, installationId, variantId, profileId };
+      const selection = selectionEpoch;
+      const isCurrent = (): boolean => alive() && selection === selectionEpoch
+        && state.content?.contentRevision === contentRevision;
+      const progress = (value: DeployProgress): void => update({ deploying: { target, ...value } });
+      let handedOff = false;
+      update({ deploying: { target, label: '校验模组' }, deploySweep: undefined, message: '' });
+      try {
+        const detected = await context.call('install.detectInputs', { profileId });
+        if (!isCurrent()) return;
+        const missing = detected.items.filter(item => !item.verified || !item.format);
+        if (missing.length > 0) {
+          const names = missing.slice(0, 3).map(item =>
+            state.mods?.items.find(mod => mod.profileModId === item.profileModId)?.displayName ?? item.profileModId).join('、');
+          throw new Error(`有 ${missing.length} 个已启用模组尚未下载缓存或无法识别格式（如 ${names}），请先更新下载或在“安装与打包”页处理。`);
+        }
+        progress({ label: '读取游戏设置' });
+        const settings = await context.request<{ values: Record<string, Json>; revision: number }>('settings.get', {
+          scope: { kind: 'game', gameId }, section: 'game',
+        });
+        if (!isCurrent()) return;
+        progress({ label: '提交安装计划' });
+        const planJob = await context.call('install.plan', {
+          profileId, revision: selected.revision, contentRevision, gameId, installationId,
+          options: { variantId, settingsRevision: settings.revision, settings: settings.values,
+            inputMetadata: detected.items.map(item => ({
+              profileModId: item.profileModId, format: item.format!, audioOnlyHint: item.audioOnlyHint,
+            })),
+          },
         }, crypto.randomUUID());
+        track(planJob.jobId, profileId);
+        const { snapshot, action } = await waitForJobActionOrTerminal(planJob.jobId, progress);
+        if (!action || action.kind !== 'install-approval' || action.state !== 'pending') {
+          throw new Error(`安装计划未进入待批准状态：${snapshot.error?.messageKey ?? snapshot.state}`);
+        }
+        const plan = snapshot.result as { planId?: string; planHash?: string } | undefined;
+        if (!plan?.planId || plan.planHash !== action.planHash || action.operationId !== plan.planId) {
+          throw new Error('安装计划与审批目标不匹配，已拒绝部署');
+        }
+        if (!isCurrent() || !window.confirm(`确认将配置“${selected.displayName}”应用到游戏目录？\n\n启用模组数：${detected.items.length}\n计划哈希：${plan.planHash.slice(0, 20)}…`)) {
+          await context.call('actions.reject', {
+            actionId: action.actionId, expectedRevision: action.revision, reason: '应用已取消或目标已切换',
+          }, crypto.randomUUID());
+          if (isCurrent()) update({ message: '已取消应用配置。' });
+          return;
+        }
+        progress({ label: '提交人工批准' });
+        await context.call('actions.approve', {
+          actionId: action.actionId, expectedRevision: action.revision, response: { approved: true },
+        }, crypto.randomUUID());
+        if (!isCurrent()) return;
+        progress({ label: '提交部署' });
+        const applyJob = await context.call('install.apply', {
+          planId: plan.planId, planHash: plan.planHash, approvalRef: action.actionId,
+        }, crypto.randomUUID());
+        localApply = { jobId: applyJob.jobId, planHash: plan.planHash, selection, contentRevision };
+        handedOff = true;
+        update({ deploying: { target, jobId: applyJob.jobId, label: '读取部署状态' } });
+        track(applyJob.jobId, profileId, target);
         await poll();
-        return;
+      } finally {
+        if (!handedOff) update({ deploying: undefined });
       }
-      await context.call('actions.approve', {
-        actionId: action.actionId,
-        expectedRevision: action.revision,
-        response: { approved: true },
-      }, crypto.randomUUID());
-      const applyJob = await context.call('install.apply', {
-        planId: planResult.planId,
-        planHash: planResult.planHash,
-        approvalRef: action.actionId,
-      }, crypto.randomUUID());
-      track(applyJob.jobId, profileId);
-      await poll();
     },
     async quickUninstall() {
-      const latestReceipt = state.receipts[0];
-      if (!state.installationId || !latestReceipt) {
+      const latestReceipt = state.receipts?.items[0];
+      if (!latestReceipt || latestReceipt.installationId !== state.installationId) {
         throw new Error('当前游戏安装目录没有可卸载的活动收据');
       }
       const job = await context.call('install.uninstall', {
@@ -907,27 +923,21 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     getSnapshot: () => state, actions, page, toolbar: context.toolbar,
   }));
   const polling = context.interval(() => run(poll), 750);
-  const dropSubscription = subscribeFileDrop(paths => {
-    if (page !== 'mods') return;
-    if (!canEditProfileContent(state.content) || !state.profileId) return;
-    const targetPath = paths[0];
-    if (!targetPath) return;
-    run(() => actions.importLocal('file', targetPath));
-  });
   const inventorySubscription = context.onInventoryChanged(async () => {
     epoch++; renderGeneration++; inventoryGeneration++; profileGeneration++; cache.clear();
     context.invalidate('mods/');
     for (const task of tracked.values()) { task.afterSeq = 0; task.actionId = undefined; task.refreshed = false; }
     update({
       mods: undefined, content: undefined, groups: [], versions: {}, pending: false, generation: epoch,
-      receipts: [], conflicts: [], conflictChecked: false, conflictSkippedIds: [], updateChecks: {},
+      receipts: undefined, conflicts: [], conflictChecked: false, conflictSkippedIds: [], updateChecks: {},
     });
     await loadInventory(); await loadProfiles(); await poll();
   });
   run(async () => { await loadInventory(); await loadProfiles(); await poll(); });
   return { dispose() {
     persist(); closed = true; epoch++; renderGeneration++; inventoryGeneration++; profileGeneration++;
-    polling.dispose(); dropSubscription(); inventorySubscription.dispose(); clearTimeout(searchTimer); listeners.clear(); view.dispose();
+    clearTimeout(sweepTimer);
+    polling.dispose(); inventorySubscription.dispose(); clearTimeout(importMarkTimer); clearTimeout(searchTimer); listeners.clear(); view.dispose();
     root.classList.remove('library');
   } };
 }

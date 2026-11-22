@@ -119,7 +119,8 @@ export interface UiContext {
   state<T extends Json>(key: string, version: number, fallback: T): T;
   saveState(key: string, version: number, value: Json): void;
   dirty(value: boolean): void;
-  notify(message: string): void;
+  /** Omit inboxSummary for transient feedback; summaries must not include paths, URLs, credentials, or diagnostics. */
+  notify(message: string, inboxSummary?: string): void;
   guard<T extends unknown[]>(action: (...args: T) => void | Promise<void>): (...args: T) => void;
   interval(action: () => void | Promise<void>, milliseconds: number): Disposable;
   readonly kit: typeof kit;
@@ -150,6 +151,11 @@ export interface PickSavePathOptions {
   defaultName?: string;
   extensions?: string[];
 }
+/** File drag positions in viewport CSS pixels. Paths are exposed only on release. */
+export type FileDragEvent =
+  | { type: 'enter' | 'over'; x: number; y: number }
+  | { type: 'drop'; x: number; y: number; paths: string[] }
+  | { type: 'leave' };
 export interface SharedRuntime {
   React: typeof ReactRuntime;
   ReactDOMClient: typeof ReactDOMRuntime;
@@ -163,7 +169,7 @@ export interface SharedRuntime {
   pickLocalPath?: (options: PickLocalPathOptions) => Promise<string | null>;
   pickSavePath?: (options: PickSavePathOptions) => Promise<string | null>;
   launchSteamGame?: (appId: string) => Promise<void>;
-  onFileDrop?: (handler: (paths: string[]) => void) => () => void;
+  onFileDrag?: (handler: (event: FileDragEvent) => void) => () => void;
 }
 const runtimeRealm = globalThis as typeof globalThis & Record<symbol, Readonly<SharedRuntime> | undefined>;
 export function bindSharedRuntime(runtime: SharedRuntime): void {
@@ -211,7 +217,7 @@ export async function launchSteamGame(appId: string): Promise<void> {
   if (!launcher) throw new Error('当前环境不支持直接启动游戏');
   await launcher(trimmed);
 }
-export function subscribeFileDrop(handler: (paths: string[]) => void): () => void {
-  const subscribe = runtimeRealm[runtimeSlot]?.onFileDrop;
+export function subscribeFileDrag(handler: (event: FileDragEvent) => void): () => void {
+  const subscribe = runtimeRealm[runtimeSlot]?.onFileDrag;
   return subscribe ? subscribe(handler) : () => {};
 }

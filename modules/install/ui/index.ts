@@ -122,7 +122,7 @@ export async function mountInstall(root: HTMLElement, context: UiContext): Promi
       context.saveState('install', 1, latest); return;
     }
     if (!tracked.some(task => task.jobId === job.jobId)) tracked.push({ jobId: job.jobId, actionId: '' });
-    persist(); status = `任务 ${job.jobId} 已交给 daemon；关闭页面不会取消。`; context.notify(status); update();
+    persist(); status = `任务 ${job.jobId} 已交给 daemon；关闭页面不会取消。`; context.notify(status, '安装或打包任务已提交到后台'); update();
   };
   const poll = async (): Promise<void> => {
     if (pollPending || !active()) return; pollPending = true;

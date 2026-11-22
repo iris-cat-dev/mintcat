@@ -1,0 +1,55 @@
+.library-file-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.library-dropzone--modal { position: relative; }
+.library-file-stage[data-file-scan]::after,
+.library-dropzone--modal[data-file-scan]::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  z-index: 5;
+  pointer-events: none;
+  color: var(--library-mint, #5eb69a);
+  --scan-stroke: linear-gradient(currentColor, currentColor);
+  background-image: var(--scan-stroke), var(--scan-stroke), var(--scan-stroke), var(--scan-stroke),
+    var(--scan-stroke), var(--scan-stroke), var(--scan-stroke), var(--scan-stroke);
+  background-position: top left, top right, bottom left, bottom right, top left, top right, bottom left, bottom right;
+  background-size: 24px 2px, 24px 2px, 24px 2px, 24px 2px, 2px 17px, 2px 17px, 2px 17px, 2px 17px;
+  background-repeat: no-repeat;
+  animation: library-scan-lock 180ms ease-out both;
+}
+@keyframes library-scan-lock {
+  from { opacity: .45; background-size: 5px 2px, 5px 2px, 5px 2px, 5px 2px, 2px 5px, 2px 5px, 2px 5px, 2px 5px; }
+}
+.library-file-caption {
+  position: absolute;
+  z-index: 6;
+  left: 50%; bottom: 16px;
+  transform: translateX(-50%);
+  padding: 5px 12px;
+  border: 1px solid #6ca78d;
+  border-radius: 4px;
+  background: #173f35;
+  color: #e0f4e9;
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+}
+[data-module="mintcat.library"] .library-mod-row[data-import-new] > td {
+  animation: library-import-arrived 1150ms ease-out both;
+}
+@keyframes library-import-arrived {
+  0%, 27% { background-color: color-mix(in srgb, #63c5a1 36%, var(--library-paper)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .library-file-stage[data-file-scan]::after, .library-dropzone--modal[data-file-scan]::after { animation: none; }
+  [data-module="mintcat.library"] .library-mod-row[data-import-new] > td {
+    animation: none;
+    background-color: color-mix(in srgb, #63c5a1 24%, var(--library-paper));
+  }
+}

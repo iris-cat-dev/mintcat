@@ -1,0 +1,10 @@
+.chrome-inbox { width: min(304px, calc(100vw - 56px)); color: var(--mc-text); }
+.chrome-inbox-heading { display: flex; align-items: center; justify-content: space-between; min-height: 28px; }
+.chrome-inbox-heading strong { font-size: 14px; }
+.chrome-inbox-heading .ant-btn, .chrome-inbox time { color: var(--mc-muted); }
+.chrome-inbox .ant-empty { margin: 16px 0 12px; }
+.chrome-inbox-list { list-style: none; max-height: min(340px, 56vh); overflow-y: auto; margin: 6px 0 0; padding: 0; }
+.chrome-inbox-list li { display: flex; align-items: flex-start; gap: 10px; padding: 10px 2px; border-top: 1px solid var(--mc-border); }
+.chrome-inbox-kind { color: var(--mc-accent); margin-top: 3px; }
+.chrome-inbox-message { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.chrome-inbox time { display: block; margin-top: 3px; font-size: 11px; font-variant-numeric: tabular-nums; }

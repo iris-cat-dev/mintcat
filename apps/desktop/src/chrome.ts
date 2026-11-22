@@ -1,7 +1,10 @@
-import { getSharedRuntime, getUiTheme, mountReactView, navigateUi, setUiTheme } from '@mintcat/sdk-ui';
-import type { Disposable, UiNavigationIcon, UiSelection, UiThemeName } from '@mintcat/sdk-ui';
+import { getSharedRuntime, getUiTheme, mountReactView, navigateUi, openExternalUrl, setUiTheme } from '@mintcat/sdk-ui';
+import type { Disposable, UiNavigationIcon, UiSelection } from '@mintcat/sdk-ui';
 import type { ReactElement } from 'react';
-import logoUrl from '../src-tauri/icons/icon.png?url';
+import type { AgentIndicatorStatus } from '../../../modules/feature-agent/ui';
+import { NotificationsButton } from './chrome-notifications';
+import { AvatarButton } from './chrome-avatar';
+import { THEME_OPTIONS } from './settings-overview';
 
 export interface ChromeContributions { icons: UiNavigationIcon[]; games: Array<{ gameId: string; displayName: string }> }
 interface ActivePageDetail {
@@ -15,27 +18,49 @@ export function mountChrome(header: HTMLElement, footer: HTMLElement, brandRoot:
   const { React, Antd, Icons } = getSharedRuntime();
   const h = React.createElement;
   function Brand(): ReactElement {
+    const [collapsed, setCollapsed] = React.useState(() => {
+      try { return window.localStorage.getItem('mintcat.sidebar.collapsed') === 'true'; }
+      catch { return false; }
+    });
+    const label = collapsed ? '展开侧栏' : '收起侧栏';
     return h('div', { className: 'sidebar-brand', 'data-tauri-drag-region': true },
       h('div', { className: 'brand-lockup' },
-        h('div', { className: 'brand-icon-shell' }, h('img', { src: logoUrl, width: 34, height: 34, alt: 'MintCat' })),
+        h('span', { className: 'brand-icon-shell', 'aria-hidden': true },
+          h('svg', { width: 29, height: 29, viewBox: '0 0 32 32', fill: 'none', stroke: 'currentColor', strokeWidth: 1.55, strokeLinejoin: 'round', strokeLinecap: 'round' },
+            h('path', { d: 'M5 21 6.4 8.5l6.2 4h7l6-4L27 21l-5.3 5H10.3Z' }),
+            h('path', { d: 'm14 8.5 1.1-4.2 5.3-.8-1.6 4.2Z', fill: 'currentColor', stroke: 'none' }),
+            h('path', { d: 'M10.8 18.7h1.4m7.6 0h1.4m-6.5 2.6 1.3 1 1.3-1' }))),
         h('div', { className: 'brand-meta' },
-          h('h1', null, 'MINTCAT'),
-          h('span', { className: 'app-version' }, 'v0.6.0'))));
+          h('h1', null, 'MintCat'),
+          h('span', { className: 'app-version' }, 'v0.6.0'))),
+      h('button', {
+        type: 'button', className: 'sidebar-toggle',
+        'aria-label': label, title: label,
+        'aria-expanded': !collapsed, 'aria-controls': 'mc-sidebar-navigation',
+        onClick: () => {
+          setCollapsed(!collapsed);
+          try { window.localStorage.setItem('mintcat.sidebar.collapsed', String(!collapsed)); }
+          catch { /* The rail still toggles when preferences cannot be saved. */ }
+        },
+      }, h('svg', { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.65, strokeLinejoin: 'round', strokeLinecap: 'round', 'aria-hidden': true },
+        h('rect', { x: 2.5, y: 4.5, width: 19, height: 15, rx: 3 }),
+        h('path', { d: 'M9 5v14' }),
+        h('path', { d: collapsed ? 'm14 9.5 2.5 2.5-2.5 2.5' : 'm16.5 9.5-2.5 2.5 2.5 2.5' }))));
   }
   function TitleBar(): ReactElement {
     const [contributions, updateContributions] = React.useState<ChromeContributions>({ icons: [], games: [] });
     const [selection, updateSelection] = React.useState<UiSelection>();
     const [activePage, updateActivePage] = React.useState<ActivePageDetail>();
-    const [theme, updateTheme] = React.useState(getUiTheme());
+    const [agent, updateAgent] = React.useState<AgentIndicatorStatus>({ open: false, waiting: false, unread: false });
     React.useEffect(() => {
       const changed = (event: Event): void => updateContributions((event as CustomEvent<ChromeContributions>).detail);
       const selected = (event: Event): void => updateSelection((event as CustomEvent<UiSelection>).detail);
       const paged = (event: Event): void => updateActivePage((event as CustomEvent<ActivePageDetail>).detail);
-      const themed = (): void => updateTheme(getUiTheme());
+      const agentChanged = (event: Event): void => updateAgent((event as CustomEvent<AgentIndicatorStatus>).detail);
+      window.addEventListener('mintcat-agent-indicator', agentChanged);
       window.addEventListener('mintcat-ui-contributions', changed);
       window.addEventListener('mintcat-ui-selection', selected);
       window.addEventListener('mintcat-ui-active-page', paged);
-      window.addEventListener('mintcat-ui-theme', themed);
       const onGlobalSearchKey = (event: KeyboardEvent): void => {
         if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'k') return;
         const pageSearch = document.querySelector<HTMLInputElement>('.library-search input, .mintcat-search-box input:not(:disabled)');
@@ -53,7 +78,7 @@ export function mountChrome(header: HTMLElement, footer: HTMLElement, brandRoot:
         window.removeEventListener('mintcat-ui-contributions', changed);
         window.removeEventListener('mintcat-ui-selection', selected);
         window.removeEventListener('mintcat-ui-active-page', paged);
-        window.removeEventListener('mintcat-ui-theme', themed);
+        window.removeEventListener('mintcat-agent-indicator', agentChanged);
         window.removeEventListener('keydown', onGlobalSearchKey);
       };
     }, []);
@@ -61,24 +86,10 @@ export function mountChrome(header: HTMLElement, footer: HTMLElement, brandRoot:
     const game = contributions.games.find(item => item.gameId === selection?.gameId);
     const isSettings = activePage?.placement === 'settings';
     const isInstall = activePage?.route === '/mintcat.install/tasks';
-    const utilities = [
-      { key: 'robot', label: 'MintCat Agent', icon: h(Icons.RobotOutlined), disabled: !available('robot') },
-      { key: 'cloud', label: '备份与迁移', icon: h(Icons.CloudOutlined), disabled: !available('cloud') },
-      { key: 'install', label: '安装与打包', icon: h(Icons.DeploymentUnitOutlined), disabled: !available('install') },
-      { key: 'settings', label: '设置中心', icon: h(Icons.SettingOutlined), disabled: !available('settings') },
-      { type: 'divider' as const },
-      {
-        key: 'themes', label: '界面主题', icon: h(Icons.BgColorsOutlined),
-        children: [
-          { key: 'theme:Light', label: '浅色玻璃 (Light)' },
-          { key: 'theme:Dark', label: '深色夜幕 (Dark)' },
-          { key: 'theme:Pink', label: '樱粉微光 (Pink)' },
-          { key: 'theme:Blue', label: '晴空冷萃 (Blue)' },
-        ],
-      },
-      { type: 'divider' as const },
-      { key: 'rescue', label: '后台状态、日志与恢复', icon: h(Icons.ToolOutlined) },
-    ];
+    const { message } = Antd.App.useApp();
+    const theme = getUiTheme();
+    const [skinOpen, setSkinOpen] = React.useState(false);
+    const agentLabel = `MintCat Agent${agent.waiting ? '，等待回复' : ''}${agent.unread ? '，有未读回复' : ''}`;
     return h('div', { className: 'title-bar' },
       h('div', { className: 'window-drag-strip', 'data-tauri-drag-region': true }),
       h('div', { className: 'toolbar-region' }, h('div', { id: 'mc-page-toolbar', className: 'page-toolbar' }),
@@ -116,19 +127,37 @@ export function mountChrome(header: HTMLElement, footer: HTMLElement, brandRoot:
             h(Antd.Button, { className: 'chrome-game', icon: h(Icons.AppstoreOutlined), disabled: !available('home'), onClick: () => navigateUi('home') }, game?.displayName ?? '选择游戏'),
             h(Antd.Button, { className: 'chrome-search', icon: h(Icons.SearchOutlined), disabled: !available('search'), onClick: () => navigateUi('search') },
               h('span', { className: 'chrome-search-placeholder' }, '搜索在线模组、作者或描述…'),
-              h('kbd', { className: 'chrome-search-kbd', 'aria-hidden': true }, '⌘K')),
-            h(Antd.Button, { type: 'primary', className: 'glass-primary-action chrome-install-btn', icon: h(Icons.DeploymentUnitOutlined), disabled: !available('install'), onClick: () => navigateUi('install') }, '安装模组'))),
-      h('div', { className: 'chrome-utilities' },
-        h(Antd.Tooltip, { title: 'Agent 助手' }, h(Antd.Button, { type: 'text', icon: h(Icons.RobotOutlined), 'aria-label': 'Agent 助手', disabled: !available('robot'), onClick: () => navigateUi('robot') })),
-        h(Antd.Tooltip, { title: '安装与打包' }, h(Antd.Button, { type: 'text', icon: h(Icons.DeploymentUnitOutlined), 'aria-label': '安装与打包', disabled: !available('install'), onClick: () => navigateUi('install') })),
-        h('span', { className: 'chrome-utility-divider', 'aria-hidden': true }),
-        h(Antd.Tooltip, { title: theme === 'Dark' ? '切换浅色主题' : '切换深色主题' }, h(Antd.Button, { type: 'text', className: 'chrome-theme-btn', icon: h(theme === 'Dark' ? Icons.SunOutlined : Icons.MoonOutlined), 'aria-label': '切换主题', onClick: () => setUiTheme(theme === 'Dark' ? 'Light' : 'Dark') })),
-        h(Antd.Dropdown, { trigger: ['click'], menu: { selectedKeys: [`theme:${theme}`], items: utilities, onClick: ({ key }) => {
-          if (key === 'rescue') openRescue();
-          else if (key.startsWith('theme:')) setUiTheme(key.slice(6) as UiThemeName);
-          else navigateUi(key as UiNavigationIcon);
-        } } },
-          h(Antd.Button, { type: 'text', icon: h(Icons.MoreOutlined), 'aria-label': '更多功能' }))));
+              h('kbd', { className: 'chrome-search-kbd', 'aria-hidden': true }, '⌘K')))),
+      h('div', { className: 'chrome-utilities', role: 'group', 'aria-label': '工作台工具' },
+        h(Antd.Button, { type: 'text', className: `chrome-agent-btn${agent.unread ? ' chrome-agent-btn--unread' : ''}`, 'aria-label': agentLabel, title: agentLabel,
+          'aria-expanded': agent.open, 'aria-controls': agent.open ? 'mintcat-agent-drawer' : undefined,
+          'aria-busy': agent.waiting, disabled: !available('robot'), onClick: () => navigateUi('robot'),
+          icon: h('svg', { className: 'chrome-agent-glyph', width: 21, height: 21, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', 'aria-hidden': true },
+            h('path', { d: 'M12 6V3m-1.5 0h3M2.5 12v3m19-3v3' }),
+            h('rect', { x: 5, y: 6.5, width: 14, height: 13, rx: 3.5 }),
+            h('path', { d: 'M10.5 16h3' }),
+            h('circle', { className: 'agent-eye', cx: 9, cy: 11.5, r: 1.55 }),
+            h('circle', { className: 'agent-eye agent-eye-right', cx: 15, cy: 11.5, r: 1.55 })) }),
+        h(NotificationsButton),
+        h(Antd.Button, { type: 'text', 'aria-label': '帮助文档', title: '帮助文档', icon: h(Icons.QuestionCircleOutlined),
+          onClick: () => { void openExternalUrl('https://www.mintcat.work/docs/').catch(() => { void message.error('无法打开浏览器，请访问 www.mintcat.work/docs/'); }); } }),
+        h(Antd.Popover, { trigger: 'click', placement: 'bottomRight', open: skinOpen, onOpenChange: setSkinOpen, arrow: false,
+          title: '界面皮肤', content: h('div', { className: 'chrome-skin-options' }, ...THEME_OPTIONS.map(option =>
+            h('button', { key: option.id, type: 'button', 'aria-pressed': theme === option.id,
+              style: { backgroundColor: option.windowBg, color: option.text, borderColor: theme === option.id ? option.accent : undefined },
+              onClick: () => {
+                setSkinOpen(false);
+                if (theme === option.id) return;
+                if (document.startViewTransition && window.matchMedia('(prefers-reduced-motion: no-preference)').matches) {
+                  document.startViewTransition(() => setUiTheme(option.id));
+                } else setUiTheme(option.id);
+              } },
+            h('span', { className: 'chrome-skin-swatch', style: { backgroundColor: option.accent } },
+              theme === option.id ? h(Icons.CheckOutlined) : null), option.name))) },
+          h(Antd.Button, { type: 'text', icon: h(Icons.SkinOutlined), title: '皮肤', 'aria-label': '皮肤', 'aria-expanded': skinOpen })),
+        h(Antd.Button, { type: 'text', title: '云同步', 'aria-label': '云同步', icon: h(Icons.CloudSyncOutlined), disabled: !available('cloud'),
+          onClick: () => window.dispatchEvent(new Event('mintcat-open-cloud-sync')) }),
+        h(AvatarButton, { canInstall: available('install'), canManageSources: available('proxy') })));
   }
   function StatusBar(): ReactElement {
     const [text, update] = React.useState(native ? '正在连接独立后台…' : '浏览器预览 · 未连接原生后台');
@@ -148,6 +177,7 @@ export function mountChrome(header: HTMLElement, footer: HTMLElement, brandRoot:
         h('span', { role: 'status', className: `status-pill ${connected ? 'status-pill--connected' : 'status-pill--idle'}`, title: connected ? '已连接独立后台' : text },
           h('span', { className: `status-dot ${connected ? 'status-dot--connected' : 'status-dot--idle'}` }),
           connected ? '已连接独立后台' : text),
+        h('span', { id: 'mc-profile-status' }),
         secondaryNotice ? h('span', { className: 'status-secondary-notice', title: secondaryNotice }, secondaryNotice) : null),
       h(Antd.Tooltip, { title: '后台状态、日志与恢复' },
         h(Antd.Button, { type: 'text', size: 'small', className: 'status-rescue-btn', icon: h(Icons.ToolOutlined), onClick: openRescue, 'aria-label': '后台状态、日志与恢复' }, '诊断与恢复')));

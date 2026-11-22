@@ -300,7 +300,7 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
       if (!active()) return;
       selected = undefined;
       status = `已加入下载队列（${job.jobId.slice(0, 8)}）${includeDependencies ? '，将自动解析前置依赖' : ''}。`;
-      context.notify(status);
+      context.notify(status, '模组已加入下载队列');
     } catch (cause) {
       if (active() && generation === bindingGeneration && searchGeneration === requestGeneration) fail(cause, 'add');
     } finally { if (active()) { adding = false; update(); } }
@@ -522,19 +522,14 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
           h('div', { className: 'mc-empty-hero-actions' },
             descriptors.length
               ? h(Antd.Button, { type: 'primary', className: 'glass-primary-action', icon: h(Icons.ImportOutlined), onClick: () => navigateUi('local') }, '前往本地导入')
-              : h(React.Fragment, null,
-                h(Antd.Button, { type: 'primary', className: 'glass-primary-action', icon: h(Icons.RobotOutlined), onClick: () => navigateUi('robot') }, '打开 Agent 助手'),
-                h(Antd.Button, { icon: h(Icons.CloudOutlined), onClick: () => navigateUi('cloud') }, '备份与恢复'))),
+              : h(Antd.Button, { type: 'primary', className: 'glass-primary-action', icon: h(Icons.CloudOutlined), onClick: () => navigateUi('cloud') }, '备份与恢复')),
           !descriptors.length ? h('div', { className: 'mc-empty-bento' },
             h('div', { className: 'mc-empty-bento-item' },
               h('div', { className: 'mc-empty-bento-head' }, h(Icons.SafetyCertificateOutlined), '签名游戏扩展'),
               h('span', { className: 'mc-empty-bento-text' }, '接入已签名游戏包后自动解锁 mod.io、ModCat 与 Nexus 在线检索。')),
             h('button', { type: 'button', className: 'mc-empty-bento-item', onClick: () => navigateUi('cloud') },
               h('div', { className: 'mc-empty-bento-head' }, h(Icons.CloudUploadOutlined), '备份与迁移'),
-              h('span', { className: 'mc-empty-bento-text' }, '随时导出便携归档、管理云快照或导入旧版配置数据。')),
-            h('button', { type: 'button', className: 'mc-empty-bento-item', onClick: () => navigateUi('robot') },
-              h('div', { className: 'mc-empty-bento-head' }, h(Icons.RobotOutlined), '智能模组助手'),
-              h('span', { className: 'mc-empty-bento-text' }, '支持 OpenAI 兼容模型对话，所有变更均经人工审核确认。'))) : null)) : null,
+              h('span', { className: 'mc-empty-bento-text' }, '随时导出便携归档、管理云快照或导入旧版配置数据。'))) : null)) : null,
       loading && !items.length ? h(Antd.Skeleton, { active: true, paragraph: { rows: 3 } }) : null,
       !loading && !error && sourceId && !visible.length ? h('div', { className: 'mc-empty-hero' },
         h('div', { className: 'mc-empty-hero-card' },

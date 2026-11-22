@@ -123,7 +123,7 @@ export async function mountGameSettings(root: HTMLElement, context: UiContext, g
       const current = await context.request<{ values: Record<string, Json>; revision: number }>('settings.get', { scope, section: 'game' });
       if (editGeneration !== discardedGeneration) { context.notify('存在更新的未保存修改，未覆盖当前草稿'); return; }
       replaceValues(current.values); revision = current.revision; dirty = false; editGeneration++;
-      context.dirty(false); saveDraft(); context.notify('已重新加载游戏设置并丢弃草稿');
+      context.dirty(false); saveDraft(); context.notify('已重新加载游戏设置并丢弃草稿', '游戏设置已重新加载');
     } catch (error) { context.notify(error instanceof Error ? error.message : String(error)); }
     finally { pending = false; if (!context.signal.aborted) save.disabled = discard.disabled = false; }
   }));
@@ -152,7 +152,7 @@ export async function mountGameSettings(root: HTMLElement, context: UiContext, g
           dirty = editGeneration !== submittedGeneration;
           if (!dirty) replaceValues(updated.values);
           context.dirty(dirty); saveDraft();
-          context.notify(dirty ? '已提交保存，较新的输入仍保留在草稿中' : '游戏设置已保存');
+          context.notify(dirty ? '已提交保存，较新的输入仍保留在草稿中' : '游戏设置已保存', '游戏设置已保存');
         }
       } catch (error) { context.notify(error instanceof Error ? error.message : String(error)); }
       finally { pending = false; if (!context.signal.aborted) save.disabled = discard.disabled = false; }

@@ -6,7 +6,7 @@ import * as Icons from '@ant-design/icons';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { bindSharedRuntime, kit, setUiTheme, getUiTheme } from '@mintcat/sdk-ui';
-import type { PickLocalPathOptions, PickSavePathOptions } from '@mintcat/sdk-ui';
+import type { FileDragEvent, PickLocalPathOptions, PickSavePathOptions } from '@mintcat/sdk-ui';
 
 async function openExternalUrl(url: string): Promise<void> {
   if (isTauri()) {
@@ -44,15 +44,29 @@ async function launchSteamGame(appId: string): Promise<void> {
   await invoke('launch_steam_game', { appId });
 }
 
-function onFileDrop(handler: (paths: string[]) => void): () => void {
+function onFileDrag(handler: (event: FileDragEvent) => void): () => void {
   if (!isTauri()) return () => {};
   let disposed = false;
+  let carriesFiles = false;
   let unlisten: (() => void) | undefined;
   void getCurrentWebview().onDragDropEvent(event => {
     if (disposed) return;
-    if (event.payload.type === 'drop' && Array.isArray(event.payload.paths) && event.payload.paths.length > 0) {
-      handler(event.payload.paths);
+    const payload = event.payload;
+    if (payload.type === 'leave') {
+      carriesFiles = false;
+      handler({ type: 'leave' });
+      return;
     }
+    if (payload.type === 'enter' || payload.type === 'drop') carriesFiles = payload.paths.length > 0;
+    if (!carriesFiles) return;
+    // Wry 0.53's WKWebView sends NSDraggingInfo points, despite the PhysicalPosition type.
+    // WebView2 sends device pixels; account for the Windows display scale there.
+    const scale = /Win/i.test(navigator.platform) ? window.devicePixelRatio : 1;
+    const x = payload.position.x / scale, y = payload.position.y / scale;
+    if (payload.type === 'drop') {
+      carriesFiles = false;
+      handler({ type: 'drop', x, y, paths: payload.paths });
+    } else handler({ type: payload.type, x, y });
   }).then(fn => {
     if (disposed) fn();
     else unlisten = fn;
@@ -73,9 +87,9 @@ bindSharedRuntime({
   kit,
   openExternalUrl,
   openDataDir,
-  pickLocalPath,
+  pickLocalPath: isTauri() ? pickLocalPath : undefined,
   pickSavePath,
   launchSteamGame,
-  onFileDrop,
+  onFileDrag,
 });
 setUiTheme(getUiTheme());

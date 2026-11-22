@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 200" fill="none">
+  <defs>
+    <linearGradient id="face" x1="-26" y1="-38" x2="21" y2="68" gradientUnits="userSpaceOnUse"><stop stop-color="#c8ffe5"/><stop offset=".31" stop-color="#8ce8c5"/><stop offset=".58" stop-color="#4aafa2"/><stop offset="1" stop-color="#234c55"/></linearGradient>
+    <linearGradient id="left" x1="-36" y1="-42" x2="-5" y2="62" gradientUnits="userSpaceOnUse"><stop stop-color="#85ddba"/><stop offset=".5" stop-color="#319d88"/><stop offset="1" stop-color="#1e5558"/></linearGradient>
+    <linearGradient id="right" x1="20" y1="-44" x2="36" y2="55" gradientUnits="userSpaceOnUse"><stop stop-color="#4ba797"/><stop offset=".62" stop-color="#1d655f"/><stop offset="1" stop-color="#163c43"/></linearGradient>
+    <linearGradient id="root" x2="1" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="#87b9a5"/><stop offset=".5" stop-color="#476c68"/><stop offset="1" stop-color="#213d42"/></linearGradient>
+    <linearGradient id="bands" x2=".2" y2="1"><stop stop-color="#a6f3cd" stop-opacity=".05"/><stop offset="1" stop-color="#a6f3cd" stop-opacity=".4"/></linearGradient>
+    <radialGradient id="halo"><stop stop-color="#5ba587" stop-opacity=".27"/><stop offset="1" stop-color="#436c5c" stop-opacity="0"/></radialGradient>
+    <g id="prism" stroke-linejoin="round">
+      <path d="M-32-39 -15-62 8-89 31-47 32 50 12 71 -17 67 -33 47Z" fill="url(#right)" stroke="#d2ffe6" stroke-opacity=".42" stroke-width=".65"/>
+      <path d="M-32-39-15-62 8-89-8-37Z" fill="#a5e7bd"/><path d="M-8-37 8-89 20-42 12-29Z" fill="#e0fbd3"/>
+      <path d="M8-89 31-47 20-42Z" fill="#8ccbb1"/><path d="M-32-39-8-37-7 60-17 67-33 47Z" fill="url(#left)"/>
+      <path d="M-8-37 12-29 20-42 20 51 12 71-7 60Z" fill="url(#face)"/><path d="M20-42 31-47 32 50 20 51Z" fill="url(#right)"/>
+      <path d="M-32 20-17 7-10 9 5-4 20-8 20 0 6 4-9 17-19 16-32 27Z" fill="url(#bands)"/>
+      <path d="m-32 42 10-9 10 3L5 20l14-6v13l-9 5-7 10-16 7-18 1Z" fill="#bceaca" opacity=".19"/>
+      <path d="m-29-32 .6 43m5-45 .6 29m13-32 .7 79m4-73 .5 49m4-39 .6 17m11-32 .4 24m4-20 .2 18m4-41 .6 72m9-78 .4 64" stroke="#ebffe7" stroke-width=".7" opacity=".43"/>
+      <path d="M-32-39-8-37 12-29 20-42 31-47M-8-37 8-89l12 47v93M12-29v50m-20-58 1 97" stroke="#eaffdc" stroke-width=".8" opacity=".77"/>
+      <path d="m-33 47 12-3 5 8 9-5 12 4 15-11 12-4v14L12 71-17 67Z" fill="#164649" opacity=".38"/>
+    </g>
+    <path id="contour" d="M-50 112C35 147 72 38 143 54s40 81 117 70 61-101 160-111 135 74 212 48 98-57 144-54"/>
+    <g id="cross" stroke="#b6dbba" stroke-width=".8"><path d="M-4 0h8M0-4v8"/></g>
+  </defs>
+  <ellipse cx="432" cy="98" rx="239" ry="140" fill="url(#halo)"/>
+  <g stroke="#aad4af" stroke-width=".7" opacity=".18">
+    <use href="#contour" y="-70"/><use href="#contour" y="-59"/><use href="#contour" y="-48"/><use href="#contour" y="-37"/><use href="#contour" y="-26"/><use href="#contour" y="-15"/><use href="#contour" y="-4"/><use href="#contour" y="7"/><use href="#contour" y="18"/><use href="#contour" y="29"/><use href="#contour" y="40"/><use href="#contour" y="51"/><use href="#contour" y="62"/><use href="#contour" y="73"/><use href="#contour" y="84"/>
+  </g>
+  <g stroke="#afc9a0" opacity=".41" stroke-width=".7"><ellipse cx="432" cy="103" rx="151" ry="81" transform="rotate(-12 432 103)"/><ellipse cx="432" cy="103" rx="164" ry="87" stroke-dasharray="2 7" transform="rotate(-12 432 103)"/></g>
+  <g opacity=".64"><use href="#cross" x="256" y="123"/><use href="#cross" x="606" y="63"/><use href="#cross" x="197" y="59"/><use href="#cross" x="542" y="169"/></g>
+  <style>
+    .facet-light { opacity: 0; }
+    @media (prefers-reduced-motion: no-preference) {
+      .facet-light { animation: quartz-light 1.8s .2s ease-in-out 1; }
+      @keyframes quartz-light { 0%, 100% { opacity: 0; } 40% { opacity: .56; } }
+    }
+  </style>
+  <!-- Radiating prisms, from the far side of the specimen to the front. -->
+  <g transform="translate(413 118) rotate(-34) scale(.76 .83)"><use href="#prism"/></g>
+  <g transform="translate(477 105) rotate(35) scale(.85 .89)"><use href="#prism"/></g>
+  <g transform="translate(440 95) rotate(12) scale(1.12 1.04)">
+    <use href="#prism"/>
+    <path class="facet-light" d="M-8-37 8-89 20-42 12-29Z" fill="#fbffd4"/>
+    <path class="facet-light" style="animation-delay:.5s" d="m12-29 8-13v93l-8 20Z" fill="#bbffdb"/>
+  </g>
+  <g transform="translate(392 135) rotate(-52) scale(.67 .71)"><use href="#prism"/></g>
+  <g transform="translate(477 137) rotate(57) scale(.59 .72)"><use href="#prism"/></g>
+  <g transform="translate(432 139) rotate(-5) scale(.57 .65)"><use href="#prism"/></g>
+  <g transform="translate(451 157) rotate(33) scale(.31 .39)"><use href="#prism"/></g>
+  <path d="m367 158 19-11 17 7 12-7 18 17 27-5 15-12 24 7-15 20-39 9-39-5-32-6Z" fill="url(#root)"/>
+  <g stroke="#c4dac0" stroke-opacity=".28" stroke-width=".65"><path d="m367 158 26 5 10-9 6 24-16-15-19 9Z" fill="#3e6e67"/><path d="m403 154 12-7 18 17-24 14Z" fill="#73a99a"/><path d="m409 178 24-14 12 19Z" fill="#385a58"/><path d="m433 164 27-5 15-12-13 21-17 15Z" fill="#4b7e70"/><path d="m462 168 13-21 24 7-15 20Z" fill="#628978"/></g>
+  <!-- Drafting leaders and a scale bar belong to the illustration, not UI state. -->
+  <g stroke="#bbd1ad" stroke-width=".8" opacity=".8"><path d="m480 40 24-20h42"/><circle cx="480" cy="40" r="2" fill="#dbedc4"/><path d="m369 146-26 19h-39"/><circle cx="369" cy="146" r="2" fill="#dbedc4"/></g>
+  <g font-family="ui-monospace,monospace" font-size="7.5" letter-spacing="1.4" fill="#d2e7ca"><text x="552" y="22">SiO₂</text><text x="280" y="168">01</text></g>
+</svg>

@@ -2,17 +2,18 @@ import { COMMAND_SPECS } from '@mintcat/sdk-ts';
 import type { CommandName, CommandParams, CommandResult } from '@mintcat/sdk-ts';
 import { Disposables, QueryCache, SessionStore, getSharedRuntime, kit, mountGameSettings, mountReactView, presentUiError, renderUiError } from '@mintcat/sdk-ui';
 import type { Disposable, GameModuleList, PageMount, UiContext, UiNavigationIcon } from '@mintcat/sdk-ui';
-import { mountLibrary, mountDownloads } from '../../../modules/library/ui';
+import { mountLibrary, mountDownloads, mountGameDirectories } from '../../../modules/library/ui';
 import { mountSearch } from '../../../modules/ui-search/ui';
 import { mountInstall } from '../../../modules/install/ui';
 import { mountBackupPage } from '../../../modules/feature-backup/ui';
-import { mountAgentPage } from '../../../modules/feature-agent/ui';
+import { mountAgentPage, type AgentPanel } from '../../../modules/feature-agent/ui';
 import '../../../modules/library/ui/library.css';
 import '../../../modules/ui-search/ui/styles.css';
 import '../../../modules/install/ui/styles.css';
 import '../../../modules/feature-backup/ui/styles.css';
 import '../../../modules/feature-agent/ui/styles.css';
 import { requestApplication } from './daemon';
+import { publishNotification } from './chrome-notifications';
 import { mountAppearanceSettings, mountRuntimeSettings } from './settings-overview';
 
 interface Page {
@@ -20,12 +21,15 @@ interface Page {
   placement: 'sidebar' | 'titlebar' | 'settings'; settingsGroup?: 'system' | 'game'; mount: PageMount;
 }
 interface MountedPage { page: Page; disposable?: Disposable; controller: AbortController; lifetime: Disposables; dirty: boolean }
+type MountedAgent = MountedPage & { disposable?: AgentPanel };
+
+const agentPage = { moduleId: 'mintcat.feature.agent', route: '/mintcat.feature.agent/agent', title: 'Agent 助手', icon: 'robot', placement: 'titlebar', mount: mountAgentPage } satisfies Page;
 
 const builtinPages: readonly Page[] = [
   { moduleId: 'mintcat.library', route: '/mintcat.library/library', title: '模组管理', icon: 'home', placement: 'sidebar', mount: mountLibrary },
   { moduleId: 'mintcat.ui.search', route: '/mintcat.ui.search/search', title: '在线模组', icon: 'search', placement: 'sidebar', mount: mountSearch },
   { moduleId: 'mintcat.library', route: '/mintcat.library/downloads', title: '下载管理', icon: 'downloads', placement: 'sidebar', mount: mountDownloads },
-  { moduleId: 'mintcat.feature.agent', route: '/mintcat.feature.agent/agent', title: 'Agent 助手', icon: 'robot', placement: 'titlebar', mount: mountAgentPage },
+  agentPage,
   { moduleId: 'mintcat.install', route: '/mintcat.install/tasks', title: '安装与打包', icon: 'install', placement: 'titlebar', mount: mountInstall },
   {
     moduleId: 'mintcat.desktop.appearance',
@@ -35,6 +39,15 @@ const builtinPages: readonly Page[] = [
     placement: 'settings',
     settingsGroup: 'system',
     mount: root => mountAppearanceSettings(root),
+  },
+  {
+    moduleId: 'mintcat.library',
+    route: '/mintcat.library/game-directories',
+    title: '游戏安装目录',
+    icon: 'settings',
+    placement: 'settings',
+    settingsGroup: 'game',
+    mount: mountGameDirectories,
   },
   {
     moduleId: 'mintcat.feature.backup',
@@ -76,9 +89,10 @@ export class Workbench implements Disposable {
   private sidebarView?: Disposable;
   private settingsView?: Disposable;
   private mounted?: MountedPage;
-  private auxiliary?: MountedPage;
+  private auxiliary?: MountedAgent;
   private pages: readonly Page[] = builtinPages;
   private inventory?: GameModuleList;
+  private inventoryFailureTitle?: string;
   private route: string;
   private closed = false;
   private pageOpened = false;
@@ -105,8 +119,15 @@ export class Workbench implements Disposable {
     }
     const page = icon === 'settings' ? this.settingsPages()[0] : this.pages.find(page => page.icon === icon);
     if (!page) return;
-    if (icon === 'robot') void this.openAuxiliary(page);
-    else void this.navigate(page.route);
+    void this.navigate(page.route);
+  };
+  private readonly openCloudSync = async (): Promise<void> => {
+    const route = '/mintcat.feature.backup/backups';
+    await this.navigate(route);
+    if (this.mounted?.page.route === route) {
+      this.content.querySelector<HTMLElement>('#cloud-snapshot-sync')?.focus();
+      this.content.querySelector('#cloud-snapshot-sync')?.scrollIntoView({ block: 'start' });
+    }
   };
 
   constructor(private root: HTMLElement, private dataDir: string, private rescue: (error: unknown) => void, gamesContainer?: HTMLElement, navigationRoot?: HTMLElement, private toolbarRoot?: HTMLElement) {
@@ -128,6 +149,7 @@ export class Workbench implements Disposable {
     window.addEventListener('hashchange', this.hashHandler);
     window.addEventListener('beforeunload', this.beforeUnload);
     window.addEventListener('mintcat-ui-navigate', this.navigationHandler);
+    window.addEventListener('mintcat-open-cloud-sync', this.openCloudSync);
     window.addEventListener('mintcat-ui-render-error', this.renderErrorHandler);
     this.inventoryTimer = window.setInterval(() => { void this.refresh(); }, 2_000);
   }
@@ -176,13 +198,14 @@ export class Workbench implements Disposable {
         this.inventoryEvents.dispatchEvent(new Event('inventory'));
       }
       if (!this.pageOpened) await this.navigate(location.hash.slice(1) || this.route, true);
+      this.inventoryFailureTitle = undefined;
       if (!this.closed && !this.notice.textContent) window.dispatchEvent(new CustomEvent('mintcat-ui-notice', { detail: '已连接独立后台' }));
     } catch (error) {
-      if (!this.closed) { this.showFailure(error); if (!this.inventory) this.rescue(error); }
+      if (!this.closed) { this.showFailure(error, 'inventory'); if (!this.inventory) this.rescue(error); }
     }
   }
-  private allowDiscard(page?: MountedPage): boolean {
-    return !(page ? page.dirty : this.mounted?.dirty || this.auxiliary?.dirty) || window.confirm('离开未保存的页面？草稿将保留，后台任务继续运行。');
+  private allowDiscard(): boolean {
+    return !this.mounted?.dirty || window.confirm('离开未保存的页面？草稿将保留，后台任务继续运行。');
   }
   private context(mounted: MountedPage): UiContext {
     const { page, controller, lifetime } = mounted; const signal = controller.signal;
@@ -212,7 +235,11 @@ export class Workbench implements Disposable {
       state: (key, version, fallback) => this.session.get(`${page.moduleId}/${key}`, version, fallback),
       saveState: (key, version, value) => this.session.set(`${page.moduleId}/${key}`, version, value),
       dirty: value => { if (active()) mounted.dirty = value; },
-      notify: text => { if (active()) this.showNotice(text); },
+      notify: (text, inboxSummary) => {
+        if (!active()) return;
+        this.showNotice(text);
+        if (inboxSummary) publishNotification(inboxSummary);
+      },
       guard: action => (...args) => { if (active()) Promise.resolve().then(() => { if (active()) return action(...args); }).catch(error => { if (active()) this.showFailure(error); }); },
       own: disposable => lifetime.add(disposable),
       onInventoryChanged: listener => {
@@ -252,10 +279,12 @@ export class Workbench implements Disposable {
     this.noticeTimer = window.setTimeout(() => { this.clearNotice(); }, 5_000);
     window.dispatchEvent(new CustomEvent('mintcat-ui-notice', { detail: text }));
   }
-  private showFailure(cause: unknown): void {
+  private showFailure(cause: unknown, source?: 'inventory'): void {
     this.clearNotice();
     this.notice.dataset.tone = 'error';
     const error = presentUiError(cause);
+    if (source !== 'inventory' || this.inventoryFailureTitle !== error.title) publishNotification(error.title, 'error');
+    if (source === 'inventory') this.inventoryFailureTitle = error.title;
     const body = kit.element('div');
     body.className = 'module-notice-error-body';
     renderUiError(body, error);
@@ -274,9 +303,10 @@ export class Workbench implements Disposable {
     const icons = { home: Icons.AppstoreOutlined, search: Icons.CompassOutlined, settings: Icons.BgColorsOutlined, robot: Icons.RobotOutlined, cloud: Icons.CloudSyncOutlined, install: Icons.DeploymentUnitOutlined, proxy: Icons.ApiOutlined, local: Icons.ImportOutlined, downloads: Icons.CloudDownloadOutlined };
     const settings = this.settingsPages(), isSettings = settings.some(page => page.route === this.route);
     const currentPage = this.pages.find(page => page.route === this.route);
-    const items = this.pages.filter(page => page.placement === 'sidebar').map(page => ({ key: page.route, className: 'sidebar-route-item', label: h('span', { 'aria-label': page.title, className: 'sidebar-link' }, h(icons[page.icon]), h('span', { className: 'sidebar-label' }, page.title)) }));
-    items.push({ key: '@settings', className: 'sidebar-settings-item', label: h('span', { 'aria-label': '设置', className: 'sidebar-link' }, h(Icons.SettingOutlined), h('span', { className: 'sidebar-label' }, '设置')) });
-    this.sidebarView = mountReactView(this.navigation, h(Antd.Menu, { mode: 'inline', selectedKeys: [isSettings ? '@settings' : this.route], items, onClick: ({ key }) => { void this.navigate(key === '@settings' ? isSettings ? this.route : settings[0].route : key); } }));
+    const items = this.pages.filter(page => page.placement === 'sidebar').map(page => ({ key: page.route, title: page.title, 'aria-label': page.title, className: 'sidebar-route-item', label: h('span', { className: 'sidebar-link' }, h(icons[page.icon]), h('span', { className: 'sidebar-label' }, page.title)) }));
+    items.push({ key: '@settings', title: '设置', 'aria-label': '设置', className: 'sidebar-settings-item', label: h('span', { className: 'sidebar-link' }, h(Icons.SettingOutlined), h('span', { className: 'sidebar-label' }, '设置')) });
+    this.sidebarView = mountReactView(this.navigation,
+      h(Antd.Menu, { mode: 'inline', selectedKeys: [isSettings ? '@settings' : this.route], items, onClick: ({ key }) => { void this.navigate(key === '@settings' ? isSettings ? this.route : settings[0].route : key); } }));
     this.settingsTabs.hidden = true;
     window.dispatchEvent(new CustomEvent('mintcat-ui-active-page', {
       detail: {
@@ -292,15 +322,15 @@ export class Workbench implements Disposable {
     }));
     window.dispatchEvent(new CustomEvent('mintcat-ui-contributions', { detail: { icons: [...new Set([...this.pages.map(page => page.icon), 'settings'])], games: this.inventory?.modules.flatMap(module => module.enabled && module.game ? [{ gameId: module.game.gameId, displayName: module.game.displayName }] : []) ?? [] } }));
   }
-  private async openAuxiliary(page: Page): Promise<void> {
-    if (this.closed || (this.auxiliary && !this.allowDiscard(this.auxiliary))) return;
-    this.unmountAuxiliary();
-    const mounted: MountedPage = { page, controller: new AbortController(), lifetime: new Disposables(), dirty: false };
+  private openAgent(): void {
+    if (this.closed) return;
+    if (this.auxiliary) { this.auxiliary.disposable?.setOpen(true); return; }
+    const mounted: MountedAgent = { page: agentPage, controller: new AbortController(), lifetime: new Disposables(), dirty: false };
     this.auxiliary = mounted;
-    const pageRoot = kit.element('section'); pageRoot.dataset.module = page.moduleId; this.auxiliaryRoot.replaceChildren(pageRoot);
+    const pageRoot = kit.element('section'); pageRoot.dataset.module = agentPage.moduleId; this.auxiliaryRoot.replaceChildren(pageRoot);
     try {
-      const disposable = await page.mount(pageRoot, this.context(mounted));
-      if (this.auxiliary !== mounted || mounted.controller.signal.aborted) disposable.dispose(); else mounted.disposable = disposable;
+      const panel = agentPage.mount(pageRoot, this.context(mounted));
+      if (mounted.controller.signal.aborted) panel.dispose(); else mounted.disposable = panel;
     } catch (error) { if (!mounted.controller.signal.aborted) { this.unmountAuxiliary(); this.showFailure(error); } }
   }
   private unmountAuxiliary(): void {
@@ -310,9 +340,16 @@ export class Workbench implements Disposable {
   }
   async navigate(route: string, force = false): Promise<void> {
     if (this.closed) return;
+    if (route === agentPage.route) {
+      if (!this.mounted) await this.navigate(builtinPages[0].route, true);
+      else if (location.hash === `#${route}`) history.replaceState(null, '', `#${this.route}`);
+      this.openAgent();
+      return;
+    }
     if (!force && route === this.route && this.mounted) return;
     if (!force && !this.allowDiscard()) { history.replaceState(null, '', `#${this.route}`); return; }
     this.clearNotice();
+    this.auxiliary?.disposable?.setOpen(false);
     this.unmountPage();
     const page = this.pages.find(page => page.route === route) ?? builtinPages[0];
     this.pageOpened = true;
@@ -341,14 +378,15 @@ export class Workbench implements Disposable {
     mounted.lifetime.dispose();
   }
   private unmountPage(): void {
-    this.unmountAuxiliary(); const mounted = this.mounted; this.mounted = undefined;
+    const mounted = this.mounted; this.mounted = undefined;
     if (mounted) this.disposePage(mounted);
   }
   dispose(): void {
     if (this.closed) return;
-    this.closed = true; this.clearNotice(); this.unmountPage(); clearInterval(this.inventoryTimer);
+    this.closed = true; this.clearNotice(); this.unmountAuxiliary(); this.unmountPage(); clearInterval(this.inventoryTimer);
     window.removeEventListener('hashchange', this.hashHandler); window.removeEventListener('beforeunload', this.beforeUnload);
     window.removeEventListener('mintcat-ui-navigate', this.navigationHandler); window.removeEventListener('mintcat-ui-render-error', this.renderErrorHandler);
+    window.removeEventListener('mintcat-open-cloud-sync', this.openCloudSync);
     this.sidebarView?.dispose(); this.settingsView?.dispose(); this.gamesPanel.remove(); this.navigation.remove();
     window.dispatchEvent(new CustomEvent('mintcat-ui-contributions', { detail: { icons: [], games: [] } }));
     this.root.replaceChildren();

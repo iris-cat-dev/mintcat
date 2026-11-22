@@ -19,10 +19,19 @@ interface Session {
   bindings: Array<{ jobId?: string; actionId?: string }>; errorCode?: string;
 }
 
-export async function mountAgentPage(root: HTMLElement, context: UiContext): Promise<Disposable> {
+export interface AgentIndicatorStatus { open: boolean; waiting: boolean; unread: boolean }
+export interface AgentPanel extends Disposable { setOpen(open: boolean): void }
+
+export function mountAgentPage(root: HTMLElement, context: UiContext): AgentPanel {
   const { React, Antd, Icons } = getSharedRuntime();
   const h = React.createElement;
   let alive = true, busy = false, drawerOpen = true, loadGeneration = 0, bindingsGeneration = 0;
+  let waiting = false, unread = false, lastIndicator: AgentIndicatorStatus | undefined;
+  const publishIndicator = (): void => {
+    if (lastIndicator?.open === drawerOpen && lastIndicator.waiting === waiting && lastIndicator.unread === unread) return;
+    lastIndicator = { open: drawerOpen, waiting, unread };
+    window.dispatchEvent(new CustomEvent('mintcat-agent-indicator', { detail: lastIndicator }));
+  };
   let targetLoading = false, keySaving = false, keyClearing = false, testing = false;
   let showAdvancedTargets = false;
   const active = (): boolean => alive && !context.signal.aborted;
@@ -46,7 +55,13 @@ export async function mountAgentPage(root: HTMLElement, context: UiContext): Pro
   let jobs: JobSnapshot[] = [], actions: ActionRequired[] = [];
   const responses: Record<string, string> = {};
   let redraw = (): void => {};
-  const update = (): void => { if (active()) redraw(); };
+  const update = (): void => { if (active()) { publishIndicator(); redraw(); } };
+  const setOpen = (open: boolean): void => {
+    if (open === drawerOpen) return;
+    drawerOpen = open;
+    if (open) unread = false;
+    update();
+  };
   const persistConfig = (): void => {
     if (!active()) return;
     context.saveState('conversation', 1, {
@@ -138,7 +153,10 @@ export async function mountAgentPage(root: HTMLElement, context: UiContext): Pro
     for (const jobId of new Set([turnJobId, ...current.bindings.map(binding => binding.jobId ?? '')].filter(Boolean))) {
       const job = await context.call('jobs.get', { jobId });
       if (!active() || generation !== bindingsGeneration || session?.sessionId !== current.sessionId) return;
-      if (jobId === turnJobId) turnPending = !['succeeded', 'failed', 'cancelled', 'recovery-required'].includes(job.state);
+      if (jobId === turnJobId) {
+        turnPending = !['succeeded', 'failed', 'cancelled', 'recovery-required'].includes(job.state);
+        if (['failed', 'cancelled', 'recovery-required'].includes(job.state)) { waiting = false; publishIndicator(); }
+      }
       loadedJobs.push(job); findActions(job.result, ids);
       if (job.state === 'awaiting-approval' && !job.result) {
         let afterSeq = 0;
@@ -162,6 +180,17 @@ export async function mountAgentPage(root: HTMLElement, context: UiContext): Pro
   const render = async (next: Session): Promise<void> => {
     if (!active()) return;
     const changed = session?.sessionId !== next.sessionId;
+    if (changed) {
+      // The first snapshot (including a restored conversation) is the read baseline.
+      unread = false;
+      waiting = next.state === 'sending';
+    } else if (session) {
+      const newReply = next.timeline.length > session.timeline.length
+        && next.timeline.slice(session.timeline.length).some(item => item.role === 'assistant');
+      if (newReply) { waiting = false; if (!drawerOpen) unread = true; }
+      else if (next.state === 'failed') waiting = false;
+      else if (next.state === 'sending' && session.state !== 'sending') waiting = true;
+    }
     session = next; fields.sessionId = next.sessionId;
     if (changed) for (const [key, value] of Object.entries({ ...next.configuration, ...next.target })) fields[key] = String(value ?? '');
     persistConfig();
@@ -259,7 +288,7 @@ export async function mountAgentPage(root: HTMLElement, context: UiContext): Pro
     if (!fields.sessionId.trim()) throw new Error('请输入会话 ID。');
     const next = await context.request<Session>('agent.sessions.get', { sessionId: fields.sessionId.trim() });
     if (!active()) return;
-    if (next.sessionId !== session?.sessionId) { turnJobId = ''; turnPending = false; }
+    if (next.sessionId !== (session?.sessionId ?? saved.sessionId)) { turnJobId = ''; turnPending = false; }
     await render(next);
   };
   const send = async (): Promise<void> => {
@@ -267,8 +296,11 @@ export async function mountAgentPage(root: HTMLElement, context: UiContext): Pro
     const submitted = prompt, content = submitted.trim(), current = session;
     if (!content) throw new Error('请输入消息。');
     if (current.state === 'sending' || turnPending) throw new Error('上一轮会话仍在运行。');
+    waiting = true; update();
+    let accepted = false;
     try {
       const job = await context.request<{ jobId: string }>('agent.sessions.send', { sessionId: current.sessionId, expectedRevision: current.revision, content }, crypto.randomUUID());
+      accepted = true;
       const latest = context.state('conversation', 1, { sessionId: current.sessionId, turnJobId: '', baseUrl: fields.baseUrl, model: fields.model });
       if (latest.sessionId === current.sessionId) context.saveState('conversation', 1, { ...latest, sessionId: current.sessionId, turnJobId: job.jobId });
       if (context.state('prompt', 1, '') === submitted) context.saveState('prompt', 1, '');
@@ -278,6 +310,7 @@ export async function mountAgentPage(root: HTMLElement, context: UiContext): Pro
       await render(await context.request<Session>('agent.sessions.get', { sessionId: current.sessionId }));
     } catch (cause) {
       if (!active()) return;
+      if (!accepted) { waiting = false; update(); }
       await render(await context.request<Session>('agent.sessions.get', { sessionId: current.sessionId }));
       throw cause;
     }
@@ -304,14 +337,13 @@ export async function mountAgentPage(root: HTMLElement, context: UiContext): Pro
   function View() {
     const [, setTick] = React.useState(0); redraw = () => setTick(value => value + 1);
     const end = React.useRef<HTMLDivElement>(null);
-    React.useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }); }, [session?.timeline.length]);
+    React.useEffect(() => { if (drawerOpen) end.current?.scrollIntoView({ block: 'nearest' }); }, [drawerOpen, session?.timeline.length]);
     const pendingApproval = actions.some(action => action.state === 'pending');
     const sendDisabled = busy || !session || session.state === 'sending' || turnPending || pendingApproval || !prompt.trim();
     const activeGame = games.find(item => item.gameId === fields.gameId);
     const installations = activeGame?.installations ?? [];
     return h('div', { className: 'mintcat-agent-surface' },
-      !drawerOpen ? h(Antd.Button, { type: 'primary', className: 'mintcat-agent-reopen glass-primary-action', icon: h(Icons.RobotOutlined), onClick: () => { drawerOpen = true; update(); } }, '打开 Agent 助手') : null,
-      h(Antd.Drawer, { open: drawerOpen, placement: 'right', size: 540, getContainer: false, mask: false, onClose: () => { drawerOpen = false; update(); }, title: h('div', { className: 'mintcat-agent-drawer-title' }, h('span', { className: 'mintcat-agent-title-badge' }, h(Icons.RobotOutlined)), h('div', null, h('div', { className: 'mintcat-agent-title-text' }, 'Agent 助手'), h(Antd.Typography.Text, { type: 'secondary', style: { fontSize: 11.5, fontWeight: 400 } }, '对话、工具与独立人工批准'))), styles: { body: { padding: 0, overflow: 'hidden' } }, extra: h(Antd.Space, { size: 6 }, h(Antd.Button, { size: 'small', icon: h(Icons.SyncOutlined, { spin: targetLoading }), disabled: busy || targetLoading, onClick: () => context.guard(() => syncTargetsFromWorkbench())() }, '同步当前目标'), h(Antd.Button, { size: 'small', icon: h(Icons.ReloadOutlined), disabled: busy || !session, onClick: () => run(async () => { if (session) await render(await context.request<Session>('agent.sessions.get', { sessionId: session.sessionId })); }) }, '刷新')) },
+      h(Antd.Drawer, { id: 'mintcat-agent-drawer', open: drawerOpen, placement: 'right', size: 540, getContainer: false, mask: false, onClose: () => setOpen(false), title: h('div', { className: 'mintcat-agent-drawer-title' }, h('span', { className: 'mintcat-agent-title-badge' }, h(Icons.RobotOutlined)), h('div', null, h('div', { className: 'mintcat-agent-title-text' }, 'Agent 助手'), h(Antd.Typography.Text, { type: 'secondary', style: { fontSize: 11.5, fontWeight: 400 } }, '对话、工具与独立人工批准'))), styles: { body: { padding: 0, overflow: 'hidden' } }, extra: h(Antd.Space, { size: 6 }, h(Antd.Button, { size: 'small', icon: h(Icons.SyncOutlined, { spin: targetLoading }), disabled: busy || targetLoading, onClick: () => context.guard(() => syncTargetsFromWorkbench())() }, '同步当前目标'), h(Antd.Button, { size: 'small', icon: h(Icons.ReloadOutlined), disabled: busy || !session, onClick: () => run(async () => { if (session) await render(await context.request<Session>('agent.sessions.get', { sessionId: session.sessionId })); }) }, '刷新')) },
         h('div', { className: 'mintcat-agent-page' },
           h(Antd.Collapse, { size: 'small', defaultActiveKey: session ? [] : ['settings'], items: [{ key: 'settings', label: h(Antd.Space, { size: 6 }, h('span', null, '模型、API Key 与目标配置'), apiKeyConfigured ? h(Antd.Tag, { color: 'success' }, '已存钥匙串 Key') : null), children: h(Antd.Form, { layout: 'vertical' },
             h(Antd.Alert, { type: 'info', showIcon: true, style: { marginBottom: 10 }, title: '模型工具不能批准或安装；API Key 仅保存在本机系统钥匙串中。' }),
@@ -382,6 +414,7 @@ export async function mountAgentPage(root: HTMLElement, context: UiContext): Pro
                 await context.request('agent.sessions.delete', { sessionId: session.sessionId, expectedRevision: session.revision }, crypto.randomUUID());
                 if (!active()) return;
                 session = undefined; fields.sessionId = ''; turnJobId = ''; turnPending = false; jobs = []; actions = [];
+                waiting = false; unread = false;
                 persistConfig(); status = '仅会话已删除，daemon 任务和批准动作保持不变。';
               }) }, '删除会话')),
             showAdvancedTargets ? h('div', { className: 'mintcat-agent-fields', style: { marginTop: 10 } },
@@ -404,6 +437,7 @@ export async function mountAgentPage(root: HTMLElement, context: UiContext): Pro
           h('div', { className: 'mintcat-agent-composer' }, h(Antd.Input.TextArea, { value: prompt, maxLength: 32768, disabled: busy || !session || turnPending || pendingApproval, autoSize: { minRows: 2, maxRows: 5 }, placeholder: pendingApproval ? '请先独立审核待批准动作' : '输入消息，Shift+Enter 换行…', onChange: (event: { target: { value: string } }) => { prompt = event.target.value; persistPrompt(); update(); }, onPressEnter: (event: { shiftKey: boolean; preventDefault(): void }) => { if (!event.shiftKey) { event.preventDefault(); if (!sendDisabled) run(send); } } }), h(Antd.Button, { type: 'primary', className: 'glass-primary-action mintcat-agent-send-btn', icon: h(Icons.SendOutlined), disabled: sendDisabled, onClick: () => run(send) }, '发送')))));
   }
   const view = mountReactView(root, h(View));
+  publishIndicator();
   const selectionSub = subscribeUiSelection(selection => {
     if (!session) context.guard(() => syncTargetsFromWorkbench({ gameId: selection.gameId, profileId: selection.profileId }))();
   });
@@ -417,5 +451,9 @@ export async function mountAgentPage(root: HTMLElement, context: UiContext): Pro
       if (active() && generation === loadGeneration && session?.sessionId === current) await render(next);
     } catch (cause) { if (active() && generation === loadGeneration) { error = describeError(cause); update(); } }
   }, 2000);
-  return { dispose() { persistPrompt(); persistConfig(); alive = false; ++loadGeneration; ++bindingsGeneration; selectionSub(); poll.dispose(); context.dirty(false); view.dispose(); } };
+  return { setOpen, dispose() {
+    persistPrompt(); persistConfig(); alive = false; ++loadGeneration; ++bindingsGeneration;
+    drawerOpen = false; waiting = false; unread = false; publishIndicator();
+    selectionSub(); poll.dispose(); context.dirty(false); view.dispose();
+  } };
 }

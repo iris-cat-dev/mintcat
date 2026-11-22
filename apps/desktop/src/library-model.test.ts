@@ -4,6 +4,8 @@ import type { ProfilesContentStateResult } from '@mintcat/sdk-ts';
 import {
   canEditProfileContent,
   compareModsForSort,
+  deploymentStatus,
+  deployJobProgress,
   extractGameVersionTags,
   groupDropTarget,
   matchesModFacets,
@@ -54,6 +56,51 @@ describe('download overlay model', () => {
     expect(canEditProfileContent(busyState)).toBe(false);
     expect(shouldRefreshLibrary(3, busyState)).toBe(true);
     expect(shouldRefreshLibrary(4, busyState)).toBe(false);
+  });
+});
+
+describe('deployment status', () => {
+  const profile = { profileId: 'p', incarnationId: 'p:1', gameId: 'game', name: 'A', displayName: 'A',
+    active: true, description: '', revision: 12, contentRevision: 1 };
+  const installation = { installationId: 'i', incarnationId: 'i:1', rootPath: '/game', state: 'registered' };
+  const content = { profileId: 'p', contentRevision: 4, writable: true, recoveryRequired: false, operations: [] };
+  const item = { receiptId: 'r', installationId: 'i', profileRevision: 11,
+    planHash: 'sha256:head', fileCount: 2, committedAtMs: 1 };
+  const deployedProfile = { profileId: 'p', profileIncarnationId: 'p:1', contentRevision: 4,
+    installationIncarnationId: 'i:1', variantId: 'steam' };
+  const receipts = { installationId: 'i', items: [item], deployedProfile };
+  const state = { installationId: 'i', installations: [installation], profileId: 'p', profiles: [profile],
+    variantId: 'steam', content, receipts };
+
+  it('only shows units from the current job event, never borrowing progress from a previous phase', () => {
+    const job = { jobId: 'apply', command: 'install.apply', generationId: 'g', lastSeq: 3, state: 'committing' as const, createdAt: '', updatedAt: '' };
+    const event = { jobId: job.jobId, generationId: 'g', seq: 3, phase: 'commit-started', state: job.state, completedUnits: 2, totalUnits: 8 };
+    expect(deployJobProgress(job, event)).toEqual({ label: '写入游戏目录', percent: 25 });
+    for (const difference of [{ seq: 2 }, { generationId: 'old' }, { totalUnits: 0 }, { completedUnits: undefined }, { completedUnits: 9 }]) {
+      expect(deployJobProgress(job, { ...event, ...difference })).toEqual({ label: '写入游戏目录' });
+    }
+    expect(deployJobProgress({ ...job, command: 'install.plan', state: 'awaiting-approval' }, event)).toEqual({ label: '等待人工批准' });
+  });
+
+  it('requires a receipt for the live content, even with a stale profile list or no enabled mods', () => {
+    expect(deploymentStatus(state)).toBe('applied');
+    expect(deploymentStatus({ ...state, content: { ...content, contentRevision: 5 } })).toBe('changed');
+    expect(deploymentStatus({ ...state, receipts: { installationId: 'i', items: [] } })).toBe('not-deployed');
+  });
+
+  it.each([
+    { profileId: 'other' }, { profileIncarnationId: 'restored' },
+    { installationIncarnationId: 'replaced' }, { variantId: 'other' },
+  ])('distinguishes deployment identity: %o', difference => {
+    expect(deploymentStatus({ ...state, receipts: { ...receipts,
+      deployedProfile: { ...deployedProfile, ...difference } } })).toBe('changed');
+  });
+
+  it('does not infer deployment while loading, during recovery, or from legacy receipts', () => {
+    expect(deploymentStatus({ ...state, receipts: undefined })).toBe('unknown');
+    expect(deploymentStatus({ ...state, content: { ...content, recoveryRequired: true } })).toBe('unknown');
+    expect(deploymentStatus({ ...state, receipts: { ...receipts, installationId: 'other' } })).toBe('unknown');
+    expect(deploymentStatus({ ...state, receipts: { installationId: 'i', items: [item] } })).toBe('unknown');
   });
 });
 
@@ -163,8 +210,11 @@ describe('parity helpers for metadata, facets, sorting, URLs and progress', () =
     };
     expect(modHasUpdate(baseMod)).toBe(true);
     expect(matchesModFacets(baseMod, {
-      status: 'disabled', sourceId: 'modio', approval: 'Verified', multiplayer: '全员必装', category: 'QoL',
+      status: 'disabled', sourceId: 'modio', approval: 'Verified', multiplayer: '全员必装', category: 'QoL', updatesOnly: true,
     }, new Set(), new Set(['pm-1']))).toBe(true);
+    expect(matchesModFacets(baseMod, {
+      status: 'disabled', sourceId: '', approval: '', multiplayer: '', category: '', updatesOnly: true,
+    }, new Set(), new Set())).toBe(false);
     expect(matchesModFacets(secondMod, {
       status: 'disabled', sourceId: '', approval: '', multiplayer: '', category: '',
     }, new Set(), new Set())).toBe(false);

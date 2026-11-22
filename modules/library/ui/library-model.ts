@@ -1,17 +1,20 @@
 import type {
   GroupSummary,
+  JobEvent,
+  JobSnapshot,
   ModSummary,
   DownloadOverlay,
   DownloadOverlayItem,
   ProfilesContentStateResult,
 } from '@mintcat/sdk-ts';
+import type { LibraryState } from './library';
 
 export interface ModDownloadOverlay {
   operation: DownloadOverlay;
   item: DownloadOverlayItem;
 }
 
-export type ModStatusFilter = 'all' | 'enabled' | 'disabled' | 'pending' | 'updatable';
+export type ModStatusFilter = 'all' | 'enabled' | 'disabled' | 'pending';
 export type ModSortMode =
   | 'name-asc'
   | 'name-desc'
@@ -26,6 +29,7 @@ export interface ModFacetFilters {
   approval: string;
   multiplayer: string;
   category: string;
+  updatesOnly?: boolean;
 }
 
 const MULTIPLAYER_TAGS = new Set(['RequiredByAll', 'RecommendedForAll', 'Optional']);
@@ -47,6 +51,54 @@ export function indexDownloadOverlays(
 
 export function canEditProfileContent(state: ProfilesContentStateResult | undefined): boolean {
   return state?.writable === true;
+}
+
+export type DeploymentStatus = 'unknown' | 'not-deployed' | 'changed' | 'applied';
+
+export function deploymentStatus(state: Pick<LibraryState,
+  'installationId' | 'installations' | 'profileId' | 'profiles' | 'variantId' | 'content' | 'receipts'
+>): DeploymentStatus {
+  const { content, receipts } = state;
+  const installation = state.installations.find(item => item.installationId === state.installationId);
+  const profile = state.profiles.find(item => item.profileId === state.profileId);
+  if (!installation || !profile || !state.variantId || content?.profileId !== profile.profileId
+    || content.recoveryRequired || receipts?.installationId !== installation.installationId) return 'unknown';
+  if (!receipts.items.length) return 'not-deployed';
+  const applied = receipts.deployedProfile;
+  if (!applied) return 'unknown'; // Older daemons only identify receipts by plan hash.
+  return applied.profileId === profile.profileId
+    && applied.profileIncarnationId === profile.incarnationId
+    && applied.installationIncarnationId === installation.incarnationId
+    && applied.variantId === state.variantId
+    && applied.contentRevision === content.contentRevision ? 'applied' : 'changed';
+}
+
+export interface DeployProgress { label: string; percent?: number }
+export type DeployTarget = Pick<LibraryState, 'gameId' | 'profileId' | 'installationId' | 'variantId'>;
+
+export function sameDeployTarget(a: DeployTarget, b: DeployTarget): boolean {
+  return a.gameId === b.gameId && a.profileId === b.profileId
+    && a.installationId === b.installationId && a.variantId === b.variantId;
+}
+
+export function deployJobProgress(job: JobSnapshot, event?: JobEvent): DeployProgress {
+  const planning = job.command === 'install.plan';
+  const labels: Record<JobSnapshot['state'], string> = {
+    queued: planning ? '计划排队中' : '部署排队中',
+    preparing: planning ? '准备安装计划' : '准备部署',
+    running: planning ? '生成安装计划' : '部署中',
+    'awaiting-approval': '等待人工批准', committing: '写入游戏目录',
+    cancelling: '正在取消', succeeded: planning ? '计划已批准' : '核对部署收据',
+    cancelled: '部署已取消', failed: '部署失败', 'recovery-required': '需要恢复',
+  };
+  const label = labels[job.state];
+  // Units belong to one event, not to the whole deployment or a previous stage.
+  if (!event || event.jobId !== job.jobId || event.generationId !== job.generationId
+    || event.state !== job.state || event.seq !== job.lastSeq) return { label };
+  const { completedUnits: done, totalUnits: total } = event;
+  if (done === undefined || total === undefined || !Number.isSafeInteger(done)
+    || !Number.isSafeInteger(total) || total <= 0 || done < 0 || done > total) return { label };
+  return { label, percent: Math.floor(100 * done / total) };
 }
 
 export function shouldRefreshLibrary(
@@ -209,7 +261,7 @@ export function matchesModFacets(
   if (facets.status === 'enabled' && !mod.enabled) return false;
   if (facets.status === 'disabled' && mod.enabled) return false;
   if (facets.status === 'pending' && !pendingIds.has(mod.profileModId)) return false;
-  if (facets.status === 'updatable' && !updatableIds.has(mod.profileModId)) return false;
+  if (facets.updatesOnly && !updatableIds.has(mod.profileModId)) return false;
   if (facets.sourceId && mod.mod.sourceId !== facets.sourceId) return false;
   const meta = modMetadataLabels(mod.tags, mod.approvalStatus);
   if (facets.approval) {

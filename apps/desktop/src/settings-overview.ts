@@ -26,26 +26,26 @@ interface ThemeOption {
   text: string;
 }
 
-const THEME_OPTIONS: readonly ThemeOption[] = [
+export const THEME_OPTIONS: readonly ThemeOption[] = [
   {
     id: 'Light',
-    name: '浅色玻璃',
-    desc: '通透清爽的浅灰紫毛玻璃',
-    windowBg: '#eef1f8',
-    sidebarBg: '#f6f8fd',
-    cardBg: '#ffffff',
-    accent: '#ec4899',
-    text: '#1e2433',
+    name: '矿纸白',
+    desc: '浅石灰底色，翡翠绿强调色',
+    windowBg: '#f4f6f2',
+    sidebarBg: '#ebeee7',
+    cardBg: '#fcfdf9',
+    accent: '#176b57',
+    text: '#192b29',
   },
   {
     id: 'Dark',
-    name: '深色夜幕',
-    desc: '低眩光深海蓝暗色工作台',
-    windowBg: '#141c2e',
-    sidebarBg: '#19233a',
-    cardBg: '#212f4c',
-    accent: '#f059a5',
-    text: '#edf2fc',
+    name: '石墨黑',
+    desc: '深石墨底色，浅玉绿强调色',
+    windowBg: '#17211e',
+    sidebarBg: '#121b18',
+    cardBg: '#202d28',
+    accent: '#7ac8a9',
+    text: '#e3ebe5',
   },
   {
     id: 'Pink',
@@ -59,13 +59,13 @@ const THEME_OPTIONS: readonly ThemeOption[] = [
   },
   {
     id: 'Blue',
-    name: '晴空冷萃',
-    desc: '利落理性的冷调晴蓝配色',
-    windowBg: '#ecf2fa',
-    sidebarBg: '#f2f7fe',
-    cardBg: '#ffffff',
-    accent: '#3b82f6',
-    text: '#1e293b',
+    name: '青金蓝',
+    desc: '浅雾蓝底色，青金蓝强调色',
+    windowBg: '#f2f5f6',
+    sidebarBg: '#e6ecef',
+    cardBg: '#fbfcfd',
+    accent: '#346883',
+    text: '#24333e',
   },
   {
     id: 'NightCity',
@@ -269,7 +269,7 @@ export function mountRuntimeSettings(
       if (!active()) return;
       proxyRevision = saved.revision;
       proxyMessage = proxyMode === 'manual' ? `已启用 HTTP 代理 ${trimmed}，所有在线请求立即生效。` : '已切换为直连模式，立即生效。';
-      context.notify(proxyMessage);
+      context.notify(proxyMessage, '网络代理设置已更新');
     } catch (cause) {
       if (!active()) return;
       const presented = presentUiError(cause);
@@ -295,7 +295,7 @@ export function mountRuntimeSettings(
       gcMessage = removedCount > 0
         ? `已安全清理 ${removedCount} 个未被引用的过期缓存/插件包。`
         : '当前所有缓存工件均被活跃配置、安装收据或回滚租约引用，无需清理。';
-      context.notify(gcMessage);
+      context.notify(gcMessage, removedCount ? `已清理 ${removedCount} 个过期缓存或插件包` : '缓存检查完成，无需清理');
     } catch (cause) {
       if (!active()) return;
       const presented = presentUiError(cause);

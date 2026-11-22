@@ -15,6 +15,7 @@ const header = document.createElement('header'); header.className = 'app-header'
 const sidebar = document.createElement('aside'); sidebar.className = 'app-sidebar-host';
 const brand = document.createElement('div'); brand.className = 'sidebar-brand-host';
 const navigation = document.createElement('div'); navigation.className = 'sidebar-navigation-host';
+navigation.id = 'mc-sidebar-navigation';
 sidebar.append(brand, navigation);
 const surface = document.createElement('main'); surface.className = 'app-workspace';
 const footer = document.createElement('footer'); footer.className = 'app-footer';
