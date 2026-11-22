@@ -28,8 +28,8 @@ use windows_sys::Win32::{
 };
 
 use super::{
-    read_json, serve_connection, write_json, ClientHello, IpcError, ServerHello, ServerReady,
-    HANDSHAKE_TIMEOUT, IPC_PROTOCOL_VERSION, MAX_FRAME_BYTES,
+    read_json, serve_connection, write_json, ClientHello, IdleExit, IpcError, ServerHello,
+    ServerReady, HANDSHAKE_TIMEOUT, IPC_PROTOCOL_VERSION, MAX_FRAME_BYTES,
 };
 
 pub struct IpcServer {
@@ -37,6 +37,7 @@ pub struct IpcServer {
     pipe_name: String,
     generation_id: String,
     _instance_lock: InstanceLock,
+    idle_exit: Option<IdleExit>,
 }
 
 pub struct IpcClient {
@@ -60,7 +61,18 @@ impl IpcServer {
             pipe_name,
             generation_id: Uuid::new_v4().to_string(),
             _instance_lock: instance_lock,
+            idle_exit: None,
         })
+    }
+
+    /// Retire after `grace` without IPC connections once `can_exit` permits it.
+    pub fn exit_when_idle(
+        mut self,
+        grace: Duration,
+        can_exit: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.idle_exit = Some(IdleExit::new(grace, can_exit));
+        self
     }
 
     pub fn ready(&self) -> ServerReady {
@@ -85,21 +97,33 @@ impl IpcServer {
         let active_requests = Arc::new(AtomicUsize::new(0));
         let mut connections = JoinSet::new();
         let mut listener = self.listener;
+        let mut idle_deadline = self.idle_exit.as_ref().map(IdleExit::deadline);
         tokio::pin!(shutdown);
 
         loop {
             tokio::select! {
                 biased;
                 () = &mut shutdown => break,
+                _ = connections.join_next(), if !connections.is_empty() => {
+                    if connections.is_empty() {
+                        idle_deadline = self.idle_exit.as_ref().map(IdleExit::deadline);
+                    }
+                }
                 connected = listener.connect() => {
                     connected?;
                     let stream = listener;
                     listener = create_pipe(&self.pipe_name, false)?;
-                    let peer_user_id = peer_process_id(&stream)?;
                     let handler = Arc::clone(&handler);
                     let active_requests = Arc::clone(&active_requests);
                     let generation_id = self.generation_id.clone();
                     connections.spawn(async move {
+                        let peer_user_id = match peer_process_id(&stream) {
+                            Ok(identity) => identity,
+                            Err(error) => {
+                                eprintln!("mintcatd peer authentication: {error}");
+                                return;
+                            }
+                        };
                         if let Err(error) = serve_connection(
                             stream,
                             &peer_user_id,
@@ -111,6 +135,11 @@ impl IpcServer {
                             eprintln!("mintcatd connection: {error}");
                         }
                     });
+                }
+                () = IdleExit::wait(idle_deadline), if connections.is_empty() && idle_deadline.is_some() => {
+                    if self.idle_exit.as_ref().is_some_and(|idle| idle.check(&mut idle_deadline)) {
+                        break;
+                    }
                 }
             }
         }

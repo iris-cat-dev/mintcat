@@ -38,10 +38,10 @@ afterEach(async () => {
   vi.useRealTimers(); vi.restoreAllMocks(); document.body.replaceChildren();
 });
 
-async function open() {
+async function open(setup?: ConstructorParameters<typeof Workbench>[6]) {
   const root = document.createElement('main'), toolbar = document.createElement('header'); document.body.append(toolbar, root);
   const rescue = vi.fn();
-  await React.act(async () => { workbench = new Workbench(root, '/isolated-test', rescue, undefined, undefined, toolbar); await workbench.refresh(); });
+  await React.act(async () => { workbench = new Workbench(root, '/isolated-test', rescue, undefined, undefined, toolbar, setup); await workbench.refresh(); });
   return { root, toolbar, rescue };
 }
 function emptyBackend() {
@@ -103,6 +103,38 @@ describe('bundled workbench pages', () => {
     expect(vi.getTimerCount()).toBe(0);
     expect(vi.mocked(requestApplication).mock.calls).toHaveLength(requests);
     expect(vi.mocked(requestApplication).mock.calls.some(([, method]) => method === 'jobs.cancel')).toBe(false);
+  });
+  it('opens setup separately for a fresh data directory and does not reopen after skipping', async () => {
+    vi.mocked(requestApplication).mockImplementation(async (_directory, method) => {
+      if (method === 'modules.list') return { generationId: 'games', modules: [{ moduleId: 'mintcat.game.drg', enabled: true,
+        game: { gameId: 'game:drg', displayName: 'DRG', descriptor: { variants: [{ variantId: 'steam', displayName: 'Steam' }] } } }] };
+      if (method === 'games.list') return { items: [] };
+      throw new Error(`Unexpected setup request ${method}`);
+    });
+    const openGuide = vi.fn().mockResolvedValue(undefined);
+    const first = await open({ mode: 'main', open: openGuide });
+    expect(openGuide).toHaveBeenCalledTimes(1);
+    expect(location.hash).toBe('#/mintcat.library/library');
+    expect(first.root.querySelector('[aria-label="旧版 SQLite 路径"]')).toBeNull();
+    const guideRoot = document.createElement('main');
+    document.body.append(guideRoot);
+    const close = vi.fn().mockResolvedValue(undefined);
+    const guide = new Workbench(guideRoot, '/isolated-test', first.rescue, undefined, undefined, undefined, { mode: 'guide', close });
+    try {
+      await React.act(async () => { await guide.refresh(); });
+      expect(guideRoot.querySelector('[aria-label="旧版 SQLite 路径"]')).not.toBeNull();
+      expect(guideRoot.querySelector('[aria-label="工作台导航"]')).toBeNull();
+      const skip = [...guideRoot.querySelectorAll('button')].find(button => button.textContent === '跳过引导')!;
+      await React.act(async () => { skip.click(); });
+      expect(close).toHaveBeenCalledTimes(1);
+    } finally {
+      await React.act(async () => { guide.dispose(); });
+    }
+    await React.act(async () => { workbench!.dispose(); });
+    history.replaceState(null, '', '/');
+    const second = await open({ mode: 'main', open: openGuide });
+    expect(second.root.querySelector('[aria-label="旧版 SQLite 路径"]')).toBeNull();
+    expect(openGuide).toHaveBeenCalledTimes(1);
   });
   it.each(['reply', 'failed', 'cancelled'])('tracks a real Agent turn across drawer close and navigation: %s', async outcome => {
     const storage = new SessionStore(localStorage, `mintcat.workbench.session.v1/${encodeURIComponent('/isolated-test')}`);
@@ -222,7 +254,7 @@ describe('bundled workbench pages', () => {
         case 'modules.list': return { generationId: 'games', modules: [{ moduleId: 'mintcat.game.drg', enabled: true,
           game: { gameId, displayName: 'DRG', descriptor: { variants: [{ variantId, displayName: 'Steam', storeAppId: '548430' }], sourceBindings: [] } } }] };
         case 'games.list': return { items: [{ gameId, displayName: 'DRG', gameKey: 'drg', active: true,
-          installations: [{ installationId, incarnationId: 'i:1', state: 'registered', rootPath: '/fixture' }] }] };
+          installations: [{ installationId, incarnationId: 'i:1', state: 'configured', rootPath: '/fixture' }] }] };
         case 'profiles.list': return { items: profiles };
         case 'mods.list': case 'groups.list': return { profileId, contentRevision: 1, items: [], total: 0 };
         case 'profiles.contentState': return { profileId, contentRevision: 1, writable: true, operations: [], recoveryRequired: false };
@@ -279,6 +311,171 @@ describe('bundled workbench pages', () => {
       await React.act(async () => { await workbench!.navigate('/mintcat.library/game-directories'); await workbench!.navigate('/mintcat.library/library'); });
       expect(button().textContent).toContain('启动游戏');
       expect(button().classList.contains('library-deploy-sweep')).toBe(false);
+    }
+  });
+  it.each([
+    'downloaded', 'legacy-reuse', 'legacy-partial', 'failed', 'cancelled', 'manual-action',
+    'concurrent-edit', 'local-and-unsupported', 'still-missing', 'switched',
+  ])('checks cached inputs before asking to deploy a configuration: %s', async outcome => {
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] });
+    const gameId = 'game:drg', installationId = 'i', variantId = 'steam', planHash = 'sha256:plan-cache';
+    const mods: ModSummary[] = [];
+    const addMod = (id: string, sourceId: string, enabled = true): void => {
+      mods.push({ profileModId: id, incarnationId: id, modId: id, displayName: id, enabled,
+        mod: { sourceId, remoteGameKey: 'drg', remoteModId: id }, tags: [], approvalStatus: '',
+        entityRevision: 1, sortOrder: mods.length, versionSelection: { kind: 'pinned', versionId: `version:${id}` } });
+    };
+    addMod('已缓存', 'modio');
+    addMod('未启用', 'modio', false);
+    if (outcome !== 'legacy-reuse') addMod('在线模组', 'nexusmods');
+    if (outcome.startsWith('legacy-')) addMod('旧版模组', 'modio');
+    if (outcome === 'local-and-unsupported') {
+      addMod('本地模组', 'local');
+      addMod('不支持的模组', 'modcat');
+    }
+    const session = new SessionStore(localStorage, `mintcat.workbench.session.v1/${encodeURIComponent('/isolated-test')}`);
+    // The missing online mod is not in the visible list. Detecting inputs must not depend on the search filter.
+    session.set('mintcat.library/library', 1, { gameId, profileId: 'p', query: '已缓存', jobs: [] });
+    let contentRevision = 3, restored = false, cached = false, approved = false, installed = false;
+    let downloadState = 'queued', downloadRevision: number | undefined;
+    const detectedRevisions: number[] = [];
+    const calls = vi.mocked(requestApplication);
+    calls.mockImplementation(async (_dir, method, params) => {
+      const profileId = 'profileId' in params ? params.profileId : 'p';
+      const liveRevision = profileId === 'p' ? contentRevision : 1;
+      switch (method) {
+        case 'modules.list': return { generationId: 'games', modules: [{ moduleId: 'mintcat.game.drg', enabled: true,
+          game: { gameId, displayName: 'DRG', descriptor: { variants: [{ variantId, displayName: 'Steam', storeAppId: '548430' }], sourceBindings: [] } } }] };
+        case 'games.list': return { items: [{ gameId, displayName: 'DRG', gameKey: 'drg', active: true,
+          installations: [{ installationId, incarnationId: 'i:1', state: 'configured', rootPath: '/fixture' }] }] };
+        case 'profiles.list': return { items: ['p', 'q'].map(id => ({ profileId: id, gameId, name: id, displayName: id,
+          active: id === 'p', revision: 1, contentRevision: id === 'p' ? contentRevision : 1, incarnationId: id, description: '' })) };
+        case 'mods.list': {
+          const items = profileId === 'p' ? mods.filter(mod => !('query' in params) || params.query === mod.displayName) : [];
+          // A post-restore renderer refresh may still see the unadvanced list.
+          const listRevision = outcome === 'legacy-reuse' && restored && !approved ? liveRevision - 1 : liveRevision;
+          return { profileId, contentRevision: listRevision, items, total: items.length };
+        }
+        case 'groups.list': return { profileId,
+          contentRevision: outcome === 'legacy-reuse' && restored && !approved ? liveRevision - 1 : liveRevision, items: [] };
+        case 'profiles.contentState': return { profileId, contentRevision: liveRevision, operations: [], recoveryRequired: false,
+          writable: profileId !== 'p' || (downloadState !== 'running' && downloadState !== 'awaiting-approval') || cached };
+        case 'install.receipts': return installed ? { installationId,
+          items: [{ receiptId: 'r', installationId, planHash, fileCount: 1, profileRevision: 1, committedAtMs: 1 }],
+          deployedProfile: { profileId: 'p', profileIncarnationId: 'p', contentRevision, installationIncarnationId: 'i:1', variantId } } : { installationId, items: [] };
+        case 'install.detectInputs':
+          detectedRevisions.push(liveRevision);
+          return { profileId, items: mods.filter(mod => mod.enabled).map(mod => {
+            const id = mod.profileModId;
+            const verified = id === '已缓存' || id === '不支持的模组' || (id === '旧版模组' ? restored : id === '在线模组' && cached);
+            return { profileModId: id, sourceId: mod.mod.sourceId, legacyCacheAvailable: id === '旧版模组' && !restored,
+              verified, format: verified && id !== '不支持的模组' ? (id === '在线模组' ? 'zip' : 'pak') : undefined, audioOnlyHint: false };
+          }) };
+        case 'install.restoreLegacyCache':
+          expect(params).toEqual({ profileId: 'p', expectedContentRevision: 3 });
+          restored = true; contentRevision++;
+          return { restoredCount: 1, contentRevision };
+        case 'mods.updateBatch':
+          expect(params).toEqual({ profileId: 'p', profileModIds: ['在线模组'], expectedContentRevision: contentRevision,
+            mode: 'prepare-and-apply', versionPolicy: 'selected' });
+          downloadState = 'running';
+          return { jobId: 'download-job' };
+        case 'settings.get': return { values: {}, revision: 1 };
+        case 'install.plan':
+          expect(params).toEqual({ profileId: 'p', revision: 1, contentRevision, gameId, installationId,
+            options: { variantId, settingsRevision: 1, settings: {}, inputMetadata: mods.filter(mod => mod.enabled).map(mod => ({
+              profileModId: mod.profileModId, format: mod.profileModId === '在线模组' ? 'zip' : 'pak', audioOnlyHint: false,
+            })) } });
+          return { jobId: 'plan-job' };
+        case 'actions.get': return 'actionId' in params && params.actionId === 'provider' ?
+          { actionId: 'provider', revision: 1, kind: 'browser-download', state: 'pending', target: { authorizationUrl: 'https://example.test/download' } } :
+          { actionId: 'human', revision: 1, kind: 'install-approval', state: 'pending', operationId: 'plan', planHash };
+        case 'actions.approve': approved = true; return {};
+        case 'install.apply':
+          expect(approved).toBe(true); expect(params).toEqual({ approvalRef: 'human', planHash, planId: 'plan' });
+          installed = true;
+          return { jobId: 'apply-job' };
+        case 'jobs.watch': {
+          const jobId = 'jobId' in params ? params.jobId : undefined;
+          const downloading = jobId === 'download-job', planning = jobId === 'plan-job';
+          const command = downloading ? 'library.download.apply' : planning ? 'install.plan' : 'install.apply';
+          const state = downloading ? downloadState : planning && !approved ? 'awaiting-approval' : 'succeeded';
+          const seq = downloading ? (state === 'running' ? 1 : 2) : planning && approved ? 2 : 1;
+          const result = downloading ? (state === 'succeeded' ? { applied: true, contentRevision: downloadRevision } : undefined) :
+            planning ? { planId: 'plan', planHash } : { disposition: 'committed', planHash };
+          const details = state === 'awaiting-approval' ? { actionId: downloading ? 'provider' : 'human' } : undefined;
+          return { snapshot: { jobId, command, state, generationId: 'g', lastSeq: seq, result },
+            events: 'afterSeq' in params && params.afterSeq === seq ? [] : [{ jobId, seq, generationId: 'g', state, details, completedUnits: 1, totalUnits: 4 }],
+            nextAfterSeq: seq };
+        }
+        default: throw new Error(`Unexpected cache preflight request ${method}`);
+      }
+    });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const { root, toolbar } = await open();
+    const button = () => toolbar.querySelector<HTMLButtonElement>('.library-install-button')!;
+    const count = (command: string) => calls.mock.calls.filter(([, method]) => method === command).length;
+    await React.act(async () => { button().click(); });
+    if (outcome === 'legacy-reuse') {
+      expect(detectedRevisions).toEqual([3, 4]);
+      expect(count('mods.updateBatch')).toBe(0);
+    } else {
+      expect(button().textContent).toContain('下载缺失模组 25%');
+      expect(button().disabled).toBe(true);
+      expect(count('install.plan')).toBe(0);
+      expect(confirm).not.toHaveBeenCalled();
+      if (outcome === 'switched') {
+        await React.act(async () => { toolbar.querySelector('.library-profile-select input')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+        await React.act(async () => { [...document.querySelectorAll<HTMLElement>('.ant-select-item-option-content')].find(option => option.textContent === 'q')!.click(); });
+        expect(toolbar.textContent).toContain('q');
+      }
+      if (outcome !== 'failed' && outcome !== 'cancelled' && outcome !== 'manual-action') {
+        downloadRevision = ++contentRevision;
+        if (outcome === 'concurrent-edit') contentRevision++;
+        cached = true;
+        // The profile poll may see the commit while the job still reports running. Neither is enough alone.
+        const oldLists = count('mods.list');
+        // Flush React between chunks, as it would render between real progress events.
+        const ticks = outcome === 'downloaded' ? 81 : 1;
+        for (let tick = 0; tick < ticks; tick++) {
+          await React.act(async () => { await vi.advanceTimersByTimeAsync(750); });
+        }
+        if (outcome !== 'switched') expect(count('mods.list')).toBeGreaterThan(oldLists);
+        expect(count('install.plan')).toBe(0);
+        if (outcome !== 'switched') expect(button().textContent).toContain('下载缺失模组 25%');
+        if (outcome === 'still-missing') cached = false;
+      }
+      downloadState = outcome === 'failed' || outcome === 'cancelled' ? outcome :
+        outcome === 'manual-action' ? 'awaiting-approval' : 'succeeded';
+      await React.act(async () => { await vi.advanceTimersByTimeAsync(250); });
+      expect(count('mods.updateBatch')).toBe(1);
+    }
+    expect(count('install.restoreLegacyCache')).toBe(outcome.startsWith('legacy-') ? 1 : 0);
+    if (outcome === 'downloaded' || outcome === 'legacy-reuse' || outcome === 'legacy-partial') {
+      expect(detectedRevisions).toEqual(outcome === 'legacy-partial' ? [3, 4, 5] : [3, 4]);
+      expect(installed).toBe(true);
+      expect(confirm).toHaveBeenCalledWith(expect.stringContaining('确认将配置“p”应用到游戏目录'));
+      expect(button().textContent).toContain('启动游戏');
+      return;
+    }
+    expect(count('install.plan')).toBe(0);
+    expect(count('actions.approve')).toBe(0);
+    expect(count('install.apply')).toBe(0);
+    expect(confirm).not.toHaveBeenCalled();
+    if (outcome === 'local-and-unsupported') {
+      expect(root.textContent).toContain('请重新导入本地文件');
+      expect(root.textContent).toContain('格式无法识别');
+    }
+    if (outcome === 'still-missing') expect(root.textContent).toContain('仍缺少可用的下载缓存');
+    if (outcome === 'concurrent-edit') expect(root.textContent).toContain('已变化');
+    if (outcome === 'cancelled') expect(root.textContent).toContain('下载已取消');
+    if (outcome === 'switched') expect(button().disabled).toBe(false);
+    if (outcome === 'failed' || outcome === 'manual-action') {
+      expect(root.textContent).toContain(outcome === 'failed' ? '下载失败，未应用配置' : '下载需要手动操作');
+      await React.act(async () => { await workbench!.navigate('/mintcat.library/downloads'); });
+      expect(root.querySelector('.library-task-list')?.textContent).toContain('下载模组到本地缓存');
+      expect(root.querySelector('.library-task-list')?.textContent).toContain(outcome === 'failed' ? '失败' : '打开来源下载页面');
     }
   });
   it('routes both games into the shared renderer with independent drafts and unchanged request revisions', async () => {
@@ -438,6 +635,62 @@ describe('bundled workbench pages', () => {
     expect(vi.mocked(requestApplication).mock.calls.some(([, method]) => method === 'jobs.cancel')).toBe(false);
     expect(vi.getTimerCount()).toBe(0);
   });
+  it('explains a legacy import refusal and reports success only after separate approval and completion', async () => {
+    let refuse = true, approved = false;
+    const action = { actionId: 'legacy-approval', revision: 7, kind: 'backup-owner-import', state: 'pending',
+      target: { method: 'library.import-legacy', ownerId: 'mintcat.library' } };
+    const job = { jobId: 'legacy-job', command: 'library.import-legacy', generationId: 'builtins',
+      createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' };
+    const calls = vi.mocked(requestApplication);
+    calls.mockImplementation(async (_directory, method, params) => {
+      const snapshot = { ...job, state: approved ? 'succeeded' : 'awaiting-approval', lastSeq: approved ? 2 : 1 };
+      switch (method) {
+        case 'modules.list': return { generationId: 'builtins', modules: [] };
+        case 'games.list': return { items: [] };
+        case 'backup.cloud.list': return [];
+        case 'library.import-legacy':
+          if (refuse) throw Object.assign(new Error('library.not_empty'), { appError: { code: 'CONFLICT', messageKey: 'library.not_empty' } });
+          return { jobId: job.jobId };
+        case 'jobs.get': return snapshot;
+        case 'jobs.watch': return { snapshot, events: approved ? [] : [{ seq: 1, details: { actionId: action.actionId } }],
+          nextAfterSeq: snapshot.lastSeq, retentionStartSeq: 1, resetRequired: false };
+        case 'actions.get': return action;
+        case 'actions.approve':
+          expect(params).toEqual({ actionId: action.actionId, expectedRevision: action.revision, response: { approved: true, importCredentials: true } });
+          approved = true; return {};
+        default: throw new Error(`Unexpected request ${method}`);
+      }
+    });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const { root } = await open();
+    await React.act(async () => { await workbench!.navigate('/mintcat.feature.backup/backups'); });
+    await React.act(async () => { root.querySelector<HTMLElement>('.mintcat-backup-advanced-label')!.click(); });
+    await React.act(async () => {
+      const input = root.querySelector<HTMLInputElement>('input[aria-label="旧版 SQLite 路径"]')!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'C:\\legacy\\mintcat.sqlite');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const migrate = [...root.querySelectorAll('button')].find(button => button.textContent === '迁移旧版数据')!;
+    await React.act(async () => { migrate.click(); });
+    expect(root.querySelector('.mintcat-backup-feedback[role="alert"]')).not.toBeNull();
+    expect(calls.mock.calls.some(([, method]) => method === 'jobs.get')).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+
+    refuse = false;
+    await React.act(async () => { migrate.click(); });
+    expect(root.querySelector('.mintcat-backup-feedback[role="alert"]')).toBeNull();
+    expect(root.querySelector('.mintcat-backup-page .ant-alert-success')).toBeNull();
+    const approve = [...root.querySelectorAll('button')].find(button => button.textContent === '批准已审阅的冻结导入')!;
+    const credentials = root.querySelector<HTMLInputElement>('.mintcat-backup-page input[type="checkbox"]')!;
+    expect(credentials.checked).toBe(false);
+    await React.act(async () => { approve.click(); });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(calls.mock.calls.filter(([, method]) => method === 'actions.approve')).toHaveLength(0);
+    await React.act(async () => { credentials.click(); });
+    await React.act(async () => { approve.click(); });
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(root.querySelector('.mintcat-backup-page .ant-alert-success')).not.toBeNull();
+  });
   it('manages remote source credentials from runtime settings without editing config files', async () => {
     let modioConfigured = false;
     vi.mocked(requestApplication).mockImplementation(async (_directory, method, params, key) => {
@@ -481,11 +734,11 @@ describe('bundled workbench pages', () => {
     expect(root.textContent).toContain('未配置凭据');
     expect(rescue).not.toHaveBeenCalled();
   });
-  it('clears transient info notices on page navigation and auto-loads cached search results when reopening online mods', async () => {
+  it.each([true, false])('keeps accepted online adds in Downloads across navigation (child scheduled: %s)', async scheduled => {
     let searchCalls = 0;
     const game = { gameId: 'game:drg', gameKey: 'drg', displayName: 'Deep Rock Galactic', active: true, installations: [] };
     const profile: ProfileSummary = { profileId: 'profile-1', gameId: game.gameId, name: 'new', displayName: 'new', active: true, description: '', revision: 1, contentRevision: 1, incarnationId: 'inc-1' };
-    vi.mocked(requestApplication).mockImplementation(async (_directory, method) => {
+    vi.mocked(requestApplication).mockImplementation(async (_directory, method, params) => {
       if (method === 'modules.list') return { generationId: 'drg-gen', modules: [{ moduleId: 'mintcat.game.drg', enabled: true, game: { gameId: game.gameId, displayName: game.displayName, descriptor: { gameId: game.gameId, displayName: game.displayName, settingsSchemaVersion: 1, settingsSchema: { type: 'object', properties: {} }, variants: [], sourceBindings: [{ sourceId: 'modio', remoteGameKey: 'drg' }] } } }] };
       if (method === 'games.list') return { items: [game] };
       if (method === 'profiles.list') return { items: [profile] };
@@ -498,6 +751,17 @@ describe('bundled workbench pages', () => {
         return { items: [{ reference: { sourceId: 'modio', remoteGameKey: 'drg', remoteModId: '100' }, displayName: '热门 DRG 模组' }] };
       }
       if (method === 'mods.add') return { jobId: 'job-add-1' };
+      if (method === 'jobs.watch' && 'jobId' in params) {
+        const jobId = params.jobId;
+        const command = jobId === 'job-add-1' ? 'mods.add' : 'library.download.apply';
+        const result = command === 'mods.add'
+          ? scheduled ? { downloadJobId: 'job-download-1' } : { downloadErrorCode: 'DOWNLOAD_QUEUE_FAILED' }
+          : {};
+        return {
+          snapshot: { jobId, command, state: 'succeeded', result, lastSeq: 1 },
+          events: [], nextAfterSeq: 1, retentionStartSeq: 1, resetRequired: false,
+        };
+      }
       throw new Error(`Unexpected request ${method}`);
     });
     const { root, rescue } = await open();
@@ -511,19 +775,33 @@ describe('bundled workbench pages', () => {
       [...root.querySelectorAll('button')].find(button => button.textContent === '添加')!.click();
     });
     await React.act(async () => {
+      expect(document.body.textContent).toContain('不会自动部署到游戏');
       [...document.querySelectorAll('.ant-modal')].find(modal => modal.textContent?.includes('添加模组到配置'))!
         .querySelector<HTMLButtonElement>('.ant-btn-primary')!.click();
     });
-    expect(root.querySelector('.module-notice')?.textContent).toContain('已加入下载队列');
+    expect(root.querySelector('.module-notice')?.textContent).toContain('已提交模组添加任务');
 
     // Navigating away and back clears the stale banner and immediately restores cached catalog items.
-    await React.act(async () => { await workbench!.navigate('/mintcat.library/library'); });
+    await React.act(async () => { await workbench!.navigate('/mintcat.library/downloads'); });
     expect(root.querySelector('.module-notice')?.textContent).toBe('');
+    expect(root.querySelector('.library-task-list')?.textContent).toContain('添加在线模组');
+    if (scheduled) {
+      const child = [...root.querySelectorAll('.library-task-card')].find(card => card.textContent?.includes('下载模组到本地缓存'))!;
+      expect(child).toBeDefined();
+      expect(child.textContent).toContain('job-download-1');
+      await React.act(async () => { child.querySelector<HTMLButtonElement>('button')!.click(); });
+    } else {
+      expect(root.textContent).toContain('模组已添加，但未能启动缓存下载');
+      expect(root.textContent).toContain('DOWNLOAD_QUEUE_FAILED');
+    }
     await React.act(async () => { await workbench!.navigate('/mintcat.ui.search/search'); });
     expect(root.querySelector('.module-notice')?.textContent).toBe('');
     expect(searchCalls).toBe(1);
     expect(root.textContent).toContain('热门 DRG 模组');
     expect(root.textContent).not.toContain('探索在线模组库');
+    await React.act(async () => { await workbench!.navigate('/mintcat.library/downloads'); });
+    expect(root.textContent).toContain('添加在线模组');
+    expect(root.textContent).not.toContain('下载模组到本地缓存');
     expect(rescue).not.toHaveBeenCalled();
   });
   it.each([true, false])('routes native file drops through approval and highlights only a committed insert: %s', async inserted => {
@@ -567,6 +845,7 @@ describe('bundled workbench pages', () => {
     });
     const position = new PhysicalPosition(40, 72);
     try {
+      history.replaceState(null, '', '#/mintcat.library/library');
       const { root } = await open();
       const area = root.querySelector('.library-table-area')!;
       Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => area });

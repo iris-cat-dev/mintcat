@@ -11,7 +11,6 @@ interface ActivePageDetail {
   route: string;
   title: string;
   placement: 'sidebar' | 'titlebar' | 'settings';
-  settingsTabs?: Array<{ route: string; title: string; icon: string }>;
 }
 
 export function mountChrome(header: HTMLElement, footer: HTMLElement, brandRoot: HTMLElement, openRescue: () => void, native: boolean): Disposable {
@@ -98,22 +97,6 @@ export function mountChrome(header: HTMLElement, footer: HTMLElement, brandRoot:
             h('div', { className: 'chrome-context-breadcrumb' },
               h('span', { className: 'chrome-context-badge' }, h(Icons.SettingOutlined)),
               h('span', { className: 'chrome-context-root' }, '设置')),
-            h('div', { className: 'chrome-settings-pills', role: 'tablist', 'aria-label': '设置分类' },
-              ...(activePage?.settingsTabs ?? []).map(tab => {
-                const selected = tab.route === activePage?.route;
-                const TabIcon = tab.icon === 'settings' ? Icons.BgColorsOutlined
-                  : tab.icon === 'cloud' ? Icons.CloudSyncOutlined
-                  : tab.icon === 'proxy' ? Icons.ApiOutlined
-                  : Icons.ControlOutlined;
-                return h('button', {
-                  key: tab.route,
-                  type: 'button',
-                  role: 'tab',
-                  'aria-selected': selected,
-                  className: `chrome-settings-pill${selected ? ' chrome-settings-pill--active' : ''}`,
-                  onClick: () => { window.location.hash = `#${tab.route}`; },
-                }, h(TabIcon), h('span', null, tab.title));
-              })),
             h('span', { className: 'chrome-context-spacer', 'data-tauri-drag-region': true }),
             h(Antd.Button, { className: 'chrome-back-btn', icon: h(Icons.ArrowLeftOutlined), disabled: !available('home'), onClick: () => navigateUi('home') }, '返回模组管理'))
           : isInstall

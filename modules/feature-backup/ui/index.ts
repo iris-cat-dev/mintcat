@@ -1,7 +1,7 @@
 import type { ActionRequired, JobRef, JobSnapshot } from '@mintcat/sdk-ts';
 import { getSharedRuntime, mountReactView, presentUiError } from '@mintcat/sdk-ui';
 import type { Disposable, Json, UiContext } from '@mintcat/sdk-ui';
-import { BackupView } from './view';
+import { BackupView, isLegacyImportAction, legacyImportScope, portableRestoreScope } from './view';
 import type { BackupModel, PendingRequest, TaskView, TrackedTask } from './view';
 
 type MutationParams = {
@@ -19,8 +19,14 @@ const mutationMethods: Record<keyof MutationParams, true> = {
   'library.import-legacy': true, 'library.config-import': true,
 };
 
+const libraryNotEmptyMessage = '当前模组库不符合导入条件：不会覆盖已有配置档案（Profile）或其他库数据。请在独立的空模组库中重试。如果来源是便携 .json 归档，请使用「恢复归档」，该流程也要求目标为空。';
+function isLibraryNotEmpty(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'messageKey' in error && error.messageKey === 'library.not_empty';
+}
+
 /** The React surface observes durable daemon jobs; unmounting never cancels them. */
-export async function mountBackupPage(root: HTMLElement, context: UiContext): Promise<Disposable> {
+export async function mountBackupPage(root: HTMLElement, context: UiContext, guide?: { legacyPath?: string }): Promise<Disposable> {
+  const guided = guide !== undefined;
   let alive = true;
   let pollPending = false;
   let refreshGeneration = 0;
@@ -37,7 +43,7 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext): Pr
   const saved = context.state('paths', 1, { output: '', source: '', note: '', legacySource: '', configSource: '', configFormat: 'backup' });
   const fields = {
     output: saved.output ?? '', source: saved.source ?? '', note: saved.note ?? '',
-    legacySource: saved.legacySource ?? '', configSource: saved.configSource ?? '',
+    legacySource: saved.legacySource || guide?.legacyPath || '', configSource: saved.configSource ?? '',
     configFormat: saved.configFormat === 'legacy-sqlite' ? 'legacy-sqlite' as const : 'backup' as const,
   };
   const tasks = context.state('tasks', 1, {
@@ -47,10 +53,12 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext): Pr
   const persistFields = (): void => {
     if (!active()) return;
     context.saveState('paths', 1, fields);
-    context.dirty(fields.note.trim().length > 0);
+    context.dirty(!guided && fields.note.trim().length > 0);
   };
   const describeError = (error: unknown): string => {
+    if (isLibraryNotEmpty(error)) return libraryNotEmptyMessage;
     if (typeof error === 'object' && error !== null && 'appError' in error) {
+      if (isLibraryNotEmpty(error.appError)) return libraryNotEmptyMessage;
       const failure = presentUiError(error);
       return `${failure.title}：${failure.description}`;
     }
@@ -133,13 +141,15 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext): Pr
       await poll(); throw new Error('批准对象已发生变化或不再等待批准，请重新审阅当前后台操作。');
     }
     if (current.kind !== 'backup-owner-import' || task.actionId !== current.actionId) throw new Error('该操作不是刚刚审阅的备份导入。');
-    if (!window.confirm(`是否独立批准将此冻结快照导入当前空的 Library？\n导入旧版凭据：${importCredentials ? '是（已明确勾选）' : '否'}\n\n${JSON.stringify(current, null, 2)}`)) return;
+    const legacy = isLegacyImportAction(current);
+    const credentialChoice = legacy ? `\n导入旧版凭据：${importCredentials ? '是（已明确勾选）' : '否'}` : '';
+    if (!window.confirm(`是否独立批准本次冻结导入？\n${legacy ? legacyImportScope : portableRestoreScope}${credentialChoice}\n\n${JSON.stringify(current, null, 2)}`)) return;
     if (!active() || generation !== pageGeneration) return;
     await context.call('actions.approve', {
-      actionId: current.actionId, expectedRevision: current.revision, response: { approved: true, importCredentials },
+      actionId: current.actionId, expectedRevision: current.revision, response: { approved: true, importCredentials: legacy && importCredentials },
     }, crypto.randomUUID());
     if (!active() || generation !== pageGeneration) return;
-    model.status = `已提交任务 ${task.jobId} 的批准；后台任务尚不一定完成。`; changed();
+    model.status = `已提交任务 ${task.jobId} 的批准。请在下方查看任务结果。`; changed();
     await poll();
   };
   const viewFor = (task: TrackedTask): TaskView => {
@@ -168,7 +178,9 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext): Pr
             afterSeq = result.nextAfterSeq;
           }
           const previous = view.snapshot;
-          view.afterSeq = afterSeq; view.snapshot = snapshot; view.events.push(...events); view.error = '';
+          const refused = isLibraryNotEmpty(snapshot.error);
+          view.afterSeq = afterSeq; view.snapshot = snapshot; view.events.push(...events); view.error = refused ? libraryNotEmptyMessage : '';
+          if (refused && !isLibraryNotEmpty(previous?.error)) model.expandedJobs.add(task.jobId);
           if (snapshot.state === 'awaiting-approval' && task.actionId) {
             const action = await context.call('actions.get', { actionId: task.actionId });
             if (!active() || generation !== pageGeneration) return;
@@ -233,15 +245,16 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext): Pr
     },
   };
   const { React } = getSharedRuntime();
-  const mounted = mountReactView(root, React.createElement(BackupView, { model }));
+  const mounted = mountReactView(root, React.createElement(BackupView, { model, guided, detectedLegacyPath: guide?.legacyPath }));
   persistFields();
   const timer = context.interval(poll, 1_000);
   const inventorySubscription = context.onInventoryChanged(async () => {
     if (!active()) return;
     ++pageGeneration;
-    context.invalidate('cloud-history'); await Promise.all([refresh(), poll()]);
+    if (!guided) context.invalidate('cloud-history');
+    await Promise.all([guided ? undefined : refresh(), poll()]);
   });
-  context.guard(async () => { await Promise.all([refresh(), poll()]); })();
+  context.guard(async () => { await Promise.all([guided ? undefined : refresh(), poll()]); })();
   return {
     dispose() {
       if (!alive) return;

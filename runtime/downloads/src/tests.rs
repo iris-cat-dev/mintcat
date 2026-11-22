@@ -727,6 +727,41 @@ async fn prepare_and_apply_updates_selection_binding_and_job_atomically() {
 }
 
 #[tokio::test]
+async fn re_downloads_the_same_verified_bytes_when_a_cached_blob_was_deleted() {
+    let fixture = fixture();
+    let body = b"replace missing selected version";
+    let (base, server) = scripted_server(vec![ScriptedResponse::ok(body), ScriptedResponse::ok(body)]).await;
+    install_provider(&fixture, FixtureProvider::direct(HashMap::from([
+        ("mod-1".to_owned(), descriptor(&base, "mod-1", body.len())),
+    ])));
+    for (index, key) in ["first", "repair"].into_iter().enumerate() {
+        let started = start_version(&fixture, "profile-a", "pm-a-1", DownloadMode::PrepareAndApply, key);
+        let job_id = register_job(&fixture, &started.operation);
+        let outcome = fixture.coordinator.execute(&job_id, &started.operation.operation_id, None).await.unwrap();
+        let DownloadExecutionResult::Succeeded { result } = outcome else {
+            panic!("download did not restore the profile binding");
+        };
+        assert_eq!(result.artifact_digests, vec![digest(body)]);
+        let grant = fixture.artifacts.grant_blob(&mintcat_sdk::ArtifactRef {
+            digest: digest(body), size: body.len() as u64, verified: true, media_type: None,
+        }).unwrap();
+        let path = std::path::PathBuf::from(&grant.descriptor.path);
+        drop(grant);
+        assert_eq!(fs::read(&path).unwrap(), body);
+        if index == 0 {
+            #[cfg(windows)]
+            {
+                let mut permissions = fs::metadata(&path).unwrap().permissions();
+                permissions.set_readonly(false);
+                fs::set_permissions(&path, permissions).unwrap();
+            }
+            fs::remove_file(path).unwrap();
+        }
+    }
+    assert_eq!(server.await.unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn cache_only_survives_profile_deletion_without_changing_bindings() {
     let fixture = fixture();
     let body = b"cache-only-version";

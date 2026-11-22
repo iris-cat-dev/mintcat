@@ -320,6 +320,40 @@ pub struct LibrarySnapshot {
 }
 
 impl LibrarySnapshot {
+    /// Legacy import can add records to an empty or enrollment-only library.
+    pub fn can_import_legacy(&self) -> bool {
+        self.profiles.is_empty()
+            && self.groups.is_empty()
+            && self.mods.is_empty()
+            && self.versions.is_empty()
+            && self.profile_mods.is_empty()
+            && self.credentials.is_empty()
+            && self.legacy_install_hints.is_empty()
+            && self.import_runs.is_empty()
+            && self.legacy_mappings.is_empty()
+            && self.download_operations.is_empty()
+            && self.operation_leases.is_empty()
+            && self.download_operation_items.is_empty()
+            && self.content_refs.is_empty()
+            && self.profile_content_bindings.is_empty()
+            && self.installations.iter().all(|installation| {
+                self.games.iter().any(|game| game.game_id == installation.game_id)
+            })
+            && self.settings.iter().all(|setting| match setting.name.as_str() {
+                "definition" => setting.scope_id.strip_prefix("enrollment:game:")
+                    .is_some_and(|id| self.games.iter().any(|game| game.game_id == id)),
+                "validated" => setting.scope_id.strip_prefix("enrollment:installation:")
+                    .is_some_and(|id| self.installations.iter().any(|installation| installation.installation_id == id)),
+                _ => false,
+            })
+            && self.mutation_results.iter().all(|result| result.idempotency_scope == "games.register")
+            && self.outbox.iter().all(|event| {
+                event.event_type == "game.registered"
+                    && event.destination == "application-events"
+                    && event.operation_id.is_none()
+            })
+    }
+
     pub fn counts(&self) -> LibraryCounts {
         LibraryCounts {
             games: self.games.len() as u64,

@@ -67,7 +67,7 @@ pub(super) async fn handle(state: Arc<DaemonState>, method: &str, params: Value,
         let runtime = inspect(&state, None).map_err(|e| error(request_id, e))?;
         ensure_quiescent(&runtime.blockers)?;
         let snapshot = state.library.backup_snapshot().map_err(|e| error(request_id, e.into()))?;
-        if snapshot != LibrarySnapshot::default() { return Err(error(request_id, BackupError::Library(mintcat_library_service::LibraryError::LibraryNotEmpty))); }
+        ensure_importable_library(&snapshot, &target).map_err(|e| error(request_id, e))?;
         state.features.ensure_empty().map_err(|e|error(request_id,e))?;
         target.owner_epochs=Some(state.features.portable_epochs()?);
         let bound_snapshot=if legacy(&target) {digest_json(&snapshot)} else {portable_snapshot(&state).and_then(|snapshot|digest_json(&snapshot))};
@@ -80,7 +80,6 @@ pub(super) async fn handle(state: Arc<DaemonState>, method: &str, params: Value,
         let frozen = directory.join(format!("{}.input", target.operation_id));
         if legacy(&target) {
             mintcat_library_service::LibraryStore::snapshot_legacy_source(&source, &frozen).map_err(|e| error(request_id, e.into()))?;
-            private_file(&frozen).map_err(|e| error(request_id, e.into()))?;
             target.source_digest = Some(mintcat_library_service::LibraryStore::legacy_source_digest(&frozen).map_err(|e| error(request_id, e.into()))?);
         } else {
             let bytes = fs::read(source).map_err(|e| error(request_id, e.into()))?;
@@ -251,15 +250,16 @@ fn import(state: &DaemonState, job_id: &str, target: &Target, action_id: &str,ad
         let consumed = state.jobs.consume_action(action_id, &binding).map_err(|e| Box::new(super::job_error(job_id, e)))?;
         if consumed.job.job_id != job_id || consumed.response.get("approved") != Some(&Value::Bool(true)) { return Err(error(job_id, BackupError::Invalid("approval does not authorize this job".into()))); }
         state.jobs.begin_commit(job_id).map_err(|e| Box::new(super::job_error(job_id, e)))?;
-        // Empty-before-commit is the only safe automatic conclusion until the owner
-        // supplies the exact committed snapshot digest. A crash in this interval must
-        // not clear maintenance merely because an import_run happens to be present.
+        // The marker records the exact before-image, including any earlier
+        // game registrations, until the owner can prove the atomic import.
         gate.mark(&MaintenanceMarker { format_version: 1, owner_id: "mintcat.library".into(), operation_id: Some(target.operation_id.clone()), phase: MaintenancePhase::ImportingEmptyOwner,
             snapshot_digest: target.library_digest.clone().ok_or_else(|| error(job_id, BackupError::Invalid("target digest missing".into())))? }).map_err(|e| error(job_id, e))?;
-        let vault = ImportVault { credentials: &state.credential_vault, permitted: consumed.response.get("importCredentials") == Some(&Value::Bool(true)) };
+        let vault = ImportVault { credentials: &state.credential_vault };
+        let vault = (consumed.response.get("importCredentials") == Some(&Value::Bool(true)))
+            .then_some(&vault as &dyn LibraryVault);
         let source = target.frozen_source.as_ref().ok_or_else(|| error(job_id, BackupError::Invalid("immutable source missing".into())))?;
         let expected_digest=target.source_digest.as_deref().ok_or_else(||error(job_id,BackupError::Invalid("approved source digest missing".into())))?;
-        let report = state.library.import_legacy_checked(source,expected_digest,&vault).map_err(|e| error(job_id, e.into()))?;
+        let report = state.library.import_legacy_checked(source,expected_digest,vault).map_err(|e| error(job_id, e.into()))?;
         let snapshot = state.library.backup_snapshot().map_err(|e| error(job_id, e.into()))?;
         save_committed_checkpoint(state, job_id, json!(report), &snapshot)?;
         gate.mark(&MaintenanceMarker { format_version: 1, owner_id: "mintcat.library".into(), operation_id: Some(target.operation_id.clone()), phase: MaintenancePhase::RestoreCommitted, snapshot_digest: digest_json(&snapshot).map_err(|e| error(job_id, e))? }).map_err(|e| error(job_id, e))?;
@@ -369,10 +369,17 @@ fn recover(state: &DaemonState, job_id: &str) -> Result<bool, Box<AppError>> {
                 gate.mark(&MaintenanceMarker { format_version:1,owner_id:"mintcat.library".into(),operation_id:Some(target.operation_id),phase:MaintenancePhase::RestoreCommitted,snapshot_digest:snapshot_digest.clone() }).map_err(|e| error(job_id,e))?;
             }
             proven.push((id, result));
-        } else if snapshot != LibrarySnapshot::default() || state.features.ensure_empty().is_err() {
-            // Neither a count nor an import_run proves absence of newer writes.
-            return Err(error(job_id,BackupError::RecoveryRequired));
         } else {
+            let unchanged = if legacy(&target) {
+                snapshot.can_import_legacy()
+                    && target.library_digest.as_deref() == Some(snapshot_digest.as_str())
+                    && target.owner_epochs.as_ref() == Some(&state.features.portable_epochs()?)
+            } else {
+                snapshot == LibrarySnapshot::default()
+            };
+            if !unchanged || state.features.ensure_empty().is_err() {
+                return Err(error(job_id, BackupError::RecoveryRequired));
+            }
             uncommitted.push(id);
         }
     }
@@ -445,8 +452,20 @@ fn verify_binding(state: &DaemonState, target: &Target, current: &ActionBinding)
         || Some(current.module_lock_digest.as_str()) != target.module_lock_digest.as_deref() {
         return Err(BackupError::Invalid("approval source, target revision or signed module closure changed".into()));
     }
-    if state.library.snapshot()? != LibrarySnapshot::default() { return Err(mintcat_library_service::LibraryError::LibraryNotEmpty.into()); }
+    ensure_importable_library(&state.library.snapshot()?, target)?;
     state.features.ensure_empty()?;
+    Ok(())
+}
+
+fn ensure_importable_library(snapshot: &LibrarySnapshot, target: &Target) -> Result<(), BackupError> {
+    let compatible = if legacy(target) {
+        snapshot.can_import_legacy()
+    } else {
+        snapshot == &LibrarySnapshot::default()
+    };
+    if !compatible {
+        return Err(mintcat_library_service::LibraryError::LibraryNotEmpty.into());
+    }
     Ok(())
 }
 
@@ -591,11 +610,6 @@ fn digest_file(path: &Path) -> Result<String, BackupError> {
     loop { let size = file.read(&mut buffer)?; if size == 0 { break; } hash.update(&buffer[..size]); }
     Ok(format!("sha256:{:x}", hash.finalize()))
 }
-fn private_file(path: &Path) -> std::io::Result<()> {
-    #[cfg(unix)] { use std::os::unix::fs::PermissionsExt; fs::set_permissions(path, fs::Permissions::from_mode(0o600))?; }
-    File::open(path)?.sync_all()?;
-    Ok(())
-}
 fn write_new(target: &Path, bytes: &[u8]) -> Result<(), BackupError> {
     let parent = target.parent().ok_or_else(|| BackupError::Invalid("target parent missing".into()))?;
     fs::create_dir_all(parent)?;
@@ -611,10 +625,10 @@ fn write_new(target: &Path, bytes: &[u8]) -> Result<(), BackupError> {
     let _ = fs::remove_file(temporary);
     result
 }
-struct ImportVault<'a> { credentials: &'a mintcat_runtime_broker::CredentialVault, permitted: bool }
+struct ImportVault<'a> { credentials: &'a mintcat_runtime_broker::CredentialVault }
 impl LibraryVault for ImportVault<'_> {
     fn store(&self, credential: LegacyCredential<'_>) -> Result<String, String> {
-        if !self.permitted || credential.owner_scope != LOCAL_OWNER_SCOPE { return Err("Human approval to import legacy credentials is required".into()); }
+        if credential.owner_scope != LOCAL_OWNER_SCOPE { return Err("Invalid legacy credential owner".into()); }
         self.credentials.store(SecretValue::new(credential.secret.as_bytes().to_vec()).map_err(|_| "invalid legacy credential")?)
             .map(|reference| reference.as_str().to_owned()).map_err(|_| "credential vault rejected import".into())
     }

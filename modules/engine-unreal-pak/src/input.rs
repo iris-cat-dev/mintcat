@@ -372,12 +372,16 @@ impl MaterializedInputs {
                     input_id: input_id.to_owned(),
                     reason: error.to_string(),
                 })?;
-        let copied = io::copy(&mut entry, &mut output)
+        let declared_size = entry.size();
+        let copied = io::copy(
+            &mut Read::by_ref(&mut entry).take(declared_size.saturating_add(1)),
+            &mut output,
+        )
             .map_err(|source| io_error("extracting ZIP PAK payload", source))?;
-        if copied != entry.size() {
+        if copied != declared_size {
             return Err(UnrealEngineError::Archive {
                 input_id: input_id.to_owned(),
-                reason: "ZIP PAK payload ended before its declared size".to_owned(),
+                reason: "ZIP PAK payload size does not match its declaration".to_owned(),
             });
         }
         output
@@ -623,7 +627,7 @@ fn register_archive_path(
     Ok(())
 }
 
-fn validate_zip_type(entry: &zip::read::ZipFile<'_>) -> Result<(), String> {
+fn validate_zip_type<R: Read>(entry: &zip::read::ZipFile<'_, R>) -> Result<(), String> {
     let Some(mode) = entry.unix_mode() else {
         return Ok(());
     };

@@ -5,7 +5,7 @@ use mintcat_runtime_broker::{
     SecretValue,
 };
 use mintcat_sdk::ModRef;
-use mintcat_source_api::{SearchRequest, SourceError, SourceGameBinding, SourceProvider};
+use mintcat_source_api::{ReviewStatus, SearchRequest, SourceError, SourceGameBinding, SourceProvider};
 use serde_json::{json, Value};
 use tokio::{
     io::{AsyncReadExt as _, AsyncWriteExt as _},
@@ -348,6 +348,75 @@ async fn version_file_identity_and_download_resolution_are_exact() {
     );
     assert_eq!(dependencies[1].mod_ref.source_id, "modio");
     assert_eq!(dependencies[1].mod_ref.remote_mod_id, "modio-dependency");
+}
+
+#[tokio::test]
+async fn public_detail_uses_moderation_status_and_downloads_without_file_metadata() {
+    let server = spawn_server(|_| {
+        let mut details = detail("drg");
+        let public_version = |id, status, approval| {
+            json!({
+                "VersionId": id,
+                "ModId": "mod-main",
+                "VersionNumber": "1.3.0",
+                "FilesId": format!("file-{id}"),
+                "CreatedAt": if id == "public" { "2025-05-30 22:25:12" } else { "2025-06-01 00:00:00" },
+                "Status": status,
+                "Files": null,
+                "ApproveModVersionEntity": approval,
+            })
+        };
+        details["ModVersionEntities"] = json!([
+            public_version("public", Value::Null, json!({"Status": "20", "ApprovedAt": null})),
+            public_version("rejected", json!("Approved"), json!({"Status": "10"})),
+            public_version("unknown", json!("Approved"), json!({"Status": "99"})),
+            public_version("incomplete", json!("Approved"), json!({"Status": null})),
+            public_version("missing", Value::Null, Value::Null),
+        ]);
+        (200, json!({"ResultCode": 200, "ResultData": details}))
+    })
+    .await;
+    let vault = CredentialVault::new(Arc::new(MemoryCredentialStore::default()));
+    let source = provider(&server.origin, None, &vault);
+    let game = binding("game:drg", "drg", "drg");
+    let cancellation = CancellationToken::default();
+    let mut mod_ref = ModRef {
+        source_id: SOURCE_ID.to_owned(),
+        remote_game_key: "drg".to_owned(),
+        remote_mod_id: "mod-main".to_owned(),
+        version_id: None,
+        remote_file_id: None,
+    };
+    let detail = source.get_mod(&game, &mod_ref, &cancellation).await.unwrap();
+    assert_eq!(detail.latest_file.unwrap().version_id, "public");
+
+    let versions = source
+        .list_versions(&game, &mod_ref, &cancellation)
+        .await
+        .unwrap();
+    assert_eq!(versions[0].review_status, ReviewStatus::Accepted);
+    assert_eq!(versions[1].review_status, ReviewStatus::Rejected);
+    assert_eq!(versions[2].review_status, ReviewStatus::Unavailable);
+    assert_eq!(versions[3].review_status, ReviewStatus::Unavailable);
+    assert_eq!(versions[4].review_status, ReviewStatus::Unavailable);
+
+    mod_ref.remote_file_id = Some("file-public".into());
+    let descriptor = source
+        .resolve_download(&game, &mod_ref, &cancellation)
+        .await
+        .unwrap();
+    assert_eq!(descriptor.mod_ref.version_id.as_deref(), Some("public"));
+    assert_eq!(descriptor.expected_size, 0);
+    assert_eq!(descriptor.url.path(), "/api/Files/DownloadFileGet");
+    assert_eq!(descriptor.url.query(), Some("FileId=file-public&NoCount=true"));
+
+    for id in ["rejected", "unknown", "incomplete", "missing"] {
+        mod_ref.remote_file_id = Some(format!("file-{id}"));
+        assert!(matches!(
+            source.resolve_download(&game, &mod_ref, &cancellation).await,
+            Err(SourceError::Unavailable(version_id)) if version_id == id
+        ));
+    }
 }
 
 #[tokio::test]

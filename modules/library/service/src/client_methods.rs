@@ -504,6 +504,18 @@ impl LibraryStore {
         self.advance_epoch()?;
         self.owner.start_batch_version_download(authorization, idempotency_key, owner_generation, module_lock_digest, request)
     }
+    pub fn start_added_mod_download(
+        &self,
+        authorization: &LibraryAuthorization,
+        idempotency_key: &str,
+        owner_generation: &str,
+        module_lock_digest: &str,
+        request: &ModsUpdateBatchParams,
+    ) -> Result<Option<StartedDownloadOperation>, LibraryError> {
+        let _writer = self.writer.lock().map_err(|_| LibraryError::Poisoned)?;
+        self.advance_epoch()?;
+        self.owner.start_added_mod_download(authorization, idempotency_key, owner_generation, module_lock_digest, request)
+    }
     pub fn get_profile_mod_artifact(
         &self,
         authorization: &LibraryAuthorization,

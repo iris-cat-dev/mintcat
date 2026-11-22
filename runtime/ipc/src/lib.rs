@@ -106,6 +106,7 @@ pub struct IpcServer {
     generation_id: String,
     expected_user_id: String,
     _instance_lock: InstanceLock,
+    idle_exit: Option<IdleExit>,
 }
 
 #[cfg(unix)]
@@ -126,6 +127,41 @@ struct ActiveRequest {
 impl Drop for ActiveRequest {
     fn drop(&mut self) {
         self.count.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+#[cfg(any(unix, windows))]
+struct IdleExit {
+    grace: Duration,
+    can_exit: Box<dyn Fn() -> bool + Send + Sync>,
+}
+
+#[cfg(any(unix, windows))]
+impl IdleExit {
+    fn new(grace: Duration, can_exit: impl Fn() -> bool + Send + Sync + 'static) -> Self {
+        Self {
+            grace,
+            can_exit: Box::new(can_exit),
+        }
+    }
+
+    fn deadline(&self) -> time::Instant {
+        time::Instant::now() + self.grace
+    }
+
+    async fn wait(deadline: Option<time::Instant>) {
+        match deadline {
+            Some(deadline) => time::sleep_until(deadline).await,
+            None => std::future::pending().await,
+        }
+    }
+
+    fn check(&self, deadline: &mut Option<time::Instant>) -> bool {
+        if (self.can_exit)() {
+            return true;
+        }
+        *deadline = Some(time::Instant::now() + Duration::from_millis(250));
+        false
     }
 }
 
@@ -188,7 +224,18 @@ impl IpcServer {
             generation_id: Uuid::new_v4().to_string(),
             expected_user_id: current_user_id(),
             _instance_lock: instance_lock,
+            idle_exit: None,
         })
+    }
+
+    /// Retire after `grace` without IPC connections once `can_exit` permits it.
+    pub fn exit_when_idle(
+        mut self,
+        grace: Duration,
+        can_exit: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.idle_exit = Some(IdleExit::new(grace, can_exit));
+        self
     }
 
     pub fn ready(&self) -> ServerReady {
@@ -212,12 +259,18 @@ impl IpcServer {
     {
         let active_requests = Arc::new(AtomicUsize::new(0));
         let mut connections = JoinSet::new();
+        let mut idle_deadline = self.idle_exit.as_ref().map(IdleExit::deadline);
         tokio::pin!(shutdown);
 
         loop {
             tokio::select! {
                 biased;
                 () = &mut shutdown => break,
+                _ = connections.join_next(), if !connections.is_empty() => {
+                    if connections.is_empty() {
+                        idle_deadline = self.idle_exit.as_ref().map(IdleExit::deadline);
+                    }
+                }
                 accepted = self.listener.accept() => {
                     let (stream, _) = accepted?;
                     let handler = Arc::clone(&handler);
@@ -243,6 +296,11 @@ impl IpcServer {
                             eprintln!("mintcatd connection: {error}");
                         }
                     });
+                }
+                () = IdleExit::wait(idle_deadline), if connections.is_empty() && idle_deadline.is_some() => {
+                    if self.idle_exit.as_ref().is_some_and(|idle| idle.check(&mut idle_deadline)) {
+                        break;
+                    }
                 }
             }
         }
@@ -353,6 +411,24 @@ pub async fn connect_or_start(
     daemon_bin: &Path,
     environment: RuntimeEnvironment,
 ) -> Result<IpcClient, IpcError> {
+    connect_or_launch(paths, daemon_bin, environment, false).await
+}
+
+/// Connect to an existing daemon, or start a desktop-managed daemon that can retire when idle.
+pub async fn connect_or_start_desktop(
+    paths: &RuntimePaths,
+    daemon_bin: &Path,
+    environment: RuntimeEnvironment,
+) -> Result<IpcClient, IpcError> {
+    connect_or_launch(paths, daemon_bin, environment, true).await
+}
+
+async fn connect_or_launch(
+    paths: &RuntimePaths,
+    daemon_bin: &Path,
+    environment: RuntimeEnvironment,
+    exit_when_idle: bool,
+) -> Result<IpcClient, IpcError> {
     match IpcClient::connect(paths).await {
         Ok(client) => return Ok(client),
         Err(IpcError::Unavailable(_)) => {}
@@ -377,6 +453,9 @@ pub async fn connect_or_start(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::from(daemon_log));
+    if exit_when_idle {
+        command.arg("--exit-when-idle");
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -658,6 +737,57 @@ mod tests {
     use super::{
         ClientHello, IpcClient, IpcServer, ServerHello, HANDSHAKE_TIMEOUT, IPC_PROTOCOL_VERSION,
     };
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn idle_retirement_waits_for_every_connection_and_pending_work() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use tokio::{sync::Notify, time};
+
+        let sandbox = tempdir().unwrap();
+        let paths = RuntimePaths::new(sandbox.path().join("data")).unwrap();
+        let layout = paths.initialize(RuntimeEnvironment::Test).unwrap();
+        let grace = Duration::from_millis(50);
+        let limit = Duration::from_secs(5);
+        let can_exit = Arc::new(AtomicBool::new(false));
+        let checked = Arc::new(Notify::new());
+        let server = IpcServer::bind(&paths).unwrap().exit_when_idle(grace, {
+            let can_exit = Arc::clone(&can_exit);
+            let checked = Arc::clone(&checked);
+            move || {
+                checked.notify_one();
+                can_exit.load(Ordering::Relaxed)
+            }
+        });
+        let serving = tokio::spawn(server.run(
+            Arc::new(|_| async { Ok(json!({})) }),
+            std::future::pending(),
+        ));
+        let first = IpcClient::connect(&paths).await.unwrap();
+        let second = IpcClient::connect(&paths).await.unwrap();
+
+        assert!(time::timeout(grace * 2, checked.notified()).await.is_err());
+        drop(first);
+        assert!(time::timeout(grace * 2, checked.notified()).await.is_err());
+
+        let closed = time::Instant::now();
+        drop(second);
+        time::timeout(limit, checked.notified()).await.unwrap();
+        assert!(closed.elapsed() >= grace);
+        assert!(!serving.is_finished());
+        let replacement = IpcClient::connect(&paths).await.unwrap();
+        can_exit.store(true, Ordering::Relaxed);
+        assert!(time::timeout(grace * 2, checked.notified()).await.is_err());
+        drop(replacement);
+
+        time::timeout(limit, serving)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(!layout.endpoint.exists());
+        IpcServer::bind(&paths).unwrap();
+    }
 
     #[tokio::test]
     async fn rejects_oversized_outgoing_frames() {

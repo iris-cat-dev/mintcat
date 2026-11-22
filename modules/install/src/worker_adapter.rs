@@ -139,8 +139,18 @@ impl WorkerGameAdapter {
     pub fn settings_snapshot(
         &self,
         revision: u64,
-        options: Value,
+        mut options: Value,
     ) -> Result<mintcat_game_api::GameSettingsSnapshot, String> {
+        // Migrated and newly registered games may not have persisted this
+        // section yet. These two v1 contracts require both fields on the wire.
+        if self.descriptor.settings_schema_version == 1
+            && matches!(self.descriptor.game_id.as_str(), "game:drg" | "game:rogue-core")
+        {
+            if let Some(values) = options.as_object_mut() {
+                values.entry("compression").or_insert_with(|| json!("none"));
+                values.entry("ue4ssEnabled").or_insert_with(|| json!(true));
+            }
+        }
         self.invoke("settings.snapshot", json!({"revision":revision,"options":options}), &[])
     }
 

@@ -1,5 +1,5 @@
 import type {
-  ActionRequired, DownloadOverlay, GameSummary, GroupSummary,
+  ActionRequired, DetectedInstallInput, DownloadOverlay, GameSummary, GroupSummary,
   InstallReceiptsResult, JobEvent, JobSnapshot, ModConflictItem, ModDetails, ModSummary,
   ModUpdateCheckItem, ModsListResult, ProfileSummary, ProfilesContentStateResult,
   SourceSearchItem,
@@ -31,7 +31,18 @@ import type { LibraryPage } from './library-view';
 import { librarySession, loadAvailableGames, selectedTarget } from './game-inventory';
 import type { AvailableGame } from './game-inventory';
 
-export interface LibraryTask { profileId: string; job: JobSnapshot; action?: ActionRequired }
+export interface LibraryTask { profileId: string; job: JobSnapshot; action?: ActionRequired; downloadErrorCode?: string }
+
+interface TrackedTask {
+  profileId: string;
+  afterSeq: number;
+  actionId?: string;
+  refreshed?: boolean;
+  deployTarget?: DeployTarget;
+  lastEvent?: JobEvent;
+  onlineMod?: true;
+  downloadFollowed?: true;
+}
 
 export interface UrlBatchAddReport {
   added: number;
@@ -99,6 +110,18 @@ export interface LibraryActions {
 
 const TERMINAL_JOB_STATES = new Set(['succeeded', 'failed', 'cancelled', 'recovery-required']);
 
+function onlineAddDownload(snapshot: JobSnapshot): { jobId?: string; errorCode?: string } {
+  const result = snapshot.result;
+  if (snapshot.command !== 'mods.add' || snapshot.state !== 'succeeded' || !result || typeof result !== 'object') return {};
+  if ('downloadJobId' in result && typeof result.downloadJobId === 'string' && result.downloadJobId) {
+    return { jobId: result.downloadJobId };
+  }
+  if ('downloadErrorCode' in result && typeof result.downloadErrorCode === 'string' && result.downloadErrorCode) {
+    return { errorCode: result.downloadErrorCode };
+  }
+  return {};
+}
+
 export function mountLibrary(root: HTMLElement, context: UiContext): Disposable {
   return mountLibraryPage(root, context, 'mods');
 }
@@ -127,11 +150,22 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
   let importJobs = new Set<string>(), importMarkTimer: number | undefined;
   const listeners = new Set<() => void>();
   const cache = new Map<string, { mods: ModsListResult; groups: GroupSummary[] }>();
-  const tracked = new Map<string, { profileId: string; afterSeq: number; actionId?: string; refreshed?: boolean; deployTarget?: DeployTarget; lastEvent?: JobEvent }>();
+  const tracked = new Map<string, TrackedTask>();
   for (const task of saved.jobs ?? []) {
     tracked.set(task.jobId, { ...task, afterSeq: 0 });
     if (task.deployTarget) state.deploying = { target: task.deployTarget, jobId: task.jobId, label: '读取部署状态' };
   }
+  const syncOnlineModJobs = (): void => {
+    for (const { jobId, profileId, downloadFollowed } of context.onlineModJobs.list()) {
+      const task = tracked.get(jobId);
+      if (task) {
+        task.onlineMod = true;
+        task.downloadFollowed = downloadFollowed;
+      } else {
+        tracked.set(jobId, { profileId, afterSeq: 0, onlineMod: true, downloadFollowed });
+      }
+    }
+  };
   const alive = (): boolean => !closed && !context.signal.aborted;
   const update = (patch: Partial<LibraryState>): void => {
     if (!alive()) return;
@@ -152,7 +186,8 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
   };
   const persist = (): void => context.saveState('library', 1, {
     gameId: state.gameId, profileId: rememberedProfileId, query: state.query,
-    jobs: [...tracked].map(([jobId, { profileId, deployTarget }]) => ({ jobId, profileId, ...(deployTarget ? { deployTarget } : {}) })),
+    jobs: [...tracked].filter(([, task]) => !task.onlineMod)
+      .map(([jobId, { profileId, deployTarget }]) => ({ jobId, profileId, ...(deployTarget ? { deployTarget } : {}) })),
   });
   const publish = (): void => publishUiSelection({ gameId: state.gameId,
     gameName: state.games.find(game => game.gameId === state.gameId)?.displayName ?? '',
@@ -212,7 +247,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       if (generation === renderGeneration && session === epoch && profileId === state.profileId) update({ loading: false });
     }
   };
-  const pollContent = async (): Promise<void> => {
+  const pollContent = async (): Promise<ProfilesContentStateResult | undefined> => {
     const profileId = state.profileId, session = epoch, generation = ++contentGeneration;
     if (!profileId || !alive()) return;
     let content: ProfilesContentStateResult;
@@ -225,9 +260,12 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       }
       return;
     }
-    if (!alive() || session !== epoch || generation !== contentGeneration || profileId !== state.profileId) return;
-    update({ content });
-    if (shouldRefreshLibrary(state.mods?.contentRevision, content)) await loadMods(profileId, true);
+    if (!alive() || session !== epoch || profileId !== state.profileId) return;
+    if (generation === contentGeneration) {
+      update({ content });
+      if (shouldRefreshLibrary(state.mods?.contentRevision, content)) await loadMods(profileId, true);
+    }
+    return content;
   };
   const selectProfile = async (profileId: string): Promise<void> => {
     if (!alive()) return;
@@ -299,7 +337,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     if (!selected) throw new Error('请选择配置');
     return selected;
   };
-  const track = (jobId: string, profileId: string, deployTarget?: DeployTarget): void => {
+  const track = (jobId: string, profileId: string, deployTarget?: DeployTarget, showMessage = true): void => {
     if (!alive()) {
       const latest = context.state('library', 1, saved);
       latest.jobs ??= [];
@@ -308,16 +346,50 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       return;
     }
     tracked.set(jobId, { profileId, afterSeq: 0, deployTarget }); persist();
-    update({ message: '任务已启动，可在下载管理查看进度。' });
+    if (showMessage) update({ message: '任务已启动，可在下载管理查看进度。' });
   };
-  const waitForJobActionOrTerminal = async (jobId: string, progress?: (value: DeployProgress) => void): Promise<{ snapshot: JobSnapshot; action?: ActionRequired }> => {
+  const trackOnlineModAdd = (jobId: string, profileId: string): void => {
+    context.onlineModJobs.track(jobId, profileId);
+    if (!alive()) return;
+    syncOnlineModJobs();
+    update({ message: '已提交模组添加任务，可在下载管理查看进度。' });
+  };
+  const followAddDownload = (parentJobId: string, downloadJobId: string): void => {
+    const parent = tracked.get(parentJobId);
+    if (!parent || parent.downloadFollowed) return;
+    const legacy = !parent.onlineMod;
+    if (legacy) context.onlineModJobs.track(parentJobId, parent.profileId);
+    context.onlineModJobs.followDownload(parentJobId, downloadJobId);
+    syncOnlineModJobs();
+    if (legacy) persist();
+  };
+  const waitForDownloadBeforeNextAdd = async (jobId: string): Promise<boolean> => {
+    // A prepare-and-apply download holds the profile content lock until it settles.
+    while (alive()) {
+      const snapshot = await context.call('jobs.get', { jobId });
+      if (TERMINAL_JOB_STATES.has(snapshot.state)) return true;
+      if (snapshot.state === 'awaiting-approval') return false;
+      await new Promise(resolve => setTimeout(resolve, 750));
+    }
+    return false;
+  };
+  const waitForJobActionOrTerminal = async (jobId: string, options: {
+    progress?: (value: DeployProgress) => void;
+    maxAttempts?: number;
+    isSelected?: () => boolean;
+  } = {}): Promise<{ snapshot: JobSnapshot; action?: ActionRequired }> => {
+    const checkSelection = (): void => {
+      if (!alive()) throw new Error('页面已关闭');
+      if (options.isSelected?.() === false) throw new Error('应用目标已切换');
+    };
     let afterSeq = 0;
     let actionId: string | undefined;
     let lastEvent: JobEvent | undefined;
-    for (let attempt = 0; attempt < 240; attempt++) {
-      if (!alive()) throw new Error('页面已关闭');
+    for (let attempt = 0; attempt < (options.maxAttempts ?? 240); attempt++) {
+      checkSelection();
       let pageResult = await context.call('jobs.watch', { jobId, afterSeq, limit: 200 });
       for (;;) {
+        checkSelection();
         for (const event of pageResult.events) {
           lastEvent = event;
           if (typeof event.details?.actionId === 'string') actionId = event.details.actionId;
@@ -327,7 +399,11 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
         if (pageResult.nextAfterSeq >= pageResult.snapshot.lastSeq || pageResult.nextAfterSeq <= previous) break;
         pageResult = await context.call('jobs.watch', { jobId, afterSeq, limit: 200 });
       }
-      if (progress) progress(deployJobProgress(pageResult.snapshot, lastEvent));
+      options.progress?.(deployJobProgress(pageResult.snapshot, lastEvent));
+      // Provider action is handled explicitly in Downloads, not by Apply Configuration.
+      if (pageResult.snapshot.command === 'library.download.apply' && pageResult.snapshot.state === 'awaiting-approval') {
+        return { snapshot: pageResult.snapshot };
+      }
       // install.plan publishes the pending action before appending its verified plan result.
       if (pageResult.snapshot.state === 'awaiting-approval' && actionId
         && (pageResult.snapshot.command !== 'install.plan' || pageResult.snapshot.result != null)) {
@@ -342,6 +418,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     throw new Error('等待后台任务响应超时，请在任务栏继续查看。');
   };
   const pollTasks = async (): Promise<void> => {
+    syncOnlineModJobs();
     const session = epoch, tasks: LibraryTask[] = [];
     for (const [jobId, trackedTask] of tracked) {
       let pageResult = await context.call('jobs.watch', { jobId, afterSeq: trackedTask.afterSeq, limit: 200 });
@@ -358,7 +435,10 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       const action = pageResult.snapshot.state === 'awaiting-approval' && trackedTask.actionId
         ? await context.call('actions.get', { actionId: trackedTask.actionId }) : undefined;
       if (!alive() || session !== epoch) return;
-      tasks.push({ profileId: trackedTask.profileId, job: pageResult.snapshot, action });
+      if (tracked.get(jobId) !== trackedTask) continue;
+      const download = onlineAddDownload(pageResult.snapshot);
+      if (download.jobId) followAddDownload(jobId, download.jobId);
+      tasks.push({ profileId: trackedTask.profileId, job: pageResult.snapshot, action, downloadErrorCode: download.errorCode });
       const { command, state: jobState } = pageResult.snapshot;
       const deployTarget = trackedTask.deployTarget;
       const watchingApply = command === 'install.apply' && deployTarget && state.deploying?.jobId === jobId;
@@ -403,7 +483,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
         trackedTask.refreshed = true;
       }
     }
-    if (session === epoch) update({ tasks });
+    if (session === epoch) update({ tasks: tasks.filter(task => tracked.has(task.job.jobId)) });
   };
   const poll = async (): Promise<void> => {
     if (pollPending || !alive()) return;
@@ -603,7 +683,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       await poll();
     },
     async cancelTask(task) {
-      if (task.action && task.action.state === 'pending') {
+      if (task.job.command !== 'library.download.apply' && task.action?.state === 'pending') {
         const action = await context.call('actions.get', { actionId: task.action.actionId });
         if (action.state === 'pending') {
           await context.call('actions.reject', { actionId: action.actionId, expectedRevision: action.revision, reason: '用户取消任务' }, crypto.randomUUID());
@@ -628,6 +708,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     },
     dismissTask(jobId) {
       if (tracked.get(jobId)?.deployTarget) return;
+      context.onlineModJobs.dismiss(new Set([jobId]));
       tracked.delete(jobId);
       persist();
       update({ tasks: state.tasks.filter(task => task.job.jobId !== jobId) });
@@ -638,6 +719,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
           .filter(task => TERMINAL_JOB_STATES.has(task.job.state))
           .map(task => task.job.jobId),
       );
+      context.onlineModJobs.dismiss(terminalJobIds);
       for (const jobId of terminalJobIds) tracked.delete(jobId);
       persist();
       update({ tasks: state.tasks.filter(task => !terminalJobIds.has(task.job.jobId)) });
@@ -727,11 +809,16 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       const targetGame = state.gameId;
       const { profileId } = writable();
       if (!targetGame) throw new Error('请先选择游戏');
-      let added = 0;
+      let added = 0, previousDownloadId: string | undefined;
       const failed: Array<{ url: string; reason: string }> = [];
-      for (const rawUrl of urls) {
+      for (const [index, rawUrl] of urls.entries()) {
         if (!alive()) break;
         try {
+          if (previousDownloadId && !(await waitForDownloadBeforeNextAdd(previousDownloadId))) {
+            failed.push(...urls.slice(index).map(url => ({ url, reason: '请先在下载管理处理等待确认的下载，再添加剩余模组。' })));
+            break;
+          }
+          previousDownloadId = undefined;
           const resolved = await context.call('sources.resolveUrl', { gameId: targetGame, url: rawUrl });
           const currentState = await context.call('profiles.contentState', { profileId });
           if (!currentState.writable) throw new Error('配置当前正在被其他任务修改，请稍后重试');
@@ -741,10 +828,12 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
             expectedContentRevision: currentState.contentRevision,
             ...(groupId ? { groupId } : {}),
           }, crypto.randomUUID());
-          track(job.jobId, profileId);
+          trackOnlineModAdd(job.jobId, profileId);
           const outcome = await waitForJobActionOrTerminal(job.jobId);
           if (outcome.snapshot.state === 'succeeded') {
             added++;
+            previousDownloadId = onlineAddDownload(outcome.snapshot).jobId;
+            if (previousDownloadId) followAddDownload(job.jobId, previousDownloadId);
           } else {
             failed.push({ url: rawUrl, reason: outcome.snapshot.error?.messageKey ?? outcome.snapshot.state });
           }
@@ -781,9 +870,14 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     },
     async addSubscribedMods(selectedItems, groupId) {
       const { profileId } = writable();
-      let added = 0;
+      let added = 0, previousDownloadId: string | undefined, waitingForApproval = false;
       for (const item of selectedItems) {
         if (!alive()) break;
+        if (previousDownloadId && !(await waitForDownloadBeforeNextAdd(previousDownloadId))) {
+          waitingForApproval = true;
+          break;
+        }
+        previousDownloadId = undefined;
         const currentState = await context.call('profiles.contentState', { profileId });
         if (!currentState.writable) throw new Error('配置当前正在被其他任务修改，请稍后重试');
         const job = await context.call('mods.add', {
@@ -792,14 +886,18 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
           expectedContentRevision: currentState.contentRevision,
           ...(groupId ? { groupId } : {}),
         }, crypto.randomUUID());
-        track(job.jobId, profileId);
+        trackOnlineModAdd(job.jobId, profileId);
         const outcome = await waitForJobActionOrTerminal(job.jobId);
-        if (outcome.snapshot.state === 'succeeded') added++;
+        if (outcome.snapshot.state === 'succeeded') {
+          added++;
+          previousDownloadId = onlineAddDownload(outcome.snapshot).jobId;
+          if (previousDownloadId) followAddDownload(job.jobId, previousDownloadId);
+        }
       }
       invalidate(profileId);
       if (alive() && profileId === state.profileId) {
         await Promise.all([loadMods(profileId, true), poll()]);
-        update({ message: `已导入 ${added} 个 mod.io 订阅模组。` });
+        update({ message: `已添加 ${added} 个 mod.io 订阅模组。${waitingForApproval ? '请先在下载管理处理等待确认的下载，再添加剩余模组。' : ''}` });
       }
     },
     async launchGame() {
@@ -815,7 +913,8 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       const status = deploymentStatus(state);
       if (state.deploying || state.pending || (status !== 'changed' && status !== 'not-deployed')) return;
       const selected = profile();
-      const { profileId, revision: contentRevision } = writable();
+      const { profileId, revision } = writable();
+      let contentRevision = revision;
       const { gameId, installationId, variantId } = state;
       if (contentRevision !== state.content?.contentRevision) throw new Error('配置内容已变化，请刷新后重新应用');
       if (!installationId || !variantId) {
@@ -823,25 +922,100 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       }
       const target = { gameId, installationId, variantId, profileId };
       const selection = selectionEpoch;
-      const isCurrent = (): boolean => alive() && selection === selectionEpoch
-        && state.content?.contentRevision === contentRevision;
-      const progress = (value: DeployProgress): void => update({ deploying: { target, ...value } });
+      const isSelected = (): boolean => alive() && selection === selectionEpoch;
+      const matchesContent = (content: ProfilesContentStateResult | undefined): boolean =>
+        canEditProfileContent(content) && content?.profileId === profileId && content.contentRevision === contentRevision;
+      // Background list renders can lag a successful cache commit.
+      // Fence the install against a fresh owner read, not the displayed list.
+      const refreshCurrentContent = async (): Promise<boolean> => {
+        if (!isSelected()) return false;
+        const live = await context.call('profiles.contentState', { profileId });
+        if (!isSelected()) return false;
+        if (!matchesContent(live)) throw new Error('配置内容或锁定状态已变化，请刷新后重新应用');
+        return true;
+      };
+      const progress = (value: DeployProgress): void => {
+        if (isSelected()) update({ deploying: { target, ...value } });
+      };
       let handedOff = false;
       update({ deploying: { target, label: '校验模组' }, deploySweep: undefined, message: '' });
       try {
-        const detected = await context.call('install.detectInputs', { profileId });
-        if (!isCurrent()) return;
-        const missing = detected.items.filter(item => !item.verified || !item.format);
-        if (missing.length > 0) {
-          const names = missing.slice(0, 3).map(item =>
-            state.mods?.items.find(mod => mod.profileModId === item.profileModId)?.displayName ?? item.profileModId).join('、');
-          throw new Error(`有 ${missing.length} 个已启用模组尚未下载缓存或无法识别格式（如 ${names}），请先更新下载或在“安装与打包”页处理。`);
+        const detectAtRevision = async (refresh = false) => {
+          if (refresh) {
+            progress({ label: '重新校验模组' });
+            if (!await refreshCurrentContent()) return;
+          }
+          const result = await context.call('install.detectInputs', { profileId });
+          if (!await refreshCurrentContent()) return;
+          return result;
+        };
+        let detected = await detectAtRevision();
+        if (!detected) return;
+        if (detected.items.some(item => !item.verified && item.legacyCacheAvailable)) {
+          progress({ label: '恢复旧版模组缓存' });
+          const restored = await context.call('install.restoreLegacyCache', {
+            profileId, expectedContentRevision: contentRevision,
+          }, crypto.randomUUID());
+          if (!isSelected()) return;
+          if (restored.restoredCount > 0) {
+            contentRevision = restored.contentRevision;
+            detected = await detectAtRevision(true);
+            if (!detected) return;
+          } else if (restored.contentRevision !== contentRevision) {
+            throw new Error('配置内容已变化，请刷新后重新应用');
+          }
         }
+        const sourceOf = (item: DetectedInstallInput): string | undefined =>
+          item.sourceId ?? state.mods?.items.find(mod => mod.profileModId === item.profileModId)?.mod.sourceId;
+        const downloadIds = detected.items.filter(item => {
+          const source = sourceOf(item);
+          return !item.verified && (source === 'modio' || source === 'modcat' || source === 'nexusmods');
+        }).map(item => item.profileModId);
+        if (downloadIds.length) {
+          progress({ label: '准备下载缺失模组' });
+          const job = await context.call('mods.updateBatch', {
+            profileId, expectedContentRevision: contentRevision, profileModIds: downloadIds,
+            mode: 'prepare-and-apply', versionPolicy: 'selected',
+          }, crypto.randomUUID());
+          track(job.jobId, profileId, undefined, isSelected());
+          if (!isSelected()) return;
+          const { snapshot } = await waitForJobActionOrTerminal(job.jobId, {
+            progress, maxAttempts: Infinity, isSelected,
+          });
+          if (!isSelected()) return;
+          if (snapshot.state === 'awaiting-approval') {
+            throw new Error('下载需要手动操作。请在下载管理完成操作，下载完成后重新应用配置。');
+          }
+          if (snapshot.state === 'cancelled') throw new Error('下载已取消，未应用配置。');
+          if (snapshot.state !== 'succeeded') throw new Error('下载失败，未应用配置。请在下载管理查看详情。');
+          const result = snapshot.result;
+          if (snapshot.command !== 'library.download.apply' || !result || typeof result !== 'object'
+            || !('applied' in result) || result.applied !== true || !('contentRevision' in result)
+            || typeof result.contentRevision !== 'number' || !Number.isSafeInteger(result.contentRevision)
+            || result.contentRevision < contentRevision) {
+            throw new Error('无法确认下载已写入当前配置，请在下载管理查看详情。');
+          }
+          // Only the download's committed result may advance the revision for this Apply.
+          contentRevision = result.contentRevision;
+          detected = await detectAtRevision(true);
+          if (!detected) return;
+        }
+        const blockers = [
+          { items: detected.items.filter(item => item.verified && !item.format), issue: '格式无法识别', fix: '请改用受支持的模组文件或禁用这些模组' },
+          { items: detected.items.filter(item => !item.verified && sourceOf(item) === 'local'), issue: '本地文件缺失或无法验证', fix: '请重新导入本地文件或禁用这些模组' },
+          { items: detected.items.filter(item => !item.verified && sourceOf(item) !== 'local'), issue: '仍缺少可用的下载缓存', fix: '请在下载管理检查下载，或禁用无法下载的模组' },
+        ];
+        const problems = blockers.filter(({ items }) => items.length).map(({ items, issue, fix }) => {
+          const names = items.slice(0, 3).map(item =>
+            state.mods?.items.find(mod => mod.profileModId === item.profileModId)?.displayName ?? item.profileModId).join('、');
+          return `${items.length} 个已启用模组${issue}（如 ${names}），${fix}。`;
+        });
+        if (problems.length) throw new Error(problems.join(''));
         progress({ label: '读取游戏设置' });
         const settings = await context.request<{ values: Record<string, Json>; revision: number }>('settings.get', {
           scope: { kind: 'game', gameId }, section: 'game',
         });
-        if (!isCurrent()) return;
+        if (!isSelected() || !await refreshCurrentContent()) return;
         progress({ label: '提交安装计划' });
         const planJob = await context.call('install.plan', {
           profileId, revision: selected.revision, contentRevision, gameId, installationId,
@@ -851,8 +1025,8 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
             })),
           },
         }, crypto.randomUUID());
-        track(planJob.jobId, profileId);
-        const { snapshot, action } = await waitForJobActionOrTerminal(planJob.jobId, progress);
+        track(planJob.jobId, profileId, undefined, isSelected());
+        const { snapshot, action } = await waitForJobActionOrTerminal(planJob.jobId, { progress });
         if (!action || action.kind !== 'install-approval' || action.state !== 'pending') {
           throw new Error(`安装计划未进入待批准状态：${snapshot.error?.messageKey ?? snapshot.state}`);
         }
@@ -860,18 +1034,20 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
         if (!plan?.planId || plan.planHash !== action.planHash || action.operationId !== plan.planId) {
           throw new Error('安装计划与审批目标不匹配，已拒绝部署');
         }
-        if (!isCurrent() || !window.confirm(`确认将配置“${selected.displayName}”应用到游戏目录？\n\n启用模组数：${detected.items.length}\n计划哈希：${plan.planHash.slice(0, 20)}…`)) {
+        const liveContent = isSelected() ? await context.call('profiles.contentState', { profileId }).catch(() => undefined) : undefined;
+        const canApprove = isSelected() && matchesContent(liveContent);
+        if (!canApprove || !window.confirm(`确认将配置“${selected.displayName}”应用到游戏目录？\n\n启用模组数：${detected.items.length}\n计划哈希：${plan.planHash.slice(0, 20)}…`)) {
           await context.call('actions.reject', {
             actionId: action.actionId, expectedRevision: action.revision, reason: '应用已取消或目标已切换',
           }, crypto.randomUUID());
-          if (isCurrent()) update({ message: '已取消应用配置。' });
+          if (isSelected()) update({ message: canApprove ? '已取消应用配置。' : '配置内容或锁定状态已变化，请刷新后重新应用。' });
           return;
         }
         progress({ label: '提交人工批准' });
         await context.call('actions.approve', {
           actionId: action.actionId, expectedRevision: action.revision, response: { approved: true },
         }, crypto.randomUUID());
-        if (!isCurrent()) return;
+        if (!await refreshCurrentContent()) return;
         progress({ label: '提交部署' });
         const applyJob = await context.call('install.apply', {
           planId: plan.planId, planHash: plan.planHash, approvalRef: action.actionId,
@@ -879,8 +1055,10 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
         localApply = { jobId: applyJob.jobId, planHash: plan.planHash, selection, contentRevision };
         handedOff = true;
         update({ deploying: { target, jobId: applyJob.jobId, label: '读取部署状态' } });
-        track(applyJob.jobId, profileId, target);
+        track(applyJob.jobId, profileId, target, isSelected());
         await poll();
+      } catch (error) {
+        if (isSelected()) throw error;
       } finally {
         if (!handedOff) update({ deploying: undefined });
       }

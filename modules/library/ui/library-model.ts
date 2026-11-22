@@ -83,7 +83,12 @@ export function sameDeployTarget(a: DeployTarget, b: DeployTarget): boolean {
 
 export function deployJobProgress(job: JobSnapshot, event?: JobEvent): DeployProgress {
   const planning = job.command === 'install.plan';
-  const labels: Record<JobSnapshot['state'], string> = {
+  const labels: Record<JobSnapshot['state'], string> = job.command === 'library.download.apply' ? {
+    queued: '下载排队中', preparing: '准备下载缺失模组', running: '下载缺失模组',
+    'awaiting-approval': '下载等待手动操作', committing: '写入模组缓存',
+    cancelling: '正在取消下载', succeeded: '模组下载完成',
+    cancelled: '下载已取消', failed: '下载失败', 'recovery-required': '下载需要恢复',
+  } : {
     queued: planning ? '计划排队中' : '部署排队中',
     preparing: planning ? '准备安装计划' : '准备部署',
     running: planning ? '生成安装计划' : '部署中',

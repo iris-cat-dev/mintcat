@@ -419,6 +419,46 @@ mod tests {
     }
 
     #[test]
+    fn automatic_download_targets_added_mods_without_overriding_a_pinned_version() {
+        use mintcat_sdk::{DownloadMode, ModsUpdateBatchParams};
+
+        let (_root, store, auth, mut request) = fixture();
+        request.reference.version_id = Some("v1".into());
+        let target = store.source_add_target(&auth, &request).unwrap();
+        let pinned = store.commit_source_add(&auth, "pinned", &request, &target, &metadata()).unwrap();
+
+        request.reference.version_id = None;
+        request.expected_content_revision = pinned.content_revision;
+        let mut newer = metadata();
+        newer.versions.push(SourceAddVersion {
+            version_id: "v2".into(), remote_file_id: Some("file2".into()), file_size: 12, display_version: "2.0.0".into(),
+        });
+        newer.selected_version_id = Some("v2".into());
+        let target = store.source_add_target(&auth, &request).unwrap();
+        store.commit_source_add(&auth, "re-add", &request, &target, &newer).unwrap();
+
+        request.reference.remote_mod_id = "99".into();
+        let unrelated = store.source_add_target(&auth, &request).unwrap();
+        let revision = store.commit_source_add(&auth, "unrelated", &request, &unrelated, &metadata()).unwrap().content_revision;
+
+        let download = ModsUpdateBatchParams {
+            profile_id: request.profile_id,
+            expected_content_revision: revision,
+            profile_mod_ids: Some(vec![pinned.profile_mod_id.clone()]),
+            version_policy: None,
+            mode: Some(DownloadMode::PrepareAndApply),
+        };
+        let lock = format!("sha256:{}", "1".repeat(64));
+        let first = store.start_added_mod_download(&auth, "add-job", "generation", &lock, &download).unwrap().unwrap();
+        let plan = store.download_execution_plan(&auth, &first.operation.operation_id).unwrap();
+        assert_eq!(plan.items.into_iter().map(|item| (item.profile_mod_id, item.resolved_version, item.selection)).collect::<Vec<_>>(),
+            vec![(pinned.profile_mod_id, "v1".into(), None)]);
+        let replay = store.start_added_mod_download(&auth, "add-job", "next-generation", &lock, &download).unwrap().unwrap();
+        assert!(!replay.created);
+        assert_eq!(replay.operation.operation_id, first.operation.operation_id);
+    }
+
+    #[test]
     fn stale_incarnation_wrong_game_and_active_guard_roll_back_every_source_row() {
         let (_root, store, auth, request) = fixture();
         let target = store.source_add_target(&auth,&request).unwrap();

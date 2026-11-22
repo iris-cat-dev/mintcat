@@ -44,6 +44,22 @@ export interface BackupModel {
   attach(): Promise<void>;
   clearCompletedTasks(): void;
 }
+
+export const legacyImportScope = '导入旧版 SQLite 中的模组库数据，保留已注册的游戏目录，不改动旧版数据库，也不覆盖已有配置档案或其他库数据。';
+export const portableRestoreScope = '将便携归档恢复到空模组库。便携归档不包含凭据。';
+export function isLegacyImportAction(action: ActionRequired): boolean {
+  return action.kind === 'backup-owner-import' && (action.target.method === 'library.import-legacy'
+    || (action.target.method === 'library.config-import' && action.target.ownerId === 'mintcat.library'));
+}
+
+function isCompletedLegacyImport(snapshot?: JobSnapshot): boolean {
+  if (snapshot?.state !== 'succeeded') return false;
+  if (snapshot.command === 'library.import-legacy') return true;
+  // Configuration imports share a command; only SQLite jobs return a legacy import report.
+  const report = snapshot.result;
+  return snapshot.command === 'library.config-import' && typeof report === 'object' && report !== null
+    && 'alreadyImported' in report && typeof report.alreadyImported === 'boolean';
+}
 const stateLabels: Record<string, string> = {
   queued: '排队中', running: '执行中', 'awaiting-approval': '等待人工批准', succeeded: '已完成', failed: '失败', cancelled: '已取消',
 };
@@ -66,7 +82,7 @@ function formatDate(value: string): string {
   return Number.isNaN(date.getTime()) ? value || '-' : date.toLocaleString();
 }
 
-export function BackupView({ model }: { model: BackupModel }) {
+export function BackupView({ model, guided = false, detectedLegacyPath }: { model: BackupModel; guided?: boolean; detectedLegacyPath?: string }) {
   const { React, Antd, Icons } = getSharedRuntime();
   const h = React.createElement;
   const { Alert, Button, Card, Checkbox, Collapse, Flex, Input, Select, Space, Table, Tag, Typography } = Antd;
@@ -112,26 +128,30 @@ export function BackupView({ model }: { model: BackupModel }) {
     const snapshot = view?.snapshot;
     const action = view?.action;
     const state = snapshot?.state;
+    const legacyApproval = action !== undefined && isLegacyImportAction(action);
+    const legacyCompleted = isCompletedLegacyImport(snapshot);
     return {
       key: task.jobId,
       label: h(Space, { size: 8, wrap: true },
         h(Typography.Text, { strong: true }, snapshot ? commandLabels[snapshot.command as BackupMethod] ?? snapshot.command : '后台任务'),
-        h(Tag, { color: state === 'succeeded' ? 'success' : state === 'failed' ? 'error' : state === 'awaiting-approval' ? 'warning' : 'processing' }, state ? stateLabels[state] ?? state : '读取中'),
+        h(Tag, { color: state === 'succeeded' ? 'success' : state === 'failed' ? 'error' : state === 'awaiting-approval' ? 'warning' : 'processing' }, legacyCompleted ? '旧版数据已导入' : state ? stateLabels[state] ?? state : '读取中'),
         h(Typography.Text, { type: 'secondary', code: true }, task.jobId)),
       children: h(Flex, { vertical: true, gap: 12 },
         error(view?.error ?? ''),
+        legacyCompleted ? h(Alert, { type: 'success', showIcon: true, message: '旧版数据导入完成', description: '已注册的游戏目录保持不变。请返回模组库查看迁移结果。' }) : null,
         code({ targetPath: task.targetPath || undefined, snapshot }),
         h(Collapse, { size: 'small', items: [{ key: 'events', label: `任务事件（${view?.events.length ?? 0}）`, children: code(view?.events ?? []) }] }),
         state === 'awaiting-approval' && !action ? h(Alert, { type: 'warning', showIcon: true, message: '保留的事件中尚无批准操作 ID，不会猜测或绕过人工批准。' }) : null,
         action ? h(Card, { size: 'small', title: h(Space, null, icon('SafetyCertificateOutlined'), '独立人工批准') },
+          action.kind === 'backup-owner-import' ? h(Typography.Paragraph, null, legacyApproval ? legacyImportScope : portableRestoreScope) : null,
           h(Typography.Paragraph, { type: 'secondary' }, '请核对冻结输入、schema、模块依赖与写入栅栏。批准前会再次读取并逐项比较当前操作，提交 expectedRevision；确认不是任务完成。'),
           code(action),
           action.state === 'pending' && action.kind === 'backup-owner-import' ? h(Flex, { vertical: true, gap: 12 },
-            h(Checkbox, {
+            legacyApproval ? h(Checkbox, {
               checked: model.tasks.credentials[action.actionId] === true,
               onChange: (event: { target: { checked: boolean } }) => model.setCredentials(action.actionId, event.target.checked),
-            }, '明确导入旧版输入中的凭据（便携归档不包含凭据）'),
-            actionButton(`approve:${action.actionId}`, '批准已审阅的冻结导入', () => model.approve(task, action, model.tasks.credentials[action.actionId] === true), { primary: true })) : null) : null,
+            }, '明确同意将旧版凭据导入系统凭据库（默认不导入）') : null,
+            actionButton(`approve:${action.actionId}`, '批准已审阅的冻结导入', () => model.approve(task, action, legacyApproval && model.tasks.credentials[action.actionId] === true), { primary: true })) : null) : null,
         state === 'succeeded' && snapshot?.command === 'backup.cloud.download' && task.targetPath
           ? h(Flex, { vertical: true, gap: 8 },
             h(Typography.Text, { type: 'secondary' }, `已下载至 ${task.targetPath}。恢复将创建新的导入任务，仍需独立人工批准。`),
@@ -142,8 +162,29 @@ export function BackupView({ model }: { model: BackupModel }) {
   const hasActiveOrPendingTasks = model.tasks.pending.length > 0 || jobItems.length > 0;
   const cloudUnconfigured = model.historyError.includes('云备份未配置') && model.records.length === 0;
 
-  return h('section', { className: 'mintcat-backup-page', 'aria-label': '备份设置' },
-    h('div', { className: 'mintcat-backup-header' },
+  const restoreRow = h('div', { className: 'mintcat-backup-row' },
+    h('div', { className: 'mintcat-backup-row-info' },
+      h('div', { className: 'mintcat-backup-row-title' }, '从归档文件恢复'),
+      h('div', { className: 'mintcat-backup-row-desc' }, '将便携 .json 归档恢复至当前空模组库，提交后经人工核对确认生效。')),
+    h(Space.Compact, { className: 'mintcat-backup-row-control' },
+      pathInput('source', '待恢复归档路径', '输入待恢复的 .json 归档完整路径'),
+      h(Button, { icon: icon('FolderOpenOutlined'), disabled: !!model.busy, onClick: () => void browseOpen('source', '选择便携备份归档 (.json)', ['json']) }, '浏览'),
+      actionButton('restore', '恢复归档', model.restoreArchive, { icon: icon('RollbackOutlined') })));
+  const legacyRow = h('div', { className: 'mintcat-backup-row' },
+    h('div', { className: 'mintcat-backup-row-info' },
+      h('div', { className: 'mintcat-backup-row-title' }, '旧版数据库迁移 (SQLite)'),
+      h('div', { className: 'mintcat-backup-row-desc' }, guided
+        ? detectedLegacyPath && model.fields.legacySource === detectedLegacyPath
+          ? '已检测到旧版 mintcat.sqlite。直接点击迁移即可审阅，不会改动旧文件。'
+          : '可选择旧版 mintcat.sqlite，Windows 上通常位于 %APPDATA%\\com.mint.cat。'
+        : '从旧版 MintCat 数据库导入模组列表与配置，账号凭据需在批准时单独勾选。')),
+    h(Space.Compact, { className: 'mintcat-backup-row-control' },
+      pathInput('legacySource', '旧版 SQLite 路径', '旧版 SQLite 数据库完整路径'),
+      h(Button, { icon: icon('FolderOpenOutlined'), disabled: !!model.busy, onClick: () => void browseOpen('legacySource', '选择旧版 MintCat SQLite 数据库', ['sqlite', 'db', 'sqlite3']) }, '浏览'),
+      actionButton('legacy-import', '迁移旧版数据', model.importLegacy)));
+
+  return h('section', { className: guided ? 'mintcat-backup-page mintcat-setup-backup' : 'mintcat-backup-page', 'aria-label': guided ? '配置导入' : '备份设置' },
+    guided ? null : h('div', { className: 'mintcat-backup-header' },
       h('div', { className: 'mintcat-backup-heading' },
         h('h2', { className: 'mintcat-backup-title' }, '备份与恢复'),
         h('p', { className: 'mintcat-backup-subtitle' }, '导出或恢复本机便携备份文件，按需同步云端快照或从旧版迁移配置。'))),
@@ -180,7 +221,8 @@ export function BackupView({ model }: { model: BackupModel }) {
         }) : null)) : null,
 
     /* Group 1: Clean Flat Rows for Local Portable Archive */
-    h('div', { className: 'mintcat-backup-group' },
+    guided ? h('div', { className: 'mintcat-backup-group' },
+      h('div', { className: 'mintcat-backup-rows' }, legacyRow, restoreRow)) : h('div', { className: 'mintcat-backup-group' },
       h('div', { className: 'mintcat-backup-group-header' },
         h('div', { className: 'mintcat-backup-group-title-row' },
           h('h3', { className: 'mintcat-backup-group-title' }, '离线便携归档'),
@@ -195,17 +237,10 @@ export function BackupView({ model }: { model: BackupModel }) {
             h(Button, { icon: icon('FolderOpenOutlined'), disabled: !!model.busy, onClick: () => void browseSave('output') }, '浏览'),
             actionButton('export', '导出离线备份', model.exportArchive, { primary: true, icon: icon('DownloadOutlined') }))),
 
-        h('div', { className: 'mintcat-backup-row' },
-          h('div', { className: 'mintcat-backup-row-info' },
-            h('div', { className: 'mintcat-backup-row-title' }, '从归档文件恢复'),
-            h('div', { className: 'mintcat-backup-row-desc' }, '将便携 .json 归档恢复至当前空模组库，提交后经人工核对确认生效。')),
-          h(Space.Compact, { className: 'mintcat-backup-row-control' },
-            pathInput('source', '待恢复归档路径', '输入待恢复的 .json 归档完整路径'),
-            h(Button, { icon: icon('FolderOpenOutlined'), disabled: !!model.busy, onClick: () => void browseOpen('source', '选择便携备份归档 (.json)', ['json']) }, '浏览'),
-            actionButton('restore', '恢复归档', model.restoreArchive, { icon: icon('RollbackOutlined') }))))),
+        restoreRow)),
 
     /* Group 2: Cloud Backup */
-    h('div', { className: 'mintcat-backup-group', id: 'cloud-snapshot-sync', role: 'region', 'aria-label': '云端快照同步', tabIndex: -1 },
+    guided ? null : h('div', { className: 'mintcat-backup-group', id: 'cloud-snapshot-sync', role: 'region', 'aria-label': '云端快照同步', tabIndex: -1 },
       h('div', { className: 'mintcat-backup-group-header' },
         h('div', { className: 'mintcat-backup-group-title-row' },
           h('h3', { className: 'mintcat-backup-group-title' }, '云端快照同步'),
@@ -238,7 +273,7 @@ export function BackupView({ model }: { model: BackupModel }) {
           }))),
 
     /* Group 3: Folded Advanced Migration & Recovery Tools */
-    h(Collapse, {
+    guided ? null : h(Collapse, {
       className: 'mintcat-backup-advanced',
       items: [{
         key: 'advanced',
@@ -246,14 +281,7 @@ export function BackupView({ model }: { model: BackupModel }) {
           h('span', { className: 'mintcat-backup-advanced-title' }, '高级数据迁移与维护工具'),
           h('span', { className: 'mintcat-backup-advanced-sub' }, '旧版 SQLite 数据库迁移 · 配置快照导入 · 维护状态自检 · 关联任务 ID')),
         children: h('div', { className: 'mintcat-backup-rows mintcat-backup-rows--flush' },
-          h('div', { className: 'mintcat-backup-row' },
-            h('div', { className: 'mintcat-backup-row-info' },
-              h('div', { className: 'mintcat-backup-row-title' }, '旧版数据库迁移 (SQLite)'),
-              h('div', { className: 'mintcat-backup-row-desc' }, '从旧版 MintCat 数据库导入模组列表与配置，账号凭据需在批准时单独勾选。')),
-            h(Space.Compact, { className: 'mintcat-backup-row-control' },
-              pathInput('legacySource', '旧版 SQLite 路径', '旧版 SQLite 数据库完整路径'),
-              h(Button, { icon: icon('FolderOpenOutlined'), disabled: !!model.busy, onClick: () => void browseOpen('legacySource', '选择旧版 MintCat SQLite 数据库', ['sqlite', 'db', 'sqlite3']) }, '浏览'),
-              actionButton('legacy-import', '迁移旧版数据', model.importLegacy))),
+          legacyRow,
 
           h('div', { className: 'mintcat-backup-row' },
             h('div', { className: 'mintcat-backup-row-info' },

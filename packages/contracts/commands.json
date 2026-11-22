@@ -2002,6 +2002,31 @@
       "agentExposed": true
     },
     {
+      "method": "install.restoreLegacyCache",
+      "contractVersion": 1,
+      "paramsSchema": "#/$defs/InstallRestoreLegacyCacheParams",
+      "resultSchema": "#/$defs/InstallRestoreLegacyCacheResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
+      "confirmation": "none",
+      "errorCodes": [
+        "INVALID_ARGUMENT",
+        "NOT_FOUND",
+        "RESOURCE_BUSY",
+        "REVISION_CONFLICT",
+        "PERMISSION_DENIED",
+        "INCOMPATIBLE_CONTRACT"
+      ],
+      "summary": "Restore verified local legacy caches for enabled mods in one profile without deploying them.",
+      "cli": [
+        "install",
+        "restore-legacy-cache"
+      ],
+      "agentExposed": false
+    },
+    {
       "method": "agent.credentials.status",
       "contractVersion": 1,
       "paramsSchema": "#/$defs/AgentCredentialStatusParams",

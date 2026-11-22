@@ -45,8 +45,11 @@ export interface SessionState { schemaVersion: number; value: Json }
 export class SessionStore {
   private states = new Map<string, SessionState>();
   constructor(private storage?: Storage, private key = 'mintcat.workbench.session.v1') {
+    this.reload();
+  }
+  reload(): void {
     try {
-      const saved: unknown = JSON.parse(storage?.getItem(key) ?? '{}');
+      const saved: unknown = JSON.parse(this.storage?.getItem(this.key) ?? '{}');
       if (saved && typeof saved === 'object') {
         for (const [id, state] of Object.entries(saved)) {
           if (state && typeof state === 'object' && typeof state.schemaVersion === 'number' && 'value' in state) {
@@ -66,10 +69,44 @@ export class SessionStore {
   set(id: string, schemaVersion: number, value: Json): void {
     const serialized = JSON.stringify(value);
     if (serialized.length > 256 * 1024) throw new Error('UI session state exceeds limit');
+    // A separate setup window can write another page's state between updates.
+    this.reload();
     this.states.set(id, { schemaVersion, value: JSON.parse(serialized) as Json });
     try { this.storage?.setItem(this.key, JSON.stringify(Object.fromEntries(this.states))); }
     catch { /* Session state remains available in this WebView when storage is full. */ }
   }
+}
+export type UiOnlineModJob = { jobId: string; profileId: string; downloadFollowed?: true };
+export interface UiOnlineModJobs {
+  list(): UiOnlineModJob[];
+  track(jobId: string, profileId: string): void;
+  followDownload(parentJobId: string, downloadJobId: string): void;
+  dismiss(jobIds: ReadonlySet<string>): void;
+}
+export function createOnlineModJobs(session: SessionStore): UiOnlineModJobs {
+  const key = 'workbench/online-mod-jobs';
+  const list = () => session.get<UiOnlineModJob[]>(key, 1, []);
+  return {
+    list,
+    track(jobId, profileId) {
+      const jobs = list();
+      if (!jobs.some(job => job.jobId === jobId)) session.set(key, 1, [...jobs, { jobId, profileId }]);
+    },
+    followDownload(parentJobId, downloadJobId) {
+      const jobs = list();
+      const parent = jobs.find(job => job.jobId === parentJobId);
+      if (!parent || parent.downloadFollowed || parentJobId === downloadJobId) return;
+      // Remember discovery independently of the child so dismissing it never recreates it.
+      parent.downloadFollowed = true;
+      if (!jobs.some(job => job.jobId === downloadJobId)) jobs.push({ jobId: downloadJobId, profileId: parent.profileId });
+      session.set(key, 1, jobs);
+    },
+    dismiss(jobIds) {
+      const jobs = list();
+      const remaining = jobs.filter(job => !jobIds.has(job.jobId));
+      if (remaining.length !== jobs.length) session.set(key, 1, remaining);
+    },
+  };
 }
 export class QueryCache {
   private values = new Map<string, { value: unknown; expires: number }>();
@@ -110,6 +147,8 @@ export interface UiContext {
   readonly moduleId: string;
   readonly signal: AbortSignal;
   readonly toolbar?: HTMLElement;
+  /** Shared view preferences for displaying persisted online-add/download jobs; not job authority. */
+  readonly onlineModJobs: UiOnlineModJobs;
   own<T extends Disposable>(disposable: T): T;
   onInventoryChanged(listener: () => void | Promise<void>): Disposable;
   call<M extends CommandName>(method: M, params: CommandParams[M], idempotencyKey?: string): Promise<CommandResult[M]>;

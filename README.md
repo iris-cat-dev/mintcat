@@ -37,13 +37,19 @@ This README describes the current architecture. [The earlier modular design](doc
 pnpm install
 cargo build              # Default desktop, CLI and builtin daemon; no game builds.
 pnpm check
-pnpm dev                 # Actual native Tauri host; builds its daemon first.
+pnpm dev                 # Native Tauri host + locally signed DRG and Rogue Core.
 pnpm --filter @mintcat/desktop-vnext dev  # Browser-only preview; no native RPC.
 ```
 
+On the first native development launch, `pnpm dev` follows the legacy `origin/dev` OSS `update.json` download path: Hangzhou first, Singapore as fallback. It fetches the pinned stable Windows patches `DRG.zip` 0.9.0 and `RC.zip` 0.11.0, checks size, manifest MD5 and the checked-in SHA-256, then builds and signs both game workers into `dev-games.local/online`. Later starts reuse that local repository without downloading. The daemon still verifies both signed releases before activating them; production packaging is unchanged.
+
+The automatic development config enables mod.io, ModCat and Nexus Mods for games that bind them. An existing generated config without `sources` gains those defaults without changing its signed release pins. The Online Mods page guides users to the provider's own credential page when authorization is required. Credentials are stored separately in the OS vault; explicit runtime overrides are never modified.
+
+`MINTCAT_RUNTIME_CONFIG` (absolute path) overrides `dev-games.local/runtime.json`, which in turn overrides automatic provisioning. A local override pins both `game:drg` and `game:rogue-core` in a `schemaVersion: 2` configuration with `trustRoot`, `verificationPolicy`, and `repositoryPath`; relative paths resolve from that file. Restart the daemon after changing the configuration. Keep `dev-games.local/publisher.seed` private and retain it with the dev repository; do not clear a pinned trust root to force a refresh.
+
 The old desktop, renderer task executor, CLI bridge and DLL installation entrypoints are retired. Every CLI/daemon development entry requires an explicit data directory through `--data-dir` or `MINTCAT_DATA_DIR`; it never infers the legacy `com.mint.cat` database path.
 
-Local development bundles use `com.mint.cat.vnext.local`. On macOS, a release-mode local app defaults to `~/Library/Application Support/com.mint.cat.vnext.local/vnext`; a debug host uses `isolated-vnext-development` under the same application directory. Earlier `com.mint.cat.vnext.dev` data and production data are not migrated implicitly. Keep local module signing seeds outside shipped artifacts and build-cleanup directories, with mode `0600`; retain them for subsequent signed updates. Replacing a pinned root is not a repair for missing Library data and requires an explicit trust migration or a separate data directory.
+Desktop builds and native installers use `work.mintcat.vnext`. Installed builds default to the OS application-data directory for that identifier with a `vnext` subdirectory; debug hosts use `isolated-vnext-development`. Changing the identifier does not move or remove data from older packages. Use the setup guide to import a 0.5 configuration, or restore a vNext backup to move an existing vNext library. Keep local module signing seeds outside shipped artifacts and build-cleanup directories, with mode `0600`. Replacing a pinned trust root is not a repair for missing Library data.
 
 Without game plugins, builtin Library, Agent and backup remain available. Existing games, Profiles and Mods can still be browsed and edited. Discovery, game-specific import/install and source bindings require the corresponding verified game adapter. Search offers configured sources intersecting that adapter's bindings; a supported but unenrolled game can be browsed before a target Profile is created.
 
@@ -132,6 +138,8 @@ cargo test -p mintcat-runtime-transfers
 
 `runtime/downloads` is the single coordinator between source providers, shared transfers, the artifact store, durable jobs, and the Library owner. `mods.setVersion` resolves one exact version/file plan and commits the operation plus outbox before returning its `jobId`; it does not change the requested or effective Profile version early. `cache-only` records verified content without taking a Profile-content lease, while `prepare-and-apply` holds the Profile lease and switches every declared binding and version selection in one fenced Library transaction only after every item has a live verified grant.
 
+After `mods.add` records a remote mod and its requested dependencies in a Profile, the daemon immediately schedules a linked download for their uncached selected versions. Follow both jobs in Download Manager. A download failure does not remove the added entries; a successful download verifies and binds cached files without deploying to the game. Providers that require authorization can pause the download for confirmation.
+
 Verified items from a failed batch remain cache entries, but the Profile keeps all prior bindings and its prior content revision. Cancellation revokes Library commit authority before detaching transfer consumers. Provider interactions remain durable actions bound to the operation plan and its frozen authority. Safe checkpoints resume with a fresh fence only while source identity still matches; a crash after the Library commit is reconciled from the recorded operation result instead of applying a second revision.
 
 ```shell
@@ -193,6 +201,8 @@ cargo test -p mintcat-loader-ue4ss
 
 The builder stages immutable grants away from the selected game root, produces the legacy-compatible DRG mod PAK, verifies every planned output through the Unreal engine, and publishes content-addressed artifacts. Deployment requires the signed DRG patch plan, exact per-target preconditions, and native-code approval for the hook DLL. Legacy detection reports only recognized takeover files; audio-name matches and shared loader directories remain foreign.
 
+With UE4SS enabled and present in the signed game bundle, a ZIP containing a PAK can also deploy its root `main.dll` and `js/` mod tree. They are retained in the same install transaction and require the applicable native-code and script approvals. Registering a verified game root reconciles an imported path to the same main PAK without creating a duplicate installation.
+
 DRG installation-path algorithms, Blueprint patches, raw assets, and compatibility PAK integration live in `modules/game-drg/src/integrator`. Rogue Core owns its separate `modules/game-rogue-core/src/integrator`, including the UE 5.6 UE4SS policy. `algorithms/mintcat-integrator-core` contains only shared `common`, `uasset_utils`, progress and validation helpers; it has no game-builder features or game-specific exports. Each game's normal dependency graph excludes the other game.
 
 ```shell
@@ -238,7 +248,9 @@ The daemon owns one Library writer at `state/mintcat.library/library.sqlite`; GU
 
 The daemon replays Library outbox rows into `runtime/jobs` with the Library operation ID as the kernel idempotency key, then `runtime/downloads` executes that fixed plan. It marks an event delivered only after durable job registration. Restart or heartbeat expiry changes an active lease to `suspect`/`recovery-required`; safe job checkpoints requeue and resume under a fresh fence. Internal owner recovery snapshots retain operational state; portable user backup format2 excludes executable outbox, mutation receipts and leases rather than transplanting task authority.
 
-`LibraryStore::import_legacy` opens an explicitly selected legacy database read-only and reads one SQLite transaction, so committed WAL rows are included without copying or modifying the old database. The importer records every legacy ID mapping, preserves order/enabled/`usedVersion`, and retains old cache paths and `installedHash` only as unverified migration hints—not artifacts or installation receipts. Non-empty OAuth values must be moved through a `CredentialVault`; only its opaque keychain reference can enter Library storage.
+`LibraryStore::import_legacy` opens an explicitly selected legacy database read-only and reads one SQLite transaction, including committed WAL rows without modifying the old database. The daemon freezes that snapshot and requests approval before writing to the empty Library. The importer records legacy ID mappings, preserves order/enabled/`usedVersion`, and retains old cache paths and `installedHash` only as unverified migration hints—not artifacts or installation receipts. Approval can exclude OAuth credentials even when the source contains them. If credential migration is explicitly approved, secrets go through `CredentialVault` and only opaque keychain references enter Library storage.
+
+To recover a migrated Profile's enabled ZIP/PAK files without replacing memberships or re-downloading, stop the daemon and run `mintcatd --data-dir <directory> restore-legacy-cache --profile-id <id> --expected-content-revision <revision>`. Review the candidates, then repeat with `--apply`. The batch is bound only if every missing enabled input matches its recorded version and passes local archive validation. This verifies the captured bytes, not their remote provenance; game deployment still requires a separate plan and approval.
 
 The legacy `rc` game key becomes canonical `rogue-core` / `game:rogue-core` during import, including linked profiles, Mods, installations, hints and per-game settings. Source-specific remote namespaces remain migration metadata; this is not a permanent game API alias.
 
@@ -281,7 +293,7 @@ pnpm game pack modules/game-drg --target aarch64-apple-darwin \
 pnpm game release --help
 ```
 
-`check` and `pack` build only the selected game and validate its required signed payload. The official DRG and Rogue Core projects currently lack authentic `resources/drg-patch.zip` and `resources/rogue-core-patch.zip`; packaging deliberately refuses until those inputs are supplied. Generic `new/dev` scaffolding and a standalone UI host are retired.
+`check` and `pack` build only the selected game and validate its required signed payload. Supply the patch archive in the project's `payload/resources/` directory, or use `pack --patch-archive <zip>` to stage it without modifying the source tree. The development launcher uses the latter for the verified OSS downloads; production packaging does not fetch or sign them automatically.
 
 For mechanism-only verification, `node tools/module-dev/smoke-games.mjs --help` describes isolated TEST-ONLY fixtures using real workers. It exercises check/pack/stage and actual worker authorization, and rejects marker-only archives before deployment. Those fixtures are not installable game resources.
 

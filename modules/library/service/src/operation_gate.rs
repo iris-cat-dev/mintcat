@@ -5,7 +5,7 @@ use std::{
 
 use mintcat_runtime_artifacts::ArtifactGrant;
 use mintcat_sdk::{
-    ArtifactGrantDescriptor, ArtifactRef, DownloadMode, ModsSetVersionParams,
+    ArtifactGrantDescriptor, ArtifactRef, BatchVersionPolicy, DownloadMode, ModsSetVersionParams,
     ModsUpdateBatchParams, OperationFence, VersionSelection, VersionSelectionKind,
 };
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
@@ -328,6 +328,23 @@ struct StoredItem {
     apply_selection_kind: Option<String>,
     apply_selected_version_id: Option<String>,
     artifact: Option<ArtifactRef>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BatchDownloadPolicy {
+    Latest,
+    AfterAdd,
+    Selected,
+}
+
+impl BatchDownloadPolicy {
+    fn idempotency_scope(self) -> &'static str {
+        match self {
+            Self::Latest => "mods.update-batch",
+            Self::AfterAdd => "mods.add.download",
+            Self::Selected => "mods.update-batch.selected",
+        }
+    }
 }
 
 impl OwnerStore { pub fn acquire_profile_content_guard(
@@ -843,11 +860,66 @@ pub fn start_batch_version_download(
     module_lock_digest: &str,
     request: &ModsUpdateBatchParams,
 ) -> Result<StartedDownloadOperation, LibraryError> {
+    let policy = match request.version_policy {
+        None => BatchDownloadPolicy::Latest,
+        Some(BatchVersionPolicy::Selected) => BatchDownloadPolicy::Selected,
+    };
+    self.start_batch_download(authorization, idempotency_key, owner_generation, module_lock_digest, request, policy)?
+        .ok_or_else(|| LibraryError::InvalidRecord(match policy {
+            BatchDownloadPolicy::Selected => "no enabled mods from a supported online source were found among the requested ids".to_owned(),
+            _ => "no updatable remote mods were found for this operation".to_owned(),
+        }))
+}
+
+pub fn start_added_mod_download(
+    &self,
+    authorization: &LibraryAuthorization,
+    idempotency_key: &str,
+    owner_generation: &str,
+    module_lock_digest: &str,
+    request: &ModsUpdateBatchParams,
+) -> Result<Option<StartedDownloadOperation>, LibraryError> {
+    if request.profile_mod_ids.as_ref().is_none_or(Vec::is_empty) {
+        return Err(LibraryError::InvalidRecord("online add requires explicit profile mod ids".into()));
+    }
+    self.start_batch_download(authorization, idempotency_key, owner_generation, module_lock_digest, request, BatchDownloadPolicy::AfterAdd)
+}
+
+fn start_batch_download(
+    &self,
+    authorization: &LibraryAuthorization,
+    idempotency_key: &str,
+    owner_generation: &str,
+    module_lock_digest: &str,
+    request: &ModsUpdateBatchParams,
+    policy: BatchDownloadPolicy,
+) -> Result<Option<StartedDownloadOperation>, LibraryError> {
     authorization.require_content_write()?;
+    let selected = policy == BatchDownloadPolicy::Selected;
+    if selected && request.profile_mod_ids.as_ref().is_none_or(Vec::is_empty) {
+        return Err(LibraryError::InvalidRecord("selected downloads require explicit profile mod ids".into()));
+    }
+    let after_add = policy == BatchDownloadPolicy::AfterAdd;
     let mut connection = self.connection()?;
     let transaction = connection.transaction()?;
     let profile = load_profile_gate(&transaction, &request.profile_id)?;
     authorize_owner(authorization, &profile.owner_scope)?;
+    let scope = policy.idempotency_scope();
+    if after_add {
+        // Recovery can arrive after the child has already updated the profile revision.
+        let operation_id: Option<String> = transaction.query_row(
+            "SELECT operation_id FROM library_download_operations
+             WHERE owner_scope = ?1 AND idempotency_scope = ?2 AND idempotency_key = ?3 AND profile_id = ?4",
+            params![authorization.owner_scope(), scope, idempotency_key, request.profile_id],
+            |row| row.get(0),
+        ).optional()?;
+        if let Some(id) = operation_id {
+            return Ok(Some(StartedDownloadOperation {
+                operation: load_operation(&transaction, &id)?.into_snapshot(),
+                created: false,
+            }));
+        }
+    }
     if profile.content_revision != request.expected_content_revision {
         return Err(LibraryError::RevisionConflict {
             expected: request.expected_content_revision,
@@ -862,18 +934,27 @@ pub fn start_batch_version_download(
     let mut statement = transaction.prepare(
         "SELECT pm.profile_mod_id, pm.incarnation_id, pm.mod_id, m.source_id,
                 m.remote_game_key, m.remote_mod_id, binding.version_id,
-                v.version_id, v.remote_file_id, v.artifact_digest
+                v.version_id, v.remote_file_id,
+                CASE WHEN ?3 AND binding.version_id = v.version_id
+                     THEN binding.artifact_digest ELSE v.artifact_digest END
          FROM library_profile_mods pm
          JOIN library_mods m ON m.mod_id = pm.mod_id
          LEFT JOIN library_profile_content_bindings binding
            ON binding.profile_mod_id = pm.profile_mod_id
-         JOIN library_mod_versions v
-           ON v.mod_id = m.mod_id AND v.current = 1
+         LEFT JOIN library_mod_versions v
+           ON v.mod_id = m.mod_id AND
+              CASE WHEN (?2 OR ?3) AND pm.version_selection_kind = 'pinned'
+                     THEN v.version_id = pm.selected_version_id
+                   WHEN ?3 AND binding.version_id IS NOT NULL
+                     THEN v.version_id = binding.version_id
+                   ELSE v.current = 1 END
          WHERE pm.profile_id = ?1 AND m.source_id <> 'local'
+           AND CASE WHEN ?3 THEN pm.enabled = 1 AND m.source_id IN ('modio', 'modcat', 'nexusmods')
+                    ELSE v.version_id IS NOT NULL END
          ORDER BY pm.sort_order, pm.profile_mod_id",
     )?;
     let rows = statement
-        .query_map([&request.profile_id], |row| {
+        .query_map(params![request.profile_id, after_add, selected], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -882,7 +963,7 @@ pub fn start_batch_version_download(
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
                 row.get::<_, Option<String>>(6)?,
-                row.get::<_, String>(7)?,
+                row.get::<_, Option<String>>(7)?,
                 row.get::<_, Option<String>>(8)?,
                 row.get::<_, Option<String>>(9)?,
             ))
@@ -899,7 +980,7 @@ pub fn start_batch_version_download(
         remote_game_key,
         source_mod_id,
         applied_version_id,
-        current_version_id,
+        resolved_version,
         source_file_id,
         expected_digest,
     ) in rows
@@ -911,7 +992,19 @@ pub fn start_batch_version_download(
             if !allowed.contains(profile_mod_id.as_str()) {
                 continue;
             }
-        } else if applied_version_id.as_deref() == Some(current_version_id.as_str()) {
+        }
+        let Some(resolved_version) = resolved_version.filter(|version| {
+            // This migrated sentinel represents a cache path, not a provider version.
+            !(selected && mod_id.starts_with("mod:legacy:") && version == "legacy-unversioned")
+        }) else {
+            return Err(LibraryError::InvalidRecord(format!(
+                "no saved version is available for {profile_mod_id}; select a specific version before retrying"
+            )));
+        };
+        if filter.is_none() && applied_version_id.as_deref() == Some(resolved_version.as_str()) {
+            continue;
+        }
+        if after_add && (applied_version_id.as_deref() == Some(resolved_version.as_str()) || source_file_id.is_none()) {
             continue;
         }
         items.push(StartOperationItem {
@@ -923,19 +1016,17 @@ pub fn start_batch_version_download(
             source_mod_id,
             remote_game_key,
             source_file_id,
-            resolved_version: current_version_id,
+            resolved_version,
             expected_digest,
             validator: None,
-            selection: Some(VersionSelection {
+            selection: (policy == BatchDownloadPolicy::Latest).then_some(VersionSelection {
                 kind: VersionSelectionKind::Auto,
                 version_id: None,
             }),
         });
     }
     if items.is_empty() {
-        return Err(LibraryError::InvalidRecord(
-            "no updatable remote mods were found for this operation".to_owned(),
-        ));
+        return Ok(None);
     }
     let target_incarnation_id = profile.incarnation_id;
     transaction.commit()?;
@@ -944,7 +1035,7 @@ pub fn start_batch_version_download(
     self.start_download_operation(
         authorization,
         &StartDownloadOperation {
-            idempotency_scope: "mods.update-batch".to_owned(),
+            idempotency_scope: scope.to_owned(),
             idempotency_key: idempotency_key.to_owned(),
             profile_id: request.profile_id.clone(),
             expected_content_revision: request.expected_content_revision,
@@ -958,6 +1049,7 @@ pub fn start_batch_version_download(
             items,
         },
     )
+    .map(Some)
 }
 
 pub fn download_execution_plan(

@@ -211,7 +211,7 @@ fn register_path(
     Ok(())
 }
 
-fn validate_zip_type(entry: &zip::read::ZipFile<'_>) -> Result<(), String> {
+fn validate_zip_type<R: Read>(entry: &zip::read::ZipFile<'_, R>) -> Result<(), String> {
     let Some(mode) = entry.unix_mode() else {
         return Ok(());
     };

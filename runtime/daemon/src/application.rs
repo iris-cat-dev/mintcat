@@ -339,10 +339,25 @@ async fn dispatch(state: Arc<DaemonState>, request: ValidatedRequest, principal:
             .await
             .map_err(|error| Box::new(internal_error(&id, error.to_string())))?
         }
+        Command::InstallRestoreLegacyCache(input) => {
+            let input = input.clone();
+            let id2 = id.clone();
+            let key = request.envelope.idempotency_key.clone().expect("validated mutation key");
+            tokio::task::spawn_blocking(move || {
+                let _admission = MaintenanceGate::enter_mutation(&state.layout)
+                    .map_err(|error| failure(&id2, "RESOURCE_BUSY", "runtime.maintenance", json!({"message":error.to_string()})))?;
+                let result = super::legacy_cache::restore_available(&state, &id2, &input.profile_id, input.expected_content_revision, &key)?;
+                value(&id2, result)
+            }).await.map_err(|error| Box::new(internal_error(&id, error.to_string())))?
+        }
         Command::ModsAdd(_) => {
             let application=source(&state,&id)?; let input:mintcat_library_service::SourceAddRequest=params(&request)?;
             let key=request.envelope.idempotency_key.clone().expect("validated mutation key"); let id2=id.clone();
-            tokio::task::spawn_blocking(move || tokio::runtime::Handle::current().block_on(async {value(&id2,application.add(&key,input).await.map_err(|error|source_error(&id2,error))?)})).await.map_err(|error|Box::new(internal_error(&id,error.to_string())))?
+            tokio::task::spawn_blocking(move || tokio::runtime::Handle::current().block_on(async {
+                let job = application.add(&key, input, move |job_id, params| super::sources::submit_add_download(&state, job_id, params))
+                    .await.map_err(|error| source_error(&id2, error))?;
+                value(&id2, job)
+            })).await.map_err(|error|Box::new(internal_error(&id,error.to_string())))?
         }
         Command::ModsImportLocal(_) => {
             let application=source(&state,&id)?; let input:mintcat_source_service::ImportLocalRequest=params(&request)?;

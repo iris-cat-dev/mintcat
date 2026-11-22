@@ -36,7 +36,7 @@
   .chrome-utilities .chrome-agent-btn:not(:disabled) { color: #ffd0db; background: #5d254b; }
   .library-toolbar .library-add-button:not(:disabled) { border-color: #397c86; color: #a3f6fa; background: #142834; }
   .brand-icon-shell, .glass-primary-action.ant-btn-primary:not(:disabled), .library-install-button.ant-btn-primary:not(:disabled),
-  .chrome-settings-pill--active, .game-settings button.game-settings-save, .rescue button.rescue-btn--primary, .page-error-retry { color: var(--neon-ink); }
+  .settings-sidebar-link[aria-current="page"], .game-settings button.game-settings-save, .rescue button.rescue-btn--primary, .page-error-retry { color: var(--neon-ink); }
   .library-install-button.ant-btn-primary:not(:disabled), .brand-icon-shell { box-shadow: inset 0 -2px #bdc700; }
   .brand-lockup h1, .library-atlas h2 { color: var(--neon-yellow); }
   .app-sidebar .ant-menu-item-selected {

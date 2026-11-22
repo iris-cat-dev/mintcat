@@ -5,7 +5,7 @@ import type { ChangeEvent, ReactNode } from 'react';
 import { librarySession, loadAvailableGames, saveTarget, selectedTarget } from './game-inventory';
 import type { AvailableGame } from './game-inventory';
 
-export async function mountGameDirectories(root: HTMLElement, context: UiContext): Promise<Disposable> {
+export async function mountGameDirectories(root: HTMLElement, context: UiContext, guided = false): Promise<Disposable> {
   const initialGames = await loadAvailableGames(context);
   const { React, Antd, Icons } = getSharedRuntime();
   const h = React.createElement;
@@ -17,8 +17,33 @@ export async function mountGameDirectories(root: HTMLElement, context: UiContext
     const [rootPath, setRootPath] = React.useState('');
     const [candidates, setCandidates] = React.useState<GameInstallationCandidate[]>();
     const [busy, setBusy] = React.useState(false);
+    const [detecting, setDetecting] = React.useState(false);
+    const manuallyEdited = React.useRef(false);
     const [, redraw] = React.useReducer(value => value + 1, 0);
-    const target = selectedTarget(context, game);
+    const installations = guided
+      ? game.installations.filter(installation => installation.state === 'configured' && installation.rootPath)
+      : game.installations;
+    const target = selectedTarget(context, { ...game, installations });
+    React.useEffect(() => {
+      if (!guided || !game.variants.length || installations.length) return;
+      let stale = false;
+      setDetecting(true);
+      void context.call('games.discover', { gameId: game.gameId, includeSteam: true, roots: [] })
+        .then(result => {
+          if (stale || context.signal.aborted) return;
+          setCandidates(result.items);
+          if (result.items.length === 1 && !manuallyEdited.current) {
+            const [candidate] = result.items;
+            saveTarget(context, game.gameId, { ...target, variantId: candidate.variantId });
+            setRootPath(candidate.rootPath);
+          }
+        }).catch(() => {
+          if (!stale && !context.signal.aborted) setCandidates([]);
+        }).finally(() => {
+          if (!stale && !context.signal.aborted) setDetecting(false);
+        });
+      return () => { stale = true; };
+    }, [game.gameId, game.variants.length, installations.length]);
     const choose = (patch: Partial<typeof target>): void => {
       saveTarget(context, game.gameId, { ...target, ...patch }); redraw();
     };
@@ -47,11 +72,11 @@ export async function mountGameDirectories(root: HTMLElement, context: UiContext
       h('section', { className: 'settings-group-card' },
         h('h3', { className: 'settings-group-title' }, '模组管理使用的目标'),
         row('游戏版本变体', h('select', { className: 'game-settings-control', value: target.variantId, disabled: busy || !game.variants.length, 'aria-label': '游戏版本',
-          onChange: (e: ChangeEvent<HTMLSelectElement>) => { choose({ variantId: e.target.value }); setCandidates(undefined); } },
+          onChange: (e: ChangeEvent<HTMLSelectElement>) => { manuallyEdited.current = true; choose({ variantId: e.target.value }); setCandidates(undefined); } },
         game.variants.length ? game.variants.map(v => option(v.variantId, v.displayName)) : option('', '无可用版本'))),
-        row('已注册安装目录', h('select', { className: 'game-settings-control', value: target.installationId, disabled: busy || !game.installations.length, 'aria-label': '已注册安装目录',
+        row('已注册安装目录', h('select', { className: 'game-settings-control', value: target.installationId, disabled: busy || !installations.length, 'aria-label': '已注册安装目录',
           onChange: (e: ChangeEvent<HTMLSelectElement>) => choose({ installationId: e.target.value }) },
-        game.installations.length ? game.installations.map(i => option(i.installationId, i.rootPath ?? i.installationId)) : option('', '尚未注册安装目录')))),
+        installations.length ? installations.map(i => option(i.installationId, i.rootPath ?? i.installationId)) : option('', '尚未注册安装目录')))),
       h('section', { className: 'settings-group-card' },
         h('div', { className: 'settings-group-head' }, h('div', null,
           h('h3', { className: 'settings-group-title' }, '发现与注册'),
@@ -59,18 +84,21 @@ export async function mountGameDirectories(root: HTMLElement, context: UiContext
         game.variants.length ? h(Antd.Space, { orientation: 'vertical', style: { width: '100%' } },
           h(Antd.Space.Compact, { style: { width: '100%' } },
             h(Antd.Input, { value: rootPath, disabled: busy, 'aria-label': '安装目录', placeholder: '游戏安装目录的绝对路径',
-              onChange: (e: ChangeEvent<HTMLInputElement>) => setRootPath(e.target.value) }),
+              onChange: (e: ChangeEvent<HTMLInputElement>) => { manuallyEdited.current = true; setRootPath(e.target.value); } }),
             h(Antd.Button, { icon: h(Icons.FolderOpenOutlined), disabled: busy, onClick: run(async () => {
               const picked = await pickLocalPath({ kind: 'directory', title: '选择游戏安装目录' });
-              if (picked) setRootPath(picked);
+              if (picked) { manuallyEdited.current = true; setRootPath(picked); }
             }) }, '浏览目录')),
-          candidates?.length ? row('发现的安装目录', h('select', { className: 'game-settings-control', 'aria-label': '发现的安装目录', disabled: busy,
+          detecting ? h('p', { className: 'settings-group-subtitle', role: 'status' }, '正在查找 Steam 安装目录…')
+            : guided && candidates?.length === 1 && candidates[0].rootPath === rootPath
+              ? h('p', { className: 'settings-group-subtitle', role: 'status' }, '已自动填入 Steam 安装目录。')
+              : candidates?.length ? row('发现的安装目录', h('select', { className: 'game-settings-control', 'aria-label': '发现的安装目录', disabled: busy,
             value: candidates.findIndex(c => c.rootPath === rootPath && c.variantId === target.variantId),
             onChange: (e: ChangeEvent<HTMLSelectElement>) => { const candidate = candidates[Number(e.target.value)]; choose({ variantId: candidate.variantId }); setRootPath(candidate.rootPath); } },
           h('option', { value: -1, disabled: true }, '选择发现的安装目录'),
           ...candidates.map((c, i) => option(String(i), `${c.rootPath} · ${game.variants.find(v => v.variantId === c.variantId)?.displayName ?? c.variantId}`))))
             : candidates ? h('p', { className: 'settings-group-subtitle', role: 'status' }, '未发现安装目录，请浏览或填写游戏目录。') : null,
-          h(Antd.Space, { wrap: true }, h(Antd.Button, { disabled: busy, onClick: discover }, '发现安装目录'),
+          h(Antd.Space, { wrap: true }, h(Antd.Button, { disabled: busy || detecting, onClick: discover }, '发现安装目录'),
             h(Antd.Button, { type: 'primary', disabled: busy || !rootPath.trim(), onClick: register }, '验证并注册'))) : null));
   }
 

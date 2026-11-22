@@ -469,7 +469,12 @@ impl DownloadCoordinator {
                     operation_id: operation_id.to_owned(),
                 });
             }
-            if let Some(artifact) = &item.artifact {
+            let cached_grant = match item.artifact.as_ref().map(|artifact| self.artifacts.grant_blob(artifact)) {
+                Some(Ok(grant)) => Some(grant),
+                Some(Err(ArtifactError::NotFound(_))) | None => None,
+                Some(Err(error)) => return Err(error.into()),
+            };
+            if let Some(grant) = cached_grant {
                 if continuation.is_none() && !job_running {
                     self.append_progress(
                         job_id,
@@ -480,7 +485,7 @@ impl DownloadCoordinator {
                     )?;
                     job_running = true;
                 }
-                grants.push((item.item_id.clone(), self.artifacts.grant_blob(artifact)?));
+                grants.push((item.item_id.clone(), grant));
                 self.append_progress(
                     job_id,
                     operation_id,
@@ -493,7 +498,7 @@ impl DownloadCoordinator {
             let (provider, game) = self
                 .catalog
                 .resolve(&item.source_id, &item.remote_game_key)?;
-            let mod_ref = item_mod_ref(item);
+            let mod_ref = resolve_item_version(item, &provider, &game).await?;
             let resumed_action = continuation.is_some();
             let descriptor = if let Some(action) = continuation.take() {
                 match provider
@@ -530,7 +535,7 @@ impl DownloadCoordinator {
                 self.append_progress(job_id, operation_id, grants.len() as u64, total_units, None)?;
                 job_running = true;
             }
-            let request = transfer_request(item, descriptor)?;
+            let request = transfer_request(item, &mod_ref, descriptor)?;
             let consumer_id = format!("library-operation:{operation_id}:{}", item.item_id);
             let transfer = self.transfers.attach(&consumer_id, &request)?;
             self.track_consumer(
@@ -662,7 +667,7 @@ impl DownloadCoordinator {
             )
             .await?;
         if let DownloadResolution::Ready(descriptor) = &resolution {
-            validate_descriptor(item, descriptor)?;
+            validate_descriptor(item, mod_ref, descriptor)?;
         }
         Ok(resolution)
     }
@@ -851,24 +856,58 @@ fn item_mod_ref(item: &DownloadExecutionItem) -> ModRef {
     }
 }
 
+// Legacy imports keep the displayed version. It can be used only if the
+// signed source maps it to exactly one file; never substitute the newest.
+async fn resolve_item_version(
+    item: &DownloadExecutionItem,
+    provider: &ProviderEntry,
+    game: &SourceGameBinding,
+) -> Result<ModRef, DownloadCoordinatorError> {
+    let mut reference = item_mod_ref(item);
+    if reference.remote_file_id.is_some() {
+        return Ok(reference);
+    }
+    let versions = provider.provider.list_versions(game, &reference, &CancellationToken::default()).await?;
+    let exact = versions.iter().find(|version| version.version_id == item.resolved_version);
+    let version = match exact {
+        Some(version) => version,
+        None => {
+            let mut matching = versions.iter().filter(|version| {
+                version.display_version == item.resolved_version
+                    || (version.display_version.is_empty() && version.filename == item.resolved_version)
+            });
+            let Some(version) = matching.next() else {
+                return Err(SourceError::NotFound(item.resolved_version.clone()).into());
+            };
+            if matching.next().is_some() {
+                return Err(SourceError::InvalidArgument(format!(
+                    "display version {:?} is ambiguous; select a specific file version", item.resolved_version,
+                )).into());
+            }
+            version
+        }
+    };
+    reference.version_id = Some(version.version_id.clone());
+    reference.remote_file_id = Some(version.remote_file_id.clone());
+    Ok(reference)
+}
+
 fn validate_descriptor(
     item: &DownloadExecutionItem,
+    expected: &ModRef,
     descriptor: &DownloadDescriptor,
 ) -> Result<(), DownloadCoordinatorError> {
     let reference = &descriptor.mod_ref;
-    if reference.source_id != item.source_id
-        || reference.remote_game_key != item.remote_game_key
-        || reference.remote_mod_id != item.source_mod_id
-        || reference.version_id.as_deref() != Some(item.resolved_version.as_str())
+    if reference.source_id != expected.source_id
+        || reference.remote_game_key != expected.remote_game_key
+        || reference.remote_mod_id != expected.remote_mod_id
+        || reference.version_id != expected.version_id
         || reference
             .remote_file_id
             .as_deref()
             .unwrap_or_default()
             .is_empty()
-        || item
-            .source_file_id
-            .as_deref()
-            .is_some_and(|file_id| reference.remote_file_id.as_deref() != Some(file_id))
+        || expected.remote_file_id != reference.remote_file_id
     {
         return Err(DownloadCoordinatorError::InvalidPlan(format!(
             "source descriptor changed fixed item {}",
@@ -880,9 +919,10 @@ fn validate_descriptor(
 
 fn transfer_request(
     item: &DownloadExecutionItem,
+    expected: &ModRef,
     descriptor: DownloadDescriptor,
 ) -> Result<TransferRequest, DownloadCoordinatorError> {
-    validate_descriptor(item, &descriptor)?;
+    validate_descriptor(item, expected, &descriptor)?;
     let remote_file_id = descriptor.mod_ref.remote_file_id.clone().ok_or_else(|| {
         DownloadCoordinatorError::InvalidPlan("missing remote file id".to_owned())
     })?;
@@ -891,7 +931,9 @@ fn transfer_request(
             source_id: item.source_id.clone(),
             remote_game_key: item.remote_game_key.clone(),
             remote_mod_id: item.source_mod_id.clone(),
-            resolved_version_id: item.resolved_version.clone(),
+            resolved_version_id: descriptor.mod_ref.version_id.clone().ok_or_else(|| {
+                DownloadCoordinatorError::InvalidPlan("missing remote version id".to_owned())
+            })?,
             remote_file_id,
             byte_variant: item
                 .validator

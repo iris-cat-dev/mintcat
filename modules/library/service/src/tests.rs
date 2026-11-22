@@ -8,11 +8,12 @@ use std::{
 use mintcat_runtime_artifacts::{ArtifactStore, TrustStore};
 use mintcat_runtime_kernel::{RuntimeEnvironment, RuntimePaths};
 use mintcat_sdk::{
-    DownloadMode, GamesListParams, GroupsCreateParams, GroupsListParams, GroupsMoveParams,
-    GroupsUpdateParams, ModsCleanupMissingParams, ModsListParams, ModsMoveParams, ModsRemoveParams,
-    ModsRenameParams, ModsSetEnabledBatchParams, ModsSetVersionParams, ProfilesActivateParams,
-    ProfilesCloneParams, ProfilesCreateParams, ProfilesDeleteParams, ProfilesListParams,
-    ProfilesUpdateParams, VersionSelection, VersionSelectionKind,
+    BatchVersionPolicy, DownloadMode, GamesListParams, GroupsCreateParams, GroupsListParams,
+    GroupsMoveParams, GroupsUpdateParams, ModsCleanupMissingParams, ModsListParams, ModsMoveParams,
+    ModsRemoveParams, ModsRenameParams, ModsSetEnabledBatchParams, ModsSetVersionParams,
+    ModsUpdateBatchParams, ProfilesActivateParams, ProfilesCloneParams, ProfilesCreateParams,
+    ProfilesDeleteParams, ProfilesListParams, ProfilesUpdateParams, VersionSelection,
+    VersionSelectionKind,
 };
 use rusqlite::Connection;
 use sha2::{Digest as _, Sha256};
@@ -471,6 +472,120 @@ fn publish_fixture_artifact(root: &Path, artifacts: &ArtifactStore) -> mintcat_s
     artifacts
         .publish_blob_file(&payload, Some("application/octet-stream".to_owned()))
         .unwrap()
+}
+
+#[test]
+fn selected_batch_repairs_a_migrated_pin_and_an_older_auto_binding_without_upgrading() {
+    let sandbox = tempdir().unwrap();
+    let fixture = gate_fixture(sandbox.path());
+    let store = &fixture.store;
+    let auth = &fixture.authorization;
+    let artifacts = artifact_store(sandbox.path());
+    let artifact = publish_fixture_artifact(sandbox.path(), &artifacts);
+    let grant = artifacts.grant_blob(&artifact).unwrap();
+    let profile_mod_id = &fixture.profile_mod.profile_mod_id;
+    let version_id = &fixture.version.version_id;
+    assert_eq!(fixture.profile_mod.selected_version_id.as_ref(), Some(version_id));
+    assert_eq!(fixture.version.remote_file_id, None);
+
+    store.connection().unwrap().execute(
+        "UPDATE library_mod_versions SET current = 0 WHERE mod_id = ?1",
+        [&fixture.library_mod.mod_id],
+    ).unwrap();
+    store.connection().unwrap().execute(
+        "INSERT INTO library_mod_versions
+         (mod_id, version_id, remote_file_id, file_size, availability, current, created_at_ms, updated_at_ms)
+         VALUES (?1, 'newest', 'newest-file', 0, 'remote', 1, 0, 0)",
+        [&fixture.library_mod.mod_id],
+    ).unwrap();
+
+    let mut request = ModsUpdateBatchParams {
+        profile_id: fixture.profile.profile_id.clone(),
+        expected_content_revision: fixture.profile.content_revision,
+        profile_mod_ids: Some(vec![profile_mod_id.clone()]),
+        version_policy: Some(BatchVersionPolicy::Selected),
+        mode: None,
+    };
+    let lock = format!("sha256:{}", "a".repeat(64));
+    for invalid_ids in [None, Some(Vec::new())] {
+        let invalid = ModsUpdateBatchParams { profile_mod_ids: invalid_ids, ..request.clone() };
+        assert!(matches!(
+            store.start_batch_version_download(auth, "invalid", "generation", &lock, &invalid),
+            Err(LibraryError::InvalidRecord(message)) if message.contains("explicit profile mod ids")
+        ));
+    }
+    store.connection().unwrap().execute(
+        "UPDATE library_profile_mods SET selected_version_id = 'missing-pin' WHERE profile_mod_id = ?1",
+        [profile_mod_id],
+    ).unwrap();
+    assert!(matches!(
+        store.start_batch_version_download(auth, "missing", "generation", &lock, &request),
+        Err(LibraryError::InvalidRecord(message)) if message.contains("select a specific version")
+    ));
+    store.connection().unwrap().execute(
+        "UPDATE library_profile_mods SET selected_version_id = ?2 WHERE profile_mod_id = ?1",
+        [profile_mod_id, version_id],
+    ).unwrap();
+    store.connection().unwrap().execute(
+        "UPDATE library_profile_mods SET enabled = 0 WHERE profile_mod_id = ?1",
+        [profile_mod_id],
+    ).unwrap();
+    assert!(matches!(
+        store.start_batch_version_download(auth, "disabled", "generation", &lock, &request),
+        Err(LibraryError::InvalidRecord(message)) if message.contains("no enabled mods")
+    ));
+    store.connection().unwrap().execute(
+        "UPDATE library_profile_mods SET enabled = 1 WHERE profile_mod_id = ?1",
+        [profile_mod_id],
+    ).unwrap();
+
+    let pinned = store.start_batch_version_download(auth, "pin", "generation", &lock, &request).unwrap();
+    let pinned_plan = store.download_execution_plan(auth, &pinned.operation.operation_id).unwrap();
+    let [item] = pinned_plan.items.as_slice() else { panic!("expected exactly one requested item"); };
+    assert_eq!(&item.profile_mod_id, profile_mod_id);
+    assert_eq!(&item.resolved_version, version_id);
+    assert_eq!(item.source_file_id, None);
+    assert_eq!(item.selection, None);
+    let applied = store.apply_download_operation(
+        auth, &pinned.operation.operation_id, pinned.operation.fence.fence_epoch, "generation",
+        &[AppliedArtifact { item_id: &item.item_id, grant: &grant }],
+    ).unwrap();
+    assert!(applied.applied);
+    let snapshot = store.snapshot().unwrap();
+    let membership = snapshot.profile_mods.iter().find(|m| &m.profile_mod_id == profile_mod_id).unwrap();
+    assert_eq!(membership.version_selection_kind, "pinned");
+    assert_eq!(membership.selected_version_id.as_ref(), Some(version_id));
+
+    // Model an Auto membership that had previously applied this older version.
+    store.connection().unwrap().execute(
+        "UPDATE library_profile_mods SET version_selection_kind = 'auto', selected_version_id = NULL
+         WHERE profile_mod_id = ?1",
+        [profile_mod_id],
+    ).unwrap();
+    request.expected_content_revision = applied.content_revision;
+    let retained = store.start_batch_version_download(auth, "repair", "generation", &lock, &request).unwrap();
+    let retained_plan = store.download_execution_plan(auth, &retained.operation.operation_id).unwrap();
+    let [item] = retained_plan.items.as_slice() else { panic!("expected exactly one requested item"); };
+    assert_eq!(&item.resolved_version, version_id);
+    assert_eq!(item.expected_digest.as_ref(), Some(&artifact.digest));
+    assert_eq!(item.selection, None);
+    let applied = store.apply_download_operation(
+        auth, &retained.operation.operation_id, retained.operation.fence.fence_epoch, "generation",
+        &[AppliedArtifact { item_id: &item.item_id, grant: &grant }],
+    ).unwrap();
+    let snapshot = store.snapshot().unwrap();
+    let membership = snapshot.profile_mods.iter().find(|m| &m.profile_mod_id == profile_mod_id).unwrap();
+    assert_eq!(membership.version_selection_kind, "auto");
+    assert_eq!(membership.used_version.as_ref(), Some(version_id));
+
+    request.expected_content_revision = applied.content_revision;
+    request.version_policy = None;
+    let latest = store.start_batch_version_download(auth, "repair", "generation", &lock, &request).unwrap();
+    assert_ne!(latest.operation.operation_id, retained.operation.operation_id);
+    let latest_plan = store.download_execution_plan(auth, &latest.operation.operation_id).unwrap();
+    let [item] = latest_plan.items.as_slice() else { panic!("expected exactly one requested item"); };
+    assert_eq!(item.resolved_version, "newest");
+    assert_eq!(item.selection.as_ref().unwrap().kind, VersionSelectionKind::Auto);
 }
 
 #[test]

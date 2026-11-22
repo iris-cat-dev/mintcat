@@ -188,6 +188,32 @@ pub(super) fn for_job(state: &DaemonState, job_id: &str) -> Result<SourceGenerat
     }
     Ok(generation)
 }
+
+pub(super) fn submit_add_download(
+    state: &DaemonState,
+    job_id: &str,
+    params: &mintcat_sdk::ModsUpdateBatchParams,
+) -> Result<Option<mintcat_sdk::JobRef>> {
+    let generation = for_job(state, job_id).map_err(|_| "MODULE_UNAVAILABLE".to_owned())?;
+    let target = state.jobs.get_job_target(LOCAL_OWNER_SCOPE, job_id)
+        .map_err(|_| "INTERNAL_ERROR".to_owned())?;
+    let digest = target["moduleLockDigest"].as_str().ok_or("MODULE_UNAVAILABLE")?;
+    let Some(started) = state.library.start_added_mod_download(
+        &state.library_authorization, job_id, &state.generation_id, digest, params,
+    ).map_err(|error| super::library_error(job_id, error).code)? else { return Ok(None); };
+    super::replay_library_outbox(&state.library, &state.jobs)
+        .map_err(|_| "INTERNAL_ERROR".to_owned())?;
+    let operation_id = started.operation.operation_id;
+    let job = state.jobs.find_operation(LOCAL_OWNER_SCOPE, "library.download.apply", &operation_id)
+        .map_err(|_| "INTERNAL_ERROR".to_owned())?.ok_or("INTERNAL_ERROR")?;
+    // Startup recovery owns any child already present when this daemon opened the job journal.
+    if started.created || !state.recovered.iter().any(|record| record.snapshot.job_id == job.job_id) &&
+        state.jobs.get_job(LOCAL_OWNER_SCOPE, &job.job_id).is_ok_and(|snapshot| snapshot.state == mintcat_sdk::JobState::Queued)
+    {
+        super::spawn_download(generation.downloads, job.job_id.clone(), operation_id, None);
+    }
+    Ok(Some(job))
+}
 fn store(state: &DaemonState, frozen: &FrozenSources) -> Result<String> {
     let digest = canonical_digest(frozen).map_err(message)?;
     let encoded = serde_json::to_string(frozen).map_err(message)?;
@@ -388,8 +414,9 @@ pub(super) async fn restore(state: &Arc<DaemonState>) -> Result<()> {
     for record in &state.recovered {
         if !matches!(record.snapshot.command.as_str(), "mods.add" | "mods.importLocal") { continue; }
         if let Ok(generation) = for_job(state, &record.snapshot.job_id) {
-            let application = generation.application; let record = record.clone();
-            tokio::task::spawn_blocking(move || application.recover(&record)).await.map_err(message)?.map_err(message)?;
+            let application = generation.application; let record = record.clone(); let state = state.clone();
+            tokio::task::spawn_blocking(move || application.recover(&record, |job_id, params| submit_add_download(&state, job_id, params)))
+                .await.map_err(message)?.map_err(message)?;
         }
     }
     Ok(())

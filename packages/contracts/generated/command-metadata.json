@@ -1852,6 +1852,12 @@
                 "maxLength": 200
               }
             },
+            "versionPolicy": {
+              "type": "string",
+              "enum": [
+                "selected"
+              ]
+            },
             "mode": {
               "type": "string",
               "enum": [
@@ -4928,6 +4934,12 @@
               "maxLength": 200
             }
           },
+          "versionPolicy": {
+            "type": "string",
+            "enum": [
+              "selected"
+            ]
+          },
           "mode": {
             "type": "string",
             "enum": [
@@ -5157,6 +5169,39 @@
       "execution": "sync",
       "permission": "library.read",
       "idempotency": "none",
+      "confirmation": "none"
+    },
+    {
+      "command": "install.restoreLegacyCache",
+      "path": [
+        "install",
+        "restore-legacy-cache"
+      ],
+      "contractVersion": 1,
+      "paramsSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profileId",
+          "expectedContentRevision"
+        ],
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "expectedContentRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "resultSchema": "#/$defs/InstallRestoreLegacyCacheResult",
+      "classification": "mutation",
+      "execution": "sync",
+      "permission": "library.content.write",
+      "idempotency": "required",
       "confirmation": "none"
     },
     {

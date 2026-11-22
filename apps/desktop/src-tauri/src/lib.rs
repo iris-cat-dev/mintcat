@@ -2,11 +2,11 @@ mod window_surface;
 
 use std::path::{Path, PathBuf};
 
-use mintcat_runtime_ipc::{connect_or_start, IpcClient};
+use mintcat_runtime_ipc::{connect_or_start_desktop, IpcClient};
 use mintcat_runtime_kernel::{RuntimeEnvironment, RuntimePaths};
 use mintcat_sdk::{JsonRpcId, JsonRpcRequest, JsonRpcResponse};
 use serde_json::{json, Value};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use uuid::Uuid;
 
 // Allow the same bounded cold-start budget exercised by the standalone CLI.
@@ -30,7 +30,7 @@ pub async fn request_daemon_on_demand(
     method: &str,
 ) -> Result<JsonRpcResponse, String> {
     let paths = RuntimePaths::new(data_dir).map_err(|error| error.to_string())?;
-    let mut client = connect_or_start(&paths, daemon_bin, desktop_runtime_environment())
+    let mut client = connect_or_start_desktop(&paths, daemon_bin, desktop_runtime_environment())
         .await
         .map_err(|error| error.to_string())?;
     request(&mut client, method, json!({}), None).await
@@ -90,7 +90,7 @@ async fn daemon_call(
 ) -> Result<JsonRpcResponse, String> {
     let daemon_bin = sibling_daemon_executable()?;
     let paths = RuntimePaths::new(data_dir).map_err(|error| error.to_string())?;
-    let mut client = connect_or_start(&paths, &daemon_bin, desktop_runtime_environment())
+    let mut client = connect_or_start_desktop(&paths, &daemon_bin, desktop_runtime_environment())
         .await
         .map_err(|error| error.to_string())?;
     request(&mut client, &method, params, idempotency_key).await
@@ -229,6 +229,55 @@ fn desktop_environment(app: tauri::AppHandle) -> Result<Value, String> {
         }
     };
     Ok(json!({"dataDir":data_dir,"environment":desktop_runtime_environment()}))
+}
+
+const SETUP_WINDOW_LABEL: &str = "first-run-setup";
+
+#[tauri::command]
+async fn open_setup_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("Only the main window can open setup".into());
+    }
+    let app = window.app_handle();
+    if let Some(existing) = app.get_webview_window(SETUP_WINDOW_LABEL) {
+        return existing.set_focus().map_err(|error| error.to_string());
+    }
+    tauri::WebviewWindowBuilder::new(app, SETUP_WINDOW_LABEL, tauri::WebviewUrl::default())
+        .title("MintCat · 首次启动引导")
+        .inner_size(860.0, 710.0)
+        .min_inner_size(640.0, 500.0)
+        .center()
+        .parent(&window)
+        .map_err(|error| error.to_string())?
+        .build()
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn close_setup_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != SETUP_WINDOW_LABEL {
+        return Err("Only the setup window can close setup".into());
+    }
+    window.close().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn detect_legacy_setup_database(window: tauri::WebviewWindow) -> Result<Option<PathBuf>, String> {
+    if window.label() != SETUP_WINDOW_LABEL {
+        return Err("Only the setup window can detect legacy configuration".into());
+    }
+    let path = window
+        .app_handle()
+        .path()
+        .config_dir()
+        .map_err(|error| error.to_string())?
+        .join("com.mint.cat")
+        .join("mintcat.sqlite");
+    // Discovery only: the migration owner opens and validates the selected file after confirmation.
+    Ok(std::fs::symlink_metadata(&path)
+        .is_ok_and(|metadata| metadata.is_file())
+        .then_some(path))
 }
 
 #[tauri::command]
@@ -717,11 +766,21 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                if window.label() == SETUP_WINDOW_LABEL {
+                    if let Some(main) = window.app_handle().get_webview_window("main") {
+                        let _ = main.emit("mintcat-setup-closed", ());
+                    }
+                } else if window.label() == "main" {
+                    if let Some(setup) = window.app_handle().get_webview_window(SETUP_WINDOW_LABEL) {
+                        let _ = setup.close();
+                    }
+                }
+            }
             #[cfg(target_os = "macos")]
             if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
                 window_surface::prepare_for_destruction(window.label());
             }
-            #[cfg(not(target_os = "macos"))]
             let _ = (window, event);
         })
         .invoke_handler(tauri::generate_handler![
@@ -729,6 +788,9 @@ pub fn run() {
             daemon_doctor,
             daemon_call,
             desktop_environment,
+            open_setup_window,
+            close_setup_window,
+            detect_legacy_setup_database,
             rescue_log,
             open_external_url,
             open_data_dir,

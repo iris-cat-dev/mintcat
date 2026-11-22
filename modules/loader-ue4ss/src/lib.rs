@@ -7,7 +7,7 @@ use std::{
     io::{self, Cursor, Read, Seek, SeekFrom},
 };
 
-use archive::{checked_component, checked_relative_path, scan_zip};
+use archive::{checked_component, checked_relative_path, scan_zip, ZipEntry};
 use mintcat_runtime_artifacts::{ArtifactError, ArtifactGrant, ArtifactStore, ModuleLease};
 use mintcat_sdk::{
     read_directory_snapshot_index, ArtifactRef, DirectorySnapshotError, DirectorySnapshotLimits,
@@ -407,6 +407,53 @@ impl Ue4ssLoader {
         })
     }
 
+    /// A PAK-bearing ZIP may also contain the legacy root main.dll or a JS mod tree.
+    /// Inspect the archive before creating any executable or script deployment entries.
+    pub fn plan_pak_zip_companions(
+        &self,
+        request: JsDeploymentRequest<'_>,
+    ) -> Result<Vec<DeploymentManifest>, LoaderError> {
+        let input_id = &request.input_id;
+        let (file, _) = open_grant(request.artifact, input_id, self.limits.max_input_bytes, None)?;
+        let archive_error = |error: zip::result::ZipError| LoaderError::Archive {
+            input_id: input_id.clone(),
+            reason: error.to_string(),
+        };
+        let mut archive = ZipArchive::new(file).map_err(archive_error)?;
+        let entries = scan_zip(&mut archive, input_id, self.limits)?;
+        let mut manifests = Vec::new();
+        if let Some(dll) = entries.iter().find(|entry| !entry.directory && entry.path.eq_ignore_ascii_case("main.dll")) {
+            let entry = archive.by_index(dll.index).map_err(archive_error)?;
+            let artifact = self.artifacts.publish_blob_reader(
+                &mut entry.take(dll.size.saturating_add(1)), Some(PE_MEDIA_TYPE.to_owned()),
+            )?;
+            if artifact.size != dll.size {
+                return Err(LoaderError::Archive {
+                    input_id: input_id.clone(),
+                    reason: "native entry does not match its declared size".to_owned(),
+                });
+            }
+            let grant = self.artifacts.grant_blob(&artifact)?;
+            manifests.push(self.plan_native_mod(NativeDeploymentRequest {
+                game_id: request.game_id.clone(),
+                owner: request.owner.clone(),
+                mod_id: request.mod_id.clone(),
+                input_id: input_id.clone(),
+                artifact: &grant,
+            })?);
+        }
+        if entries.iter().any(|entry| !entry.directory
+            && (entry.path == "js/main.js" || entry.path.ends_with("/js/main.js")))
+        {
+            validate_identity(&request.game_id, "game_id")?;
+            validate_identity(&request.owner, "owner")?;
+            let mod_id = checked_component(&request.mod_id).map_err(LoaderError::InvalidRequest)?;
+            let published = self.publish_js_zip_entries(input_id, &mut archive, &entries)?;
+            manifests.push(self.plan_published_js(request, &mod_id, published)?);
+        }
+        Ok(manifests)
+    }
+
     pub fn plan_js_mod(
         &self,
         request: JsDeploymentRequest<'_>,
@@ -426,6 +473,15 @@ impl Ue4ssLoader {
                 self.publish_js_snapshot(&request.input_id, &mut file)?
             }
         };
+        self.plan_published_js(request, &mod_id, published)
+    }
+
+    fn plan_published_js(
+        &self,
+        request: JsDeploymentRequest<'_>,
+        mod_id: &str,
+        published: PublishedJs,
+    ) -> Result<DeploymentManifest, LoaderError> {
         let PublishedJs { artifacts, ignored } = published;
         let mut files = Vec::with_capacity(artifacts.len());
         let mut approvals = Vec::with_capacity(artifacts.len());
@@ -580,6 +636,15 @@ impl Ue4ssLoader {
             reason: error.to_string(),
         })?;
         let entries = scan_zip(&mut archive, input_id, self.limits)?;
+        self.publish_js_zip_entries(input_id, &mut archive, &entries)
+    }
+
+    fn publish_js_zip_entries(
+        &self,
+        input_id: &str,
+        archive: &mut ZipArchive<File>,
+        entries: &[ZipEntry],
+    ) -> Result<PublishedJs, LoaderError> {
         let records = entries
             .iter()
             .filter(|entry| !entry.directory)
@@ -592,7 +657,7 @@ impl Ue4ssLoader {
         let (selected, ignored) = select_js_files(input_id, records)?;
         let mut artifacts = Vec::with_capacity(selected.len());
         for selected in selected {
-            let mut entry =
+            let entry =
                 archive
                     .by_index(selected.index)
                     .map_err(|error| LoaderError::Archive {
@@ -601,11 +666,11 @@ impl Ue4ssLoader {
                     })?;
             let artifact = self
                 .artifacts
-                .publish_blob_reader(&mut entry, infer_js_media_type(&selected.tail))?;
+                .publish_blob_reader(&mut entry.take(selected.size.saturating_add(1)), infer_js_media_type(&selected.tail))?;
             if artifact.size != selected.size {
                 return Err(LoaderError::Archive {
                     input_id: input_id.to_owned(),
-                    reason: format!("JS entry {} ended before its declared size", selected.path),
+                    reason: format!("JS entry {} does not match its declared size", selected.path),
                 });
             }
             artifacts.push((selected.tail, artifact));

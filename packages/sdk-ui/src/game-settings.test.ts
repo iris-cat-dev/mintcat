@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { kit, mountGameSettings, SessionStore } from './index';
+import { createOnlineModJobs, kit, mountGameSettings, SessionStore } from './index';
 import type { Disposable, GameModuleList, Json, UiContext } from './index';
 
 const inventory: GameModuleList = { generationId: 'games', modules: ['drg', 'rogue-core'].map(id => ({
@@ -38,6 +38,7 @@ function host() {
   const context = (controller: AbortController): UiContext => ({
     // Deliberately unrelated to either game: this is a local state namespace, not identity.
     moduleId: 'desktop.settings', signal: controller.signal, kit,
+    onlineModJobs: createOnlineModJobs(states),
     request: async <T>(method: string, params: Record<string, unknown>): Promise<T> => await request(method, params) as T,
     call: async () => { throw new Error('Unexpected typed command'); },
     query: (_key, load) => load(), invalidate() {},

@@ -9,6 +9,9 @@ vi.mock('./daemon', () => ({
   hasNativeDaemonConnector: () => true,
   callDaemon: vi.fn(), requestApplication: vi.fn(), readDaemonStatus: vi.fn(), runDaemonDoctor: vi.fn(),
 }));
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => ({ label: 'main', listen: async () => () => {} }),
+}));
 vi.mock('./window-surface', () => ({ initializeWindowSurface: () => () => {} }));
 // Exercise rescue with the actual workbench chunk unavailable, rather than relying on its initialization.
 vi.mock('./workbench', () => { throw new Error('Workbench chunk unavailable'); });

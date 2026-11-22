@@ -963,7 +963,7 @@ impl FileTransactionManager {
             .map_err(|source| io_error(&path, source))?;
         match file.try_lock_exclusive() {
             Ok(()) => Ok(file),
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            Err(error) if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() => {
                 Err(FileTransactionError::RootBusy(root_identity.to_owned()))
             }
             Err(source) => Err(io_error(&path, source)),
@@ -1508,9 +1508,12 @@ fn create_dir_all(path: &Path) -> Result<(), FileTransactionError> {
 }
 
 fn sync_file(path: &Path) -> Result<(), FileTransactionError> {
-    File::open(path)
-        .and_then(|file| file.sync_all())
-        .map_err(|source| io_error(path, source))
+    // FlushFileBuffers requires a writable handle on Windows.
+    #[cfg(windows)]
+    let file = OpenOptions::new().write(true).open(path);
+    #[cfg(not(windows))]
+    let file = File::open(path);
+    file.and_then(|file| file.sync_all()).map_err(|source| io_error(path, source))
 }
 
 fn sync_parent(path: &Path) -> Result<(), FileTransactionError> {

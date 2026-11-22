@@ -265,11 +265,12 @@ impl SourceProvider for ModcatProvider {
             return Err(SourceError::Unavailable(mod_ref.remote_mod_id.clone()));
         }
         let version = select_version(mod_ref, detail.versions)?;
-        let mapped = map_version(version.clone())?;
+        let has_file_id = version.files_id.is_some();
+        let mapped = map_version(version)?;
         if mapped.review_status != ReviewStatus::Accepted {
             return Err(SourceError::Unavailable(mapped.version_id));
         }
-        let file_id = version.files_id.ok_or_else(|| {
+        let file_id = has_file_id.then_some(mapped.remote_file_id).ok_or_else(|| {
             SourceError::Unavailable(format!("version {} has no file", mapped.version_id))
         })?;
         let mut url = self
@@ -307,6 +308,7 @@ impl SourceProvider for ModcatProvider {
             headers,
             credential,
             expires_at: None,
+            // Zero means the transfer validates against its byte limit, not a known size.
             expected_size: mapped.file_size,
             expected_md5: None,
         })
@@ -397,7 +399,7 @@ struct ApiUser {
     nickname: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
 struct ApiVersion {
     #[serde(rename = "VersionId")]
     version_id: Option<String>,
@@ -410,12 +412,20 @@ struct ApiVersion {
     #[serde(rename = "CreatedAt", default)]
     created_at: Option<String>,
     #[serde(rename = "Status", default)]
-    status: String,
+    status: Option<String>,
     #[serde(rename = "Files", default)]
     file: Option<ApiFile>,
+    #[serde(rename = "ApproveModVersionEntity", default)]
+    approval: Option<ApiVersionApproval>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Deserialize)]
+struct ApiVersionApproval {
+    #[serde(rename = "Status", default)]
+    status: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ApiFile {
     #[serde(rename = "FilesId")]
     files_id: Option<String>,
@@ -505,16 +515,15 @@ fn map_detail(game: &SourceGameBinding, detail: ApiMod) -> Result<SourceMod, Sou
     let remote_mod_id = required(detail.mod_id, "ModId")?;
     let latest_file = detail
         .versions
-        .iter()
-        .filter(|version| version_review(&version.status) == ReviewStatus::Accepted)
-        .max_by_key(|version| {
-            (
-                parse_timestamp(version.created_at.as_deref()),
-                version.version_id.as_deref().unwrap_or_default(),
-            )
+        .into_iter()
+        .filter(|version| version_review(version) == ReviewStatus::Accepted)
+        .map(|version| (parse_timestamp(version.created_at.as_deref()), version))
+        .max_by(|(a_time, a), (b_time, b)| {
+            a_time
+                .cmp(b_time)
+                .then_with(|| a.version_id.cmp(&b.version_id))
         })
-        .cloned()
-        .map(map_version)
+        .map(|(_, version)| map_version(version))
         .transpose()?;
     let mut tags = detail
         .types
@@ -547,6 +556,7 @@ fn map_detail(game: &SourceGameBinding, detail: ApiMod) -> Result<SourceMod, Sou
 }
 
 fn map_version(version: ApiVersion) -> Result<SourceVersion, SourceError> {
+    let review_status = version_review(&version);
     let version_id = required(version.version_id, "VersionId")?;
     let file_id = version
         .files_id
@@ -564,11 +574,6 @@ fn map_version(version: ApiVersion) -> Result<SourceVersion, SourceError> {
         file.size
             .parse::<u64>()
             .map_err(|_| SourceError::InvalidResponse("ModCat file size is invalid".to_owned()))?
-    };
-    let review_status = if file.soft_deleted {
-        ReviewStatus::Unavailable
-    } else {
-        version_review(&version.status)
     };
     Ok(SourceVersion {
         version_id,
@@ -674,11 +679,33 @@ fn required(value: Option<String>, field: &str) -> Result<String, SourceError> {
         .ok_or_else(|| SourceError::InvalidResponse(format!("ModCat {field} is missing")))
 }
 
-fn version_review(status: &str) -> ReviewStatus {
-    match status.to_ascii_lowercase().as_str() {
-        "approved" | "accepted" => ReviewStatus::Accepted,
-        "pending" | "review" | "reviewing" => ReviewStatus::Pending,
-        "rejected" | "denied" => ReviewStatus::Rejected,
+fn version_review(version: &ApiVersion) -> ReviewStatus {
+    if version.file.as_ref().is_some_and(|file| file.soft_deleted) {
+        return ReviewStatus::Unavailable;
+    }
+
+    // The moderation record is authoritative when present. The public site
+    // submits "20" for approval and "10" for rejection.
+    let status = match &version.approval {
+        Some(approval) => approval.status.as_deref(),
+        None => version.status.as_deref(),
+    };
+    match status {
+        Some("20") => ReviewStatus::Accepted,
+        Some("10") => ReviewStatus::Rejected,
+        Some(status) if ["approved", "accepted"].iter().any(|s| status.eq_ignore_ascii_case(s)) => {
+            ReviewStatus::Accepted
+        }
+        Some(status)
+            if ["pending", "review", "reviewing"]
+                .iter()
+                .any(|s| status.eq_ignore_ascii_case(s)) =>
+        {
+            ReviewStatus::Pending
+        }
+        Some(status) if ["rejected", "denied"].iter().any(|s| status.eq_ignore_ascii_case(s)) => {
+            ReviewStatus::Rejected
+        }
         _ => ReviewStatus::Unavailable,
     }
 }

@@ -627,6 +627,9 @@ impl ModuleSupervisor {
             .stdout(Stdio::piped())
             .stderr(Stdio::from(stderr))
             .kill_on_drop(true);
+        // The detached Windows daemon has no console; do not allocate one for a worker.
+        #[cfg(windows)]
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
         let mut child = command.spawn()?;
         let input = child.stdin.take().expect("piped worker stdin is available");
         let output = child

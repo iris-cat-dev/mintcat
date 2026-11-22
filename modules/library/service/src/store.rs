@@ -252,21 +252,6 @@ impl OwnerStore {
         self.get_setting(game_id, name)
     }
 
-    pub(crate) fn is_empty_transaction(
-        transaction: &Transaction<'_>,
-    ) -> Result<bool, rusqlite::Error> {
-        let count: u64 = transaction.query_row(
-            "SELECT
-              (SELECT COUNT(*) FROM library_games) +
-              (SELECT COUNT(*) FROM library_profiles) +
-              (SELECT COUNT(*) FROM library_mods) +
-              (SELECT COUNT(*) FROM library_import_runs)",
-            [],
-            |row| row.get(0),
-        )?;
-        Ok(count == 0)
-    }
-
     fn set_setting(&self, scope_id: &str, name: &str, value: &str) -> Result<(), LibraryError> {
         if scope_id.is_empty() || name.is_empty() {
             return Err(LibraryError::InvalidRecord(

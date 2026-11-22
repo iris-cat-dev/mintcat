@@ -91,7 +91,7 @@ fn files(root: &Path, directory: &Path, out: &mut Vec<ModuleFile>, executables: 
     Ok(())
 }
 
-fn build(directory: &Path, target: Option<&str>) -> Result<(Project, tempfile::TempDir)> {
+fn build(directory: &Path, target: Option<&str>, patch_archive: Option<&Path>) -> Result<(Project, tempfile::TempDir)> {
     let directory = directory.canonicalize()?;
     let manifest_path = directory.join("Cargo.toml");
     let mut project: Project = read_json(&directory.join("module-project.json"))?;
@@ -135,6 +135,17 @@ fn build(directory: &Path, target: Option<&str>) -> Result<(Project, tempfile::T
         if !metadata.is_dir() || metadata.file_type().is_symlink() { return Err("game resources must be a real directory".into()); }
         copy_resources(&resources, payload.path())?;
     }
+    if let Some(archive) = patch_archive {
+        let [binding] = project.manifest.contributes["bundledResources"].as_array()
+            .map(Vec::as_slice).unwrap_or_default() else {
+            return Err("patch override requires exactly one bundled resource".into());
+        };
+        let path = binding["archivePath"].as_str().ok_or("project has no declared patch archive")?;
+        // validate_game_manifest already checked that this path is portable and declared.
+        let destination = payload.path().join(path);
+        fs::create_dir_all(destination.parent().ok_or("patch archive parent is absent")?)?;
+        fs::copy(archive, destination)?;
+    }
     let executable = format!("{}{}", project.worker_binary, if windows { ".exe" } else { "" });
     fs::copy(target_directory.join(&project.manifest.target).join("release").join(executable), payload.path().join(&worker))?;
     project.manifest.files.clear();
@@ -148,13 +159,13 @@ fn build(directory: &Path, target: Option<&str>) -> Result<(Project, tempfile::T
 }
 
 pub fn check(directory: &Path, target: Option<&str>) -> Result<()> {
-    let (project, _payload) = build(directory, target)?;
+    let (project, _payload) = build(directory, target, None)?;
     println!("{}", serde_json::to_string_pretty(&json!({"game": project.manifest, "policy": project.policy, "status": "validated-build-and-payload"}))?);
     Ok(())
 }
 
-pub fn pack(directory: &Path, target: Option<&str>, key: &Path, output: &Path) -> Result<()> {
-    let (project, payload) = build(directory, target)?;
+pub fn pack(directory: &Path, target: Option<&str>, key: &Path, output: &Path, patch_archive: Option<&Path>) -> Result<()> {
+    let (project, payload) = build(directory, target, patch_archive)?;
     mintcat_runtime_artifacts::validate_production_origin(&project.manifest)?;
     let key = read_signing_key(key)?;
     let record = mintcat_runtime_release::pack(payload.path(), project.manifest, &key_id(&key.verifying_key()), &key, &project.policy, output)?;

@@ -66,7 +66,19 @@ pub fn prepare<E: UnrealEngineBackend>(
             content_prefix: None,
         };
         match engine.inspect(unreal()) {
-            Ok(_) => paks.push(unreal()),
+            Ok(_) => {
+                paks.push(unreal());
+                if loader_enabled && input.format == GameInputFormat::Zip {
+                    companion_manifests.extend(loader.plan_pak_zip_companions(JsDeploymentRequest {
+                        game_id: descriptor.game_id.clone(),
+                        owner: format!("{}/loader/{}", descriptor.game_id, input.input_id),
+                        mod_id: binding.mod_id.replace(':', "-"),
+                        input_id: input.input_id.clone(),
+                        artifact: grant,
+                        format: JsInputFormat::Zip,
+                    }).map_err(|error| invalid(&error))?);
+                }
+            }
             Err(pak_error) => {
                 let format = match input.format {
                     GameInputFormat::Pak => return Err(invalid(&pak_error)),

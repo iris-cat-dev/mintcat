@@ -4422,6 +4422,12 @@
         }
       }
     },
+    "BatchVersionPolicy": {
+      "type": "string",
+      "enum": [
+        "selected"
+      ]
+    },
     "ModsUpdateBatchParams": {
       "type": "object",
       "additionalProperties": false,
@@ -4442,6 +4448,9 @@
           "items": {
             "$ref": "#/$defs/Identifier"
           }
+        },
+        "versionPolicy": {
+          "$ref": "#/$defs/BatchVersionPolicy"
         },
         "mode": {
           "$ref": "#/$defs/DownloadMode"
@@ -4748,6 +4757,12 @@
         "profileModId": {
           "$ref": "#/$defs/Identifier"
         },
+        "sourceId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "legacyCacheAvailable": {
+          "type": "boolean"
+        },
         "verified": {
           "type": "boolean"
         },
@@ -4783,6 +4798,41 @@
           "items": {
             "$ref": "#/$defs/DetectedInstallInput"
           }
+        }
+      }
+    },
+    "InstallRestoreLegacyCacheParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "expectedContentRevision"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "InstallRestoreLegacyCacheResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contentRevision",
+        "restoredCount"
+      ],
+      "properties": {
+        "contentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "restoredCount": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     }

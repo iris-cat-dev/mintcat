@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { GroupSummary, JobRef, ModRef, ProfileSummary, SourceSearchItem } from '@mintcat/sdk-ts';
+import type { GroupSummary, ModRef, ProfileSummary, SourceSearchItem } from '@mintcat/sdk-ts';
 import {
   copyTextToClipboard,
   getSharedRuntime,
@@ -42,6 +42,7 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
   let cursor: string | undefined, requestGeneration = 0, bindingGeneration = 0;
   let loading = false, bindingsLoading = false, adding = false, searched = false, error: UiErrorPresentation | undefined, errorContext: UiErrorContext = 'search';
   let profileHint = '', status = '', filter = '', selected: SourceSearchItem | undefined;
+  let hasSubmittedAdd = false;
   let copiedUrl = '', copyResetTimer: ReturnType<typeof setTimeout> | undefined;
   let credentialInput = '', credentialError = '', credentialSaving = false, credentialClearing = false;
   let credentialModalSource: RemoteSourceId | undefined;
@@ -290,17 +291,20 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
       const content = await context.call('profiles.contentState', { profileId: target.profileId });
       if (!active()) return;
       if (!content.writable) throw new Error('配置正在处理中，请稍后再试。');
-      const job = await context.request<JobRef>('mods.add', {
+      const job = await context.call('mods.add', {
         profileId: target.profileId,
         reference,
         expectedContentRevision: content.contentRevision,
         includeDependencies,
         ...(targetGroupId ? { groupId: targetGroupId } : {}),
       }, crypto.randomUUID());
+      // Accepted jobs are still returned if the user navigates away while submitting.
+      context.onlineModJobs.track(job.jobId, target.profileId);
       if (!active()) return;
       selected = undefined;
-      status = `已加入下载队列（${job.jobId.slice(0, 8)}）${includeDependencies ? '，将自动解析前置依赖' : ''}。`;
-      context.notify(status, '模组已加入下载队列');
+      hasSubmittedAdd = true;
+      status = `已提交模组添加任务（${job.jobId.slice(0, 8)}），可在下载管理查看进度。`;
+      context.notify(status, '已提交模组添加任务');
     } catch (cause) {
       if (active() && generation === bindingGeneration && searchGeneration === requestGeneration) fail(cause, 'add');
     } finally { if (active()) { adding = false; update(); } }
@@ -571,10 +575,12 @@ export async function mountSearch(root: HTMLElement, context: UiContext): Promis
           h(Antd.Button, { size: 'small', className: 'mintcat-search-add-btn', icon: h(Icons.PlusOutlined), disabled: !profileId || adding, title: '添加到配置', onClick: () => { error = undefined; selected = item; void loadTargetGroups(profileId); update(); } }, '添加'))))) : null,
       cursor ? h(Antd.Button, { block: true, className: 'mintcat-search-more-btn', loading, onClick: () => run(() => search(true)) }, '加载更多结果') : null,
       showFooterStatus ? h('div', { className: 'mintcat-search-footer-status' },
-        h(Antd.Typography.Text, { type: 'secondary', role: 'status' }, bindingsLoading ? '正在读取配置…' : status)) : null,
-      h(Antd.Modal, { open: Boolean(selected), title: '添加模组到配置', okText: '确认添加', cancelText: '取消', confirmLoading: adding, okButtonProps: { disabled: !profileId || adding, className: 'glass-primary-action' }, onCancel: () => { if (!adding) { selected = undefined; if (errorContext === 'add') error = undefined; resetCredentialDraft(); update(); } }, onOk: () => { if (selected) run(() => add(selected!.reference), 'add'); } },
+        h(Antd.Typography.Text, { type: 'secondary', role: 'status' }, bindingsLoading ? '正在读取配置…' : status),
+        hasSubmittedAdd && !bindingsLoading ? h(Antd.Button, { size: 'small', type: 'link', onClick: () => navigateUi('downloads') }, '查看下载管理') : null) : null,
+      h(Antd.Modal, { open: Boolean(selected), title: '添加模组到配置', okText: '添加并下载', cancelText: '取消', confirmLoading: adding, okButtonProps: { disabled: !profileId || adding, className: 'glass-primary-action' }, onCancel: () => { if (!adding) { selected = undefined; if (errorContext === 'add') error = undefined; resetCredentialDraft(); update(); } }, onOk: () => { if (selected) run(() => add(selected!.reference), 'add'); } },
         h('div', { className: 'mintcat-add-modal-body' },
           h('div', { className: 'mintcat-add-modal-name' }, selected?.displayName),
+          h(Antd.Typography.Text, { type: 'secondary' }, '添加后会尝试将模组文件下载到本地缓存，不会自动部署到游戏。'),
           errorAlert,
           h('div', { className: 'mintcat-add-field' },
             h('span', { className: 'mintcat-add-field-label' }, '目标配置'),

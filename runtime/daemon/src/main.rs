@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use mintcat_daemon::BoundDaemon;
+use mintcat_daemon::{legacy_cache, BoundDaemon};
 use mintcat_runtime_kernel::{RuntimeEnvironment, RuntimePaths, DATA_DIR_ENV};
 
 #[derive(Debug, Parser)]
@@ -42,7 +42,23 @@ enum Command {
     /// Print the resolved runtime paths without mutating the filesystem.
     Paths,
     /// Serve authenticated local IPC until an operating-system shutdown signal.
-    Serve,
+    Serve {
+        /// Shut down gracefully after the last client disconnects and durable work is idle.
+        #[arg(long)]
+        exit_when_idle: bool,
+    },
+    /// Preview or restore imported local ZIP/PAK cache bindings while the daemon is stopped.
+    RestoreLegacyCache {
+        /// Imported profile to restore.
+        #[arg(long)]
+        profile_id: String,
+        /// Abort unless the profile's content revision is exactly this value.
+        #[arg(long)]
+        expected_content_revision: u64,
+        /// Bind the complete set of inspected local files. Without this flag, only preview.
+        #[arg(long)]
+        apply: bool,
+    },
 }
 
 #[tokio::main]
@@ -66,7 +82,21 @@ async fn run(cli: Cli) -> Result<()> {
             print_value(&layout, cli.json)?;
         }
         Command::Paths => print_value(&paths.layout(), cli.json)?,
-        Command::Serve => {
+        Command::RestoreLegacyCache {
+            profile_id,
+            expected_content_revision,
+            apply,
+        } => {
+            let result = legacy_cache::restore(
+                &paths.layout(),
+                cli.environment.into(),
+                &profile_id,
+                expected_content_revision,
+                apply,
+            )?;
+            print_value(&result, cli.json)?;
+        }
+        Command::Serve { exit_when_idle } => {
             let daemon = BoundDaemon::bind(&paths, cli.environment.into())
                 .context("could not bind standalone daemon")?;
             let ready = daemon.ready();
@@ -79,10 +109,13 @@ async fn run(cli: Cli) -> Result<()> {
                 ready.generation_id,
                 ready.endpoint.display()
             );
-            daemon
-                .run(shutdown_signal())
-                .await
-                .context("daemon runtime failed")?;
+            let shutdown = shutdown_signal();
+            if exit_when_idle {
+                daemon.run_until_idle(shutdown).await
+            } else {
+                daemon.run(shutdown).await
+            }
+            .context("daemon runtime failed")?;
         }
     }
     Ok(())

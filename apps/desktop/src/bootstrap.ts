@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import './ui-runtime';
 import { presentUiError, renderUiError } from '@mintcat/sdk-ui';
 import { mountChrome } from './chrome';
@@ -8,6 +9,23 @@ import { initializeWindowSurface } from './window-surface';
 
 export async function mountDesktop(app: HTMLElement, configuredDataDir?: string): Promise<void> {
 const native = hasNativeDaemonConnector();
+if (native && getCurrentWindow().label === 'first-run-setup') {
+  try {
+    const [{ Workbench }, { dataDir }, legacyPath] = await Promise.all([
+      import('./workbench'),
+      configuredDataDir ? Promise.resolve({ dataDir: configuredDataDir }) : invoke<{ dataDir: string }>('desktop_environment'),
+      invoke<string | null>('detect_legacy_setup_database').catch(() => null),
+    ]);
+    const guide = new Workbench(app, dataDir, error => renderUiError(app, presentUiError(error)), undefined, undefined, undefined, {
+      mode: 'guide', legacyPath: legacyPath ?? undefined, close: () => invoke('close_setup_window'),
+    });
+    window.addEventListener('pagehide', () => guide.dispose(), { once: true });
+    await guide.refresh();
+  } catch (error) {
+    renderUiError(app, presentUiError(error));
+  }
+  return;
+}
 const disposeWindowSurface = initializeWindowSurface(native);
 window.addEventListener('pagehide', disposeWindowSurface, { once: true });
 const shell = document.createElement('section'); shell.className = 'app';
@@ -81,7 +99,9 @@ if (!native || !configuredDataDir) {
         const framework = await import('./workbench');
         if (epoch !== shellGeneration) return;
         surface.replaceChildren();
-        workbench = new framework.Workbench(surface, dataDir, showError, modules, navigation, header.querySelector<HTMLElement>('#mc-page-toolbar') ?? undefined);
+        workbench = new framework.Workbench(surface, dataDir, showError, modules, navigation, header.querySelector<HTMLElement>('#mc-page-toolbar') ?? undefined, {
+          mode: 'main', open: () => invoke('open_setup_window'),
+        });
       }
       await workbench.refresh();
       if (epoch === shellGeneration) status.textContent = 'Workbench loaded. Persistent daemon jobs continue independently.';
@@ -127,6 +147,9 @@ if (!native || !configuredDataDir) {
     const list = await requestApplication(dataDir, 'modules.list', {});
     output.replaceChildren(document.createTextNode(JSON.stringify(list, null, 2)));
   });
+  const setupListener = getCurrentWindow().listen('mintcat-setup-closed', () => workbench?.refreshAfterSetup());
+  window.addEventListener('pagehide', () => { void setupListener.then(release => release()).catch(() => {}); }, { once: true });
+  void setupListener.catch(showError);
   void startWorkbench().catch(showError);
 }
 window.addEventListener('pagehide', () => { window.removeEventListener('mintcat-open-rescue', openRescueHandler); shellGeneration++; starting = undefined; workbench?.dispose(); chrome.dispose(); }, { once: true });

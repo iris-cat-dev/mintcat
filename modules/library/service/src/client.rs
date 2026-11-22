@@ -7,15 +7,33 @@ use crate::*;
 
 /// Daemon-owned single writer over the existing Library database and recovery fence.
 #[derive(Clone, Debug)]
-pub struct LibraryStore { owner: OwnerStore, writer: Arc<Mutex<()>> }
+pub struct LibraryStore {
+    owner: OwnerStore,
+    writer: Arc<Mutex<()>>,
+    artifacts_dir: std::path::PathBuf,
+}
 impl LibraryStore {
     pub fn open(layout: &RuntimeLayout) -> Result<Self, LibraryError> {
-        Ok(Self { owner: OwnerStore::open(layout)?, writer: Arc::new(Mutex::new(())) })
+        Ok(Self {
+            owner: OwnerStore::open(layout)?,
+            writer: Arc::new(Mutex::new(())),
+            artifacts_dir: layout.artifacts_dir.clone(),
+        })
     }
     pub fn open_for_recovery(layout: &RuntimeLayout) -> Result<Self, LibraryError> {
         let path = layout.state_dir.join("mintcat.library/library.sqlite");
         if !path.exists() { return Self::open(layout); }
-        Ok(Self { owner: OwnerStore::open_read_only(&path)?, writer: Arc::new(Mutex::new(())) })
+        Self::open_existing_read_only(layout)
+    }
+    /// Open an existing owner without initializing or migrating the database.
+    pub fn open_existing_read_only(layout: &RuntimeLayout) -> Result<Self, LibraryError> {
+        if !layout.initialized { return Err(LibraryError::UninitializedLayout); }
+        let path = layout.state_dir.join("mintcat.library/library.sqlite");
+        Ok(Self {
+            owner: OwnerStore::open_read_only(&path)?,
+            writer: Arc::new(Mutex::new(())),
+            artifacts_dir: layout.artifacts_dir.clone(),
+        })
     }
     pub fn resume_after_recovery(&self) -> Result<(), LibraryError> { self.owner.resume_after_recovery() }
     pub fn database_path(&self) -> &Path { self.owner.database_path() }
@@ -29,10 +47,52 @@ impl LibraryStore {
         self.owner.ensure_writable()?;
         self.owner.import_legacy(source, vault)
     }
-    pub fn import_legacy_checked(&self, source: &Path, expected_source_digest: &str, vault: &dyn CredentialVault) -> Result<crate::LegacyImportReport, LibraryError> {
+    pub fn import_legacy_checked(&self, source: &Path, expected_source_digest: &str, vault: Option<&dyn CredentialVault>) -> Result<crate::LegacyImportReport, LibraryError> {
         let _writer = self.writer.lock().map_err(|_| LibraryError::Poisoned)?;
         self.owner.ensure_writable()?;
         self.owner.import_legacy_checked(source, expected_source_digest, vault)
+    }
+    pub fn legacy_cache_candidates(
+        &self,
+        authorization: &LibraryAuthorization,
+        profile_id: &str,
+        expected_content_revision: u64,
+    ) -> Result<Vec<LegacyCacheCandidate>, LibraryError> {
+        self.owner.legacy_cache_candidates(authorization, profile_id, expected_content_revision, true)
+    }
+
+    pub fn restore_legacy_cache(
+        &self,
+        authorization: &LibraryAuthorization,
+        profile_id: &str,
+        expected_content_revision: u64,
+        inputs: &[(LegacyCacheCandidate, ArtifactGrant)],
+    ) -> Result<u64, LibraryError> {
+        let _writer = self.writer.lock().map_err(|_| LibraryError::Poisoned)?;
+        self.owner.restore_legacy_cache(
+            authorization, profile_id, expected_content_revision, inputs, &self.artifacts_dir,
+            None,
+        ).map(|result| result.content_revision)
+    }
+    pub fn legacy_cache_hints(&self, authorization: &LibraryAuthorization, profile_id: &str) -> Result<Vec<String>, LibraryError> {
+        self.owner.legacy_cache_hints(authorization, profile_id)
+    }
+    pub fn available_legacy_cache_candidates(
+        &self, authorization: &LibraryAuthorization, profile_id: &str, revision: u64,
+    ) -> Result<Vec<LegacyCacheCandidate>, LibraryError> {
+        self.owner.legacy_cache_candidates(authorization, profile_id, revision, false)
+    }
+    pub fn previous_legacy_cache_restore(
+        &self, authorization: &LibraryAuthorization, profile_id: &str, revision: u64, key: &str,
+    ) -> Result<Option<crate::ApplyOperationResult>, LibraryError> {
+        self.owner.previous_legacy_cache_restore(authorization, profile_id, revision, key)
+    }
+    pub fn restore_available_legacy_cache(
+        &self, authorization: &LibraryAuthorization, profile_id: &str, revision: u64, key: &str,
+        inputs: &[(LegacyCacheCandidate, ArtifactGrant)],
+    ) -> Result<crate::ApplyOperationResult, LibraryError> {
+        let _writer = self.writer.lock().map_err(|_| LibraryError::Poisoned)?;
+        self.owner.restore_legacy_cache(authorization, profile_id, revision, inputs, &self.artifacts_dir, Some(key))
     }
     /// Freeze an approved legacy source, including committed WAL, without writing the source.
     pub fn snapshot_legacy_source(source: &Path, target: &Path) -> Result<(), LibraryError> {
@@ -44,7 +104,8 @@ impl LibraryStore {
         let mut output = rusqlite::Connection::open(target)?;
         let backup = rusqlite::backup::Backup::new(&input, &mut output)?;
         backup.run_to_completion(128, Duration::from_millis(10), None)?;
-        drop(backup); drop(output); File::open(target)?.sync_all()?;
+        drop(backup); drop(output);
+        std::fs::OpenOptions::new().write(true).open(target)?.sync_all()?;
         Ok(())
     }
     pub fn legacy_source_digest(source: &Path) -> Result<String, LibraryError> {

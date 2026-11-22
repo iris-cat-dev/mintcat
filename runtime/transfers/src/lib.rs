@@ -326,10 +326,16 @@ impl TransferManager {
                     "transfer identity digest collision".to_owned(),
                 ));
             }
-            if matches!(existing.state.as_str(), "failed" | "cancelled") {
+            let missing_blob = if let Some(artifact) = &existing.artifact_json {
+                let artifact = serde_json::from_str(artifact)?;
+                matches!(self.artifacts.grant_blob(&artifact), Err(ArtifactError::NotFound(_)))
+            } else {
+                false
+            };
+            if missing_blob || matches!(existing.state.as_str(), "failed" | "cancelled") {
                 transaction.execute(
                     "UPDATE transfers SET state = 'queued', failure_code = NULL,
-                       active_attempt_id = NULL, updated_at_ms = ?2 WHERE transfer_id = ?1",
+                       active_attempt_id = NULL, artifact_json = NULL, updated_at_ms = ?2 WHERE transfer_id = ?1",
                     params![existing.transfer_id, now_ms()?],
                 )?;
             }

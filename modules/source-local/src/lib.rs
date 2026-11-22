@@ -484,7 +484,9 @@ fn validate_archive_collision(
     Ok(())
 }
 
-fn validate_zip_entry_type(entry: &zip::read::ZipFile<'_>) -> Result<(), LocalSourceError> {
+fn validate_zip_entry_type<R: Read>(
+    entry: &zip::read::ZipFile<'_, R>,
+) -> Result<(), LocalSourceError> {
     let Some(mode) = entry.unix_mode() else {
         return Ok(());
     };

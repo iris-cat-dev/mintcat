@@ -146,7 +146,6 @@ export function packageRelease(variant, args = process.argv.slice(2), bundleTarg
   const config = {
     // Keep the name compiled into Tauri's Linux resource resolver unchanged.
     productName: 'MintCat',
-    identifier: manifest.mode === 'development' ? 'com.mint.cat.vnext.local' : 'com.mint.cat',
     bundle: { active: true, externalBin: ['mintcat', 'mintcatd', 'mintcat-module'].map(name => join(native, name)), resources },
   };
   if (platform.os === 'macos' && manifest.mode === 'development') {

@@ -1175,10 +1175,13 @@ export interface ModsCheckUpdatesResult {
   "items": Array<ModUpdateCheckItem>;
 }
 
+export type BatchVersionPolicy = "selected";
+
 export interface ModsUpdateBatchParams {
   "profileId": Identifier;
   "expectedContentRevision": number;
   "profileModIds"?: Array<Identifier>;
+  "versionPolicy"?: BatchVersionPolicy;
   "mode"?: DownloadMode;
 }
 
@@ -1260,6 +1263,8 @@ export interface InstallDetectInputsParams {
 
 export interface DetectedInstallInput {
   "profileModId": Identifier;
+  "sourceId"?: Identifier;
+  "legacyCacheAvailable"?: boolean;
   "verified": boolean;
   "artifactDigest"?: Digest;
   "format"?: "pak" | "zip" | "directory-snapshot";
@@ -1271,7 +1276,17 @@ export interface InstallDetectInputsResult {
   "items": Array<DetectedInstallInput>;
 }
 
-export type CommandName = "system.status" | "system.doctor" | "games.list" | "profiles.list" | "profiles.contentState" | "profiles.create" | "profiles.update" | "profiles.activate" | "profiles.delete" | "profiles.clone" | "groups.list" | "groups.create" | "groups.update" | "groups.move" | "groups.delete" | "mods.list" | "mods.get" | "mods.rename" | "mods.setEnabled" | "mods.setEnabledBatch" | "mods.move" | "mods.remove" | "mods.cleanupMissing" | "mods.setVersion" | "jobs.get" | "jobs.watch" | "jobs.cancel" | "actions.get" | "actions.approve" | "actions.reject" | "modules.inspect" | "install.plan" | "install.apply" | "install.uninstall" | "updates.activate" | "sources.list" | "sources.credentials.set" | "sources.credentials.clear" | "sources.search" | "mods.add" | "mods.importLocal" | "settings.get" | "settings.update" | "modules.list" | "mods.pack" | "updates.stage" | "updates.prepare" | "updates.confirm" | "updates.rollback" | "updates.operations" | "updates.channel" | "updates.gc" | "agent.sessions.create" | "agent.sessions.get" | "agent.sessions.send" | "agent.sessions.delete" | "proxy.status" | "proxy.start" | "proxy.stop" | "proxy.privilege" | "backup.export" | "backup.restore" | "backup.recover" | "backup.cloud.list" | "backup.cloud.upload" | "backup.cloud.download" | "library.import-legacy" | "library.config-import" | "games.register" | "games.discover" | "mods.refreshVersions" | "mods.checkUpdates" | "mods.updateBatch" | "mods.checkConflicts" | "mods.exportArtifact" | "sources.resolveUrl" | "sources.listSubscribed" | "install.receipts" | "install.detectInputs" | "agent.credentials.status" | "agent.credentials.set" | "agent.credentials.clear" | "agent.connection.test";
+export interface InstallRestoreLegacyCacheParams {
+  "profileId": Identifier;
+  "expectedContentRevision": number;
+}
+
+export interface InstallRestoreLegacyCacheResult {
+  "contentRevision": number;
+  "restoredCount": number;
+}
+
+export type CommandName = "system.status" | "system.doctor" | "games.list" | "profiles.list" | "profiles.contentState" | "profiles.create" | "profiles.update" | "profiles.activate" | "profiles.delete" | "profiles.clone" | "groups.list" | "groups.create" | "groups.update" | "groups.move" | "groups.delete" | "mods.list" | "mods.get" | "mods.rename" | "mods.setEnabled" | "mods.setEnabledBatch" | "mods.move" | "mods.remove" | "mods.cleanupMissing" | "mods.setVersion" | "jobs.get" | "jobs.watch" | "jobs.cancel" | "actions.get" | "actions.approve" | "actions.reject" | "modules.inspect" | "install.plan" | "install.apply" | "install.uninstall" | "updates.activate" | "sources.list" | "sources.credentials.set" | "sources.credentials.clear" | "sources.search" | "mods.add" | "mods.importLocal" | "settings.get" | "settings.update" | "modules.list" | "mods.pack" | "updates.stage" | "updates.prepare" | "updates.confirm" | "updates.rollback" | "updates.operations" | "updates.channel" | "updates.gc" | "agent.sessions.create" | "agent.sessions.get" | "agent.sessions.send" | "agent.sessions.delete" | "proxy.status" | "proxy.start" | "proxy.stop" | "proxy.privilege" | "backup.export" | "backup.restore" | "backup.recover" | "backup.cloud.list" | "backup.cloud.upload" | "backup.cloud.download" | "library.import-legacy" | "library.config-import" | "games.register" | "games.discover" | "mods.refreshVersions" | "mods.checkUpdates" | "mods.updateBatch" | "mods.checkConflicts" | "mods.exportArtifact" | "sources.resolveUrl" | "sources.listSubscribed" | "install.receipts" | "install.detectInputs" | "install.restoreLegacyCache" | "agent.credentials.status" | "agent.credentials.set" | "agent.credentials.clear" | "agent.connection.test";
 
 export interface CommandParams {
   "system.status": SystemStatusParams;
@@ -1353,6 +1368,7 @@ export interface CommandParams {
   "sources.listSubscribed": SourcesListSubscribedParams;
   "install.receipts": InstallReceiptsParams;
   "install.detectInputs": InstallDetectInputsParams;
+  "install.restoreLegacyCache": InstallRestoreLegacyCacheParams;
   "agent.credentials.status": AgentCredentialStatusParams;
   "agent.credentials.set": AgentCredentialSetParams;
   "agent.credentials.clear": AgentCredentialClearParams;
@@ -1439,6 +1455,7 @@ export interface CommandResult {
   "sources.listSubscribed": SourceSearchResult;
   "install.receipts": InstallReceiptsResult;
   "install.detectInputs": InstallDetectInputsResult;
+  "install.restoreLegacyCache": InstallRestoreLegacyCacheResult;
   "agent.credentials.status": AgentCredentialStatusResult;
   "agent.credentials.set": AgentCredentialStatusResult;
   "agent.credentials.clear": AgentCredentialStatusResult;
@@ -5938,6 +5955,12 @@ export const CORE_SCHEMA: Record<string, unknown> = {
         }
       }
     },
+    "BatchVersionPolicy": {
+      "type": "string",
+      "enum": [
+        "selected"
+      ]
+    },
     "ModsUpdateBatchParams": {
       "type": "object",
       "additionalProperties": false,
@@ -5958,6 +5981,9 @@ export const CORE_SCHEMA: Record<string, unknown> = {
           "items": {
             "$ref": "#/$defs/Identifier"
           }
+        },
+        "versionPolicy": {
+          "$ref": "#/$defs/BatchVersionPolicy"
         },
         "mode": {
           "$ref": "#/$defs/DownloadMode"
@@ -6264,6 +6290,12 @@ export const CORE_SCHEMA: Record<string, unknown> = {
         "profileModId": {
           "$ref": "#/$defs/Identifier"
         },
+        "sourceId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "legacyCacheAvailable": {
+          "type": "boolean"
+        },
         "verified": {
           "type": "boolean"
         },
@@ -6299,6 +6331,41 @@ export const CORE_SCHEMA: Record<string, unknown> = {
           "items": {
             "$ref": "#/$defs/DetectedInstallInput"
           }
+        }
+      }
+    },
+    "InstallRestoreLegacyCacheParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "expectedContentRevision"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "expectedContentRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "InstallRestoreLegacyCacheResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contentRevision",
+        "restoredCount"
+      ],
+      "properties": {
+        "contentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "restoredCount": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     }
@@ -8355,6 +8422,31 @@ export const COMMAND_SPECS = [
       "detect-inputs"
     ],
     "agentExposed": true
+  },
+  {
+    "method": "install.restoreLegacyCache",
+    "contractVersion": 1,
+    "paramsSchema": "#/$defs/InstallRestoreLegacyCacheParams",
+    "resultSchema": "#/$defs/InstallRestoreLegacyCacheResult",
+    "classification": "mutation",
+    "execution": "sync",
+    "permission": "library.content.write",
+    "idempotency": "required",
+    "confirmation": "none",
+    "errorCodes": [
+      "INVALID_ARGUMENT",
+      "NOT_FOUND",
+      "RESOURCE_BUSY",
+      "REVISION_CONFLICT",
+      "PERMISSION_DENIED",
+      "INCOMPATIBLE_CONTRACT"
+    ],
+    "summary": "Restore verified local legacy caches for enabled mods in one profile without deploying them.",
+    "cli": [
+      "install",
+      "restore-legacy-cache"
+    ],
+    "agentExposed": false
   },
   {
     "method": "agent.credentials.status",

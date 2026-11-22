@@ -356,6 +356,31 @@ fn js_native_and_audio_plans_emit_only_declared_targets() {
 }
 
 #[test]
+fn pak_zip_deploys_its_native_and_script_companions_with_separate_approvals() {
+    let fixture = Fixture::new();
+    let archive = zip_bytes(&[
+        ("mod.pak", b"the PAK is merged separately"),
+        ("main.dll", &pe_dll()),
+        ("js/main.js", b"native loader script"),
+    ]);
+    let grant = fixture.blob(&archive, "application/zip");
+    let manifests = fixture.loader.plan_pak_zip_companions(JsDeploymentRequest {
+        game_id: "game:drg".to_owned(),
+        owner: "profile".to_owned(),
+        mod_id: "mixed".to_owned(),
+        input_id: "mixed-zip".to_owned(),
+        artifact: &grant,
+        format: JsInputFormat::Zip,
+    }).unwrap();
+    let approvals: Vec<_> = manifests.iter().flat_map(|manifest| &manifest.approval_requirements)
+        .map(|approval| (approval.target_relative_path.as_str(), &approval.risk)).collect();
+    assert_eq!(approvals, [
+        ("ue4ss/mods/mixed/main.dll", &DeploymentRisk::NativeCodeExecution),
+        ("ue4ss/mods/mixed/js/main.js", &DeploymentRisk::ScriptExecution),
+    ]);
+}
+
+#[test]
 fn directory_snapshot_deploys_only_its_js_tree() {
     let fixture = Fixture::new();
     let snapshot = snapshot_bytes(&[

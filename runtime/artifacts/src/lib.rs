@@ -394,12 +394,20 @@ impl ArtifactStore {
         set_payload_permissions(&temporary, false)?;
         match fs::rename(&temporary, &destination) {
             Ok(()) => sync_directory(destination.parent().expect("blob path has parent"))?,
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                fs::remove_file(&temporary)?;
-            }
             Err(error) => {
-                let _ = fs::remove_file(&temporary);
-                return Err(error.into());
+                // Windows reports ACCESS_DENIED when rename would replace a read-only blob.
+                // Only reuse an existing regular file whose actual content matches the digest.
+                let collision = error.kind() == io::ErrorKind::AlreadyExists
+                    || (cfg!(windows) && error.kind() == io::ErrorKind::PermissionDenied);
+                let cleanup = remove_staged_blob(&temporary);
+                if !collision
+                    || !fs::symlink_metadata(&destination).is_ok_and(|metadata|
+                        metadata.is_file() && metadata.len() == size)
+                    || hash_file(&destination)? != digest_bytes
+                {
+                    return Err(error.into());
+                }
+                cleanup?;
             }
         }
         Ok(ArtifactRef {
@@ -838,6 +846,16 @@ fn set_payload_permissions(path: &Path, executable: bool) -> Result<(), Artifact
         let _ = executable;
     }
     Ok(())
+}
+
+fn remove_staged_blob(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        let mut permissions = fs::metadata(path)?.permissions();
+        permissions.set_readonly(false);
+        fs::set_permissions(path, permissions)?;
+    }
+    fs::remove_file(path)
 }
 
 fn make_tree_read_only(root: &Path) -> Result<(), ArtifactError> {

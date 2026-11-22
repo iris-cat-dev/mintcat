@@ -24,7 +24,10 @@ pub(crate) fn advance(path:&Path)->Result<(),LibraryError> {
     let mut options=fs::OpenOptions::new();options.write(true).create_new(true);
     #[cfg(unix)] {use std::os::unix::fs::OpenOptionsExt;options.mode(0o600);}
     let mut file=options.open(&temporary)?;write!(file,"{value}")?;file.sync_all()?;drop(file);
-    fs::rename(temporary,parent.join("write-epoch"))?;fs::File::open(parent)?.sync_all()?;Ok(())
+    fs::rename(temporary,parent.join("write-epoch"))?;
+    #[cfg(unix)]
+    fs::File::open(parent)?.sync_all()?;
+    Ok(())
 }
 /// The evidence row is excluded from its base hash to avoid a self-referential digest.
 /// Lookup verifies this exact base, then hashes the complete snapshot including the row.

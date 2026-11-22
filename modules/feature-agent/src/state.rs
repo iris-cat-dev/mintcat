@@ -52,7 +52,10 @@ pub(super) fn advance_epoch(path: &Path) -> Result<(), AgentError> {
     write!(file, "{next}").map_err(|_| AgentError::Storage)?;
     file.sync_all().map_err(|_| AgentError::Storage)?; drop(file);
     fs::rename(temporary, path.with_extension("write-epoch")).map_err(|_| AgentError::Storage)?;
-    File::open(parent).and_then(|file| file.sync_all()).map_err(|_| AgentError::Storage)
+    // Windows cannot open a directory with File::open; the epoch file itself is already synced.
+    #[cfg(unix)]
+    File::open(parent).and_then(|file| file.sync_all()).map_err(|_| AgentError::Storage)?;
+    Ok(())
 }
 impl AgentSessions {
     pub fn database_path(&self) -> &Path { &self.path }

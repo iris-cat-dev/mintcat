@@ -216,18 +216,24 @@ fn enroll_installation(
             retained.map(|value| serde_json::from_str(&value)).transpose()?;
         let prior_pak = retained.as_ref().map(|value| value.main_pak_relative_path.as_str())
             .unwrap_or(&validated.main_pak_relative_path);
-        let collision = root == std::path::Path::new(&validated.root_path)
+        let main_pak = std::path::Path::new(&validated.root_path).join(&validated.main_pak_relative_path);
+        // The old desktop stored the picked main PAK rather than its installation directory.
+        let legacy_main_pak = retained.is_none()
+            && installation.installation_id.starts_with("installation:legacy:")
+            && same_physical_file(root, &main_pak);
+        let collision = legacy_main_pak
+            || root == std::path::Path::new(&validated.root_path)
             || root.canonicalize().is_ok_and(|path| path == std::path::Path::new(&validated.root_path))
-            || same_physical_file(&root.join(prior_pak), &std::path::Path::new(&validated.root_path).join(&validated.main_pak_relative_path));
+            || same_physical_file(&root.join(prior_pak), &main_pak);
         if collision {
             if existing.is_some() || installation.game_id != validated.game_id {
                 return Err(LibraryError::InvalidRecord("installation physical identity collides with existing enrollment".into()));
             }
-            existing = Some(installation);
+            existing = Some((installation, legacy_main_pak));
         }
     }
     drop(statement);
-    let installation = if let Some(existing) = existing {
+    let installation = if let Some((mut existing, legacy_main_pak)) = existing {
         let stored: Option<String> = transaction.query_row(
             "SELECT value FROM library_settings WHERE scope_id = ?1 AND name = 'validated'",
             [format!("enrollment:installation:{}", existing.installation_id)], |r| r.get(0),
@@ -238,7 +244,16 @@ fn enroll_installation(
                 return Err(LibraryError::StaleTarget("existing installation variant or fingerprint differs; explicit migration required".into()));
             }
         }
-        if existing.root_path.as_deref() != Some(validated.root_path.as_str()) || existing.state != "configured" {
+        if legacy_main_pak {
+            transaction.execute(
+                "UPDATE library_installations SET root_path = ?2, state = 'configured', updated_at_ms = ?3
+                 WHERE installation_id = ?1",
+                params![existing.installation_id, validated.root_path, now],
+            )?;
+            existing.root_path = Some(validated.root_path.clone());
+            existing.state = "configured".into();
+            existing.updated_at_ms = now;
+        } else if existing.root_path.as_deref() != Some(validated.root_path.as_str()) || existing.state != "configured" {
             return Err(LibraryError::InvalidRecord("legacy installation alias requires explicit migration".into()));
         }
         existing
@@ -263,7 +278,7 @@ fn enroll_installation(
     Ok(installation)
 }
 
-fn same_physical_file(left: &std::path::Path, right: &std::path::Path) -> bool {
+pub(crate) fn same_physical_file(left: &std::path::Path, right: &std::path::Path) -> bool {
     #[cfg(unix)] {
         use std::os::unix::fs::MetadataExt;
         if let (Ok(left), Ok(right)) = (left.metadata(), right.metadata()) {
@@ -368,6 +383,116 @@ mod enrollment_tests {
         let snapshot = store.snapshot().unwrap();
         assert_eq!(snapshot.games.iter().map(|g| g.game_id.as_str()).collect::<Vec<_>>(), ["game:fixture"]);
         assert_eq!(snapshot.installations, vec![enrolled.installation.unwrap()]);
+    }
+
+    fn drg_request(root: &Path) -> GameEnrollmentRequest {
+        let mut request = request(root);
+        request.signed_descriptor.game_id = "game:drg".into();
+        request.signed_descriptor.display_name = "Registered Deep Rock Galactic".into();
+        request.installation.as_mut().unwrap().game_id = "game:drg".into();
+        request
+    }
+
+    fn copy_legacy_fixture(root: &Path) -> std::path::PathBuf {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../fixtures/baseline/legacy/mintcat-v0.6.sqlite");
+        let copy = root.join("legacy.sqlite");
+        std::fs::copy(source, &copy).unwrap();
+        copy
+    }
+
+    #[test]
+    fn approved_legacy_import_keeps_registered_drg_and_imports_memberships() {
+        let sandbox = tempfile::tempdir().unwrap();
+        let store = store(sandbox.path());
+        let authorization = authority();
+        let drg = drg_request(&sandbox.path().join("validated-drg"));
+        let installation = store.register_game(&authorization, "drg", &drg).unwrap().installation.unwrap();
+        store.register_game(&authorization, "new-only", &request(&sandbox.path().join("new-only"))).unwrap();
+        let before = store.snapshot().unwrap();
+        assert!(before.can_import_legacy());
+        let source = copy_legacy_fixture(sandbox.path());
+        let source_digest = crate::LibraryStore::legacy_source_digest(&source).unwrap();
+        let report = store.import_legacy_checked(&source, &source_digest, None).unwrap();
+        let after = store.snapshot().unwrap();
+
+        for game in &before.games {
+            assert!(after.games.contains(game));
+        }
+        for installation in &before.installations {
+            assert!(after.installations.contains(installation));
+        }
+        for setting in &before.settings {
+            assert!(after.settings.contains(setting));
+        }
+        assert_eq!(
+            after.mutation_results.iter().filter(|row| row.idempotency_scope == "games.register").collect::<Vec<_>>(),
+            before.mutation_results.iter().collect::<Vec<_>>()
+        );
+        assert_eq!(store.legacy_import_outcome(&source_digest).unwrap().unwrap().result, report);
+        assert_eq!(after.outbox, before.outbox);
+        assert_eq!(store.registered_installation(&authorization, &installation.installation_id).unwrap(), drg.installation.unwrap());
+        assert_eq!(after.installations.iter().filter(|item| item.game_id == "game:drg").collect::<Vec<_>>(), vec![&installation]);
+        assert!(after.legacy_mappings.iter().any(|item| item.entity_kind == "installation"
+            && item.legacy_id == "1" && item.new_id == installation.installation_id));
+        assert!(after.legacy_install_hints.iter().any(|hint| hint.game_id == "game:drg" && hint.claim_status == "unverified"));
+        assert_eq!(after.profile_mods.iter().filter(|item| item.profile_id == "profile:legacy:1").count(), 2);
+        assert_eq!(report.counts.profile_mods, 3);
+        assert_eq!(report.counts.installations, 1);
+        assert!(!after.can_import_legacy());
+        assert_eq!(crate::LibraryStore::legacy_source_digest(&source).unwrap(), source_digest);
+    }
+
+    #[test]
+    fn approved_legacy_import_refuses_authored_profiles_or_settings() {
+        for create_profile in [true, false] {
+            let sandbox = tempfile::tempdir().unwrap();
+            let store = store(sandbox.path());
+            let authorization = authority();
+            store.register_game(&authorization, "drg", &drg_request(&sandbox.path().join("drg"))).unwrap();
+            let source = copy_legacy_fixture(sandbox.path());
+            let digest = crate::LibraryStore::legacy_source_digest(&source).unwrap();
+            assert!(store.snapshot().unwrap().can_import_legacy());
+
+            // Authored data written after preflight must still block approval.
+            if create_profile {
+                store.create_profile(&authorization, "profile", &serde_json::from_value(json!({
+                    "gameId": "game:drg", "name": "Authored Profile", "active": true
+                })).unwrap()).unwrap();
+            } else {
+                store.set_global_setting("releaseChannel", "stable").unwrap();
+            }
+            let before = store.snapshot().unwrap();
+            assert!(!before.can_import_legacy());
+            assert!(matches!(store.import_legacy_checked(&source, &digest, None), Err(LibraryError::LibraryNotEmpty)));
+            assert_eq!(store.snapshot().unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn legacy_import_maps_matching_registered_pak_or_omits_ambiguous_mapping() {
+        for match_pak in [true, false] {
+            let sandbox = tempfile::tempdir().unwrap();
+            let store = store(sandbox.path());
+            let authorization = authority();
+            let first = drg_request(&sandbox.path().join("first"));
+            let second = drg_request(&sandbox.path().join("second"));
+            store.register_game(&authorization, "first", &first).unwrap();
+            let expected = store.register_game(&authorization, "second", &second).unwrap().installation.unwrap();
+            let source = copy_legacy_fixture(sandbox.path());
+            if match_pak {
+                let pak = Path::new(expected.root_path.as_deref().unwrap()).join("Content/main.pak");
+                rusqlite::Connection::open(&source).unwrap()
+                    .execute("UPDATE games SET install_path = ?1 WHERE id = 1", [pak.to_str().unwrap()])
+                    .unwrap();
+            }
+            let digest = crate::LibraryStore::legacy_source_digest(&source).unwrap();
+            store.import_legacy_checked(&source, &digest, None).unwrap();
+            let after = store.snapshot().unwrap();
+            assert_eq!(after.installations.iter().filter(|item| item.game_id == "game:drg").count(), 2);
+            let mapped = after.legacy_mappings.iter().find(|item| item.entity_kind == "installation" && item.legacy_id == "1");
+            assert_eq!(mapped.map(|item| item.new_id.as_str()), match_pak.then_some(expected.installation_id.as_str()));
+        }
     }
 
     #[cfg(unix)]

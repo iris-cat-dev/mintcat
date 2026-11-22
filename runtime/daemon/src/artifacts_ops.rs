@@ -83,12 +83,20 @@ pub(crate) fn detect_install_inputs(
         .library
         .list_profile_mod_artifacts(&state.library_authorization, profile_id, None, true)
         .map_err(|error| Box::new(library_error(request_id, error)))?;
+    let legacy_candidates: std::collections::HashSet<_> = if items.iter().any(|item| item.artifact_digest.is_none()) {
+        state.library.legacy_cache_hints(&state.library_authorization, profile_id)
+            .map_err(|error| Box::new(library_error(request_id, error)))?.into_iter().collect()
+    } else {
+        Default::default()
+    };
     let engine = open_engine(state, request_id)?;
     let mut detected = Vec::with_capacity(items.len());
     for item in items {
         let Some(digest) = item.artifact_digest else {
             detected.push(DetectedInstallInput {
+                legacy_cache_available: legacy_candidates.contains(&item.profile_mod_id).then_some(true),
                 profile_mod_id: item.profile_mod_id,
+                source_id: Some(item.source_id),
                 verified: false,
                 artifact_digest: None,
                 format: None,
@@ -105,6 +113,8 @@ pub(crate) fn detect_install_inputs(
         let Ok(grant) = state.artifacts.grant_blob(&artifact_ref) else {
             detected.push(DetectedInstallInput {
                 profile_mod_id: item.profile_mod_id,
+                source_id: Some(item.source_id),
+                legacy_cache_available: None,
                 verified: false,
                 artifact_digest: Some(digest),
                 format: None,
@@ -128,6 +138,8 @@ pub(crate) fn detect_install_inputs(
             .unwrap_or(false);
         detected.push(DetectedInstallInput {
             profile_mod_id: item.profile_mod_id,
+            source_id: Some(item.source_id),
+            legacy_cache_available: None,
             verified: true,
             artifact_digest: Some(digest),
             format: format.map(|fmt| match fmt {

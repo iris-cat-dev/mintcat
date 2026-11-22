@@ -4,6 +4,7 @@ mod backup;
 mod composition;
 mod application;
 mod sources;
+pub mod legacy_cache;
 
 use std::{
     collections::BTreeMap,
@@ -12,6 +13,7 @@ use std::{
     io::Write,
     path::Path,
     sync::{Arc, Mutex, RwLock},
+    time::Duration,
 };
 
 use mintcat_library_service::{
@@ -267,6 +269,25 @@ impl BoundDaemon {
     where
         Shutdown: Future<Output = ()> + Send,
     {
+        self.run_with_idle_grace(shutdown, None).await
+    }
+
+    /// Run a desktop-owned daemon, retiring it after clients and durable work go idle.
+    pub async fn run_until_idle<Shutdown>(self, shutdown: Shutdown) -> Result<(), DaemonError>
+    where
+        Shutdown: Future<Output = ()> + Send,
+    {
+        self.run_with_idle_grace(shutdown, Some(Duration::from_secs(8))).await
+    }
+
+    async fn run_with_idle_grace<Shutdown>(
+        self,
+        shutdown: Shutdown,
+        idle_grace: Option<Duration>,
+    ) -> Result<(), DaemonError>
+    where
+        Shutdown: Future<Output = ()> + Send,
+    {
         self.state.features.bind_executor().map_err(|error| DaemonError::Composition(format!("{}: {}", error.code, error.message_key)))?;
         let (ready, waiting) = tokio::sync::watch::channel(false);
         let startup_state = Arc::clone(&self.state);
@@ -287,7 +308,16 @@ impl BoundDaemon {
         });
         // Authenticate immediately; business requests wait for startup recovery or rescue.
         let state = Arc::clone(&self.state);
-        let serve = self.server.run(
+        let server = if let Some(grace) = idle_grace {
+            let startup = waiting.clone();
+            let database = self.state.jobs.database().clone();
+            self.server.exit_when_idle(grace, move || {
+                *startup.borrow() && durable_jobs_allow_idle_exit(&database).unwrap_or(false)
+            })
+        } else {
+            self.server
+        };
+        let serve = server.run(
             Arc::new(move |request| {
                 let state = Arc::clone(&state);
                 let mut waiting = waiting.clone();
@@ -313,6 +343,23 @@ impl BoundDaemon {
         update_result?;
         Ok(())
     }
+}
+
+fn durable_jobs_allow_idle_exit(database: &KernelDatabase) -> Result<bool, JobError> {
+    // Approval can be committed before the owner task consumes it and transitions to
+    // running. Check both in one snapshot; begin_commit also persists its state atomically.
+    let connection = database.connection()?;
+    Ok(connection.query_row(
+        "SELECT NOT EXISTS (
+            SELECT 1 FROM jobs
+            WHERE state NOT IN ('awaiting-approval', 'recovery-required', 'succeeded', 'failed', 'cancelled')
+               OR (state = 'awaiting-approval' AND EXISTS (
+                   SELECT 1 FROM actions WHERE job_id = jobs.job_id AND state = 'approved'
+               ))
+        )",
+        [],
+        |row| row.get(0),
+    )?)
 }
 
 fn spawn_download(
@@ -1320,6 +1367,61 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn idle_exit_waits_for_durable_work_and_approved_actions() {
+        use mintcat_runtime_jobs::{ActionSpec, EventUpdate};
+
+        let sandbox = tempdir().unwrap();
+        let layout = RuntimePaths::new(sandbox.path().join("data"))
+            .unwrap()
+            .initialize(RuntimeEnvironment::Test)
+            .unwrap();
+        let database = KernelDatabase::open(&layout).unwrap();
+        let jobs = JobStore::open(database.clone(), "idle-test", 32).unwrap();
+        let can_exit = || durable_jobs_allow_idle_exit(&database).unwrap();
+        assert!(can_exit());
+        let response = json!({"approved": true});
+        let hash = request_hash(&response).unwrap();
+        let job_id = jobs.register_job(RegisterJob {
+            command: "fixture.run".to_owned(),
+            owner_scope: LOCAL_OWNER_SCOPE.to_owned(),
+            idempotency_key: "operation".to_owned(),
+            request_hash: hash.clone(),
+            target: json!({}),
+            confirmation_policy: ConfirmationPolicy::Required,
+        }).unwrap().job.job_id;
+        assert!(!can_exit()); // Queued
+        jobs.append_event(&job_id, EventUpdate::state("prepare", JobState::Preparing)).unwrap();
+        assert!(!can_exit());
+        let action = jobs.create_action(&job_id, ActionSpec {
+            kind: "confirm-plan".to_owned(),
+            operation_id: "operation".to_owned(),
+            target: json!({}),
+            target_revision: 0,
+            plan_hash: format!("sha256:{}", "1".repeat(64)),
+            module_lock_digest: format!("sha256:{}", "2".repeat(64)),
+            expires_at_ms: now_ms().unwrap() + 60_000,
+            response_schema: json!({
+                "type": "object",
+                "required": ["approved"],
+                "properties": {"approved": {"type": "boolean", "const": true}}
+            }),
+        }).unwrap();
+        assert!(can_exit()); // Waiting for user input
+        jobs.approve_action(LOCAL_OWNER_SCOPE, &action.action_id, action.revision, &response, "approve", &hash).unwrap();
+        assert!(!can_exit()); // AwaitingApproval with work admitted
+        jobs.append_event(&job_id, EventUpdate::state("run", JobState::Running)).unwrap();
+        assert!(!can_exit());
+        jobs.append_event(&job_id, EventUpdate::state("cancel", JobState::Cancelling)).unwrap();
+        assert!(!can_exit());
+        jobs.begin_commit(&job_id).unwrap();
+        assert!(!can_exit());
+        jobs.mark_commit_unknown(&job_id).unwrap();
+        assert!(can_exit()); // Persisted recovery decision required
+        jobs.finish_recovered_commit(&job_id, json!({})).unwrap();
+        assert!(can_exit()); // Terminal
+    }
 
     struct EmptyVault;
 

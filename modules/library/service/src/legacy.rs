@@ -15,7 +15,7 @@ use crate::{
         LibraryMod, LibrarySnapshot, ModContentVersion, ProfileModRecord, ProfileRecord,
         SettingRecord, GLOBAL_SETTING_SCOPE,
     },
-    store::{insert_snapshot, OwnerStore},
+    store::{insert_snapshot, read_snapshot, OwnerStore},
     LibraryError,
 };
 
@@ -160,12 +160,12 @@ struct StagedCredential {
 
 impl OwnerStore {
 pub fn import_legacy(&self, source: &Path, vault: &dyn CredentialVault) -> Result<LegacyImportReport, LibraryError> {
-    self.import_legacy_bound(source, None, vault)
+    self.import_legacy_bound(source, None, Some(vault))
 }
-pub fn import_legacy_checked(&self, source: &Path, expected_source_digest: &str, vault: &dyn CredentialVault) -> Result<LegacyImportReport, LibraryError> {
+pub fn import_legacy_checked(&self, source: &Path, expected_source_digest: &str, vault: Option<&dyn CredentialVault>) -> Result<LegacyImportReport, LibraryError> {
     self.import_legacy_bound(source, Some(expected_source_digest), vault)
 }
-fn import_legacy_bound(&self, source: &Path, expected_source_digest: Option<&str>, vault: &dyn CredentialVault) -> Result<LegacyImportReport, LibraryError> {
+fn import_legacy_bound(&self, source: &Path, expected_source_digest: Option<&str>, vault: Option<&dyn CredentialVault>) -> Result<LegacyImportReport, LibraryError> {
     let dump = read_legacy_dump(source)?;
     let legacy_users: HashSet<i64> = dump.users.iter().map(|user| user.id).collect();
     for oauth in &dump.oauths {
@@ -195,7 +195,10 @@ fn import_legacy_bound(&self, source: &Path, expected_source_digest: Option<&str
         return Ok(outcome.result);
     }
 
-    let staged_credentials = stage_credentials(&dump.oauths, vault)?;
+    let staged_credentials = match vault {
+        Some(vault) => stage_credentials(&dump.oauths, vault)?,
+        None => Vec::new(),
+    };
     let imported_credentials = staged_credentials
         .iter()
         .filter(|credential| credential.credential_ref.is_some())
@@ -208,41 +211,115 @@ fn import_legacy_bound(&self, source: &Path, expected_source_digest: Option<&str
         match build_snapshot(&dump, &source_digest, staged_credentials) {
             Ok(result) => result,
             Err(error) => {
-                cleanup_credentials(vault, &stored_refs)?;
+                if let Some(vault) = vault { cleanup_credentials(vault, &stored_refs)?; }
                 return Err(error);
             }
         };
-    let counts = snapshot.counts();
-    snapshot.import_runs.push(ImportRunRecord {
-        source_digest: source_digest.clone(),
-        source_label: source.display().to_string(),
-        imported_at_ms: current_time_ms(),
-        counts: counts.clone(),
-    });
-    if imported_credentials == 0 {
+    if vault.is_none() && !dump.oauths.is_empty() {
+        warnings.push("legacy OAuth credentials were not imported".to_owned());
+    } else if imported_credentials == 0 {
         warnings.push("legacy OAuth rows contained no credential secret".to_owned());
     }
-    let report = LegacyImportReport { source_digest, already_imported: false, counts, imported_credentials, warnings };
-    let result = (|| -> Result<(), LibraryError> {
+    let result = (|| -> Result<LegacyImportReport, LibraryError> {
         let mut connection = self.connection()?;
         let transaction =
             connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if !OwnerStore::is_empty_transaction(&transaction)? {
+        let current = read_snapshot(&transaction)?;
+        // Content guards aren't part of the snapshot. Refuse even an orphaned guard.
+        let has_content_guards: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM library_profile_content_guards)",
+            [],
+            |row| row.get(0),
+        )?;
+        if !current.can_import_legacy() || has_content_guards {
             return Err(LibraryError::LibraryNotEmpty);
         }
+        retain_enrollments(&mut snapshot, &current, &mut warnings);
+        let counts = snapshot.counts();
+        snapshot.import_runs.push(ImportRunRecord {
+            source_digest: source_digest.clone(),
+            source_label: source.display().to_string(),
+            imported_at_ms: current_time_ms(),
+            counts: counts.clone(),
+        });
+        let report = LegacyImportReport { source_digest, already_imported: false, counts, imported_credentials, warnings };
         crate::import_outcome::advance(self.database_path())?;
         insert_snapshot(&transaction, &snapshot)?;
         crate::import_outcome::record(&transaction, self.database_path(), &report)?;
         transaction.commit()?;
-        Ok(())
+        Ok(report)
     })();
-    if let Err(error) = result {
-        cleanup_credentials(vault, &stored_refs)?;
-        return Err(error);
+    if result.is_err() {
+        if let Some(vault) = vault { cleanup_credentials(vault, &stored_refs)?; }
     }
-
-    Ok(report)
+    result
 } }
+
+fn retain_enrollments(
+    imported: &mut LibrarySnapshot,
+    current: &LibrarySnapshot,
+    warnings: &mut Vec<String>,
+) {
+    imported.games.retain(|incoming| !current.games.iter().any(|game| game.game_id == incoming.game_id));
+    let validated: Vec<_> = current.installations.iter().filter_map(|record| {
+        let root = record.root_path.as_deref()?;
+        if record.state != "configured" {
+            return None;
+        }
+        let setting = current.settings.iter().find(|setting| {
+            setting.name == "validated"
+                && setting.scope_id.strip_prefix("enrollment:installation:")
+                    == Some(record.installation_id.as_str())
+        })?;
+        let metadata: mintcat_game_api::ValidatedGameInstallation = serde_json::from_str(&setting.value).ok()?;
+        (metadata.game_id == record.game_id && metadata.root_path == root).then_some((record, metadata))
+    }).collect();
+    let mut replacements = HashMap::new();
+    imported.installations.retain(|legacy| {
+        let mut candidates = validated.iter().filter(|(record, _)| record.game_id == legacy.game_id).peekable();
+        let Some(first) = candidates.next() else { return true };
+        let replacement = if candidates.peek().is_some() {
+            legacy.root_path.as_deref().and_then(|root| {
+                let path = Path::new(root);
+                std::iter::once(first).chain(candidates).filter_map(|(record, metadata)| {
+                    let registered_root = Path::new(&metadata.root_path);
+                    let main_pak = registered_root.join(&metadata.main_pak_relative_path);
+                    let rank = if path == registered_root {
+                        0
+                    } else if path == main_pak
+                        || crate::library_api::same_physical_file(path, registered_root)
+                        || crate::library_api::same_physical_file(path, &main_pak)
+                    {
+                        1
+                    } else {
+                        return None;
+                    };
+                    Some((rank, record.installation_id.as_str()))
+                }).min().map(|(_, id)| id)
+            })
+        } else {
+            Some(first.0.installation_id.as_str())
+        };
+        if replacement.is_none() {
+            warnings.push(format!(
+                "legacy installation for {} was not mapped because multiple registered installations exist",
+                legacy.game_id
+            ));
+        }
+        replacements.insert(legacy.installation_id.clone(), replacement);
+        false
+    });
+    imported.legacy_mappings.retain_mut(|mapping| {
+        if mapping.entity_kind == "installation" {
+            match replacements.get(&mapping.new_id) {
+                Some(Some(id)) => mapping.new_id = (*id).to_owned(),
+                Some(None) => return false,
+                None => {}
+            }
+        }
+        true
+    });
+}
 
 pub(crate) fn legacy_source_digest(source: &Path) -> Result<String, LibraryError> {
     let dump = read_legacy_dump(source)?;

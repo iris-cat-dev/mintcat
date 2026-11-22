@@ -8,7 +8,7 @@ use mintcat_library_service::{LibraryAuthorization, LibraryError, LibraryStore, 
 use mintcat_runtime_broker::{CancellationToken, InteractionContext};
 use mintcat_runtime_downloads::{DownloadCatalog, DownloadCoordinatorError};
 use mintcat_runtime_jobs::{request_hash, CommitState, ConfirmationPolicy, EventUpdate, JobError, JobStore, RecoveryRecord, RegisterJob, ResumePolicy, WorkerCheckpoint};
-use mintcat_sdk::{ActionRequired, AppError, JobRef, JobState, ModDetails, ModRef, ModUpdateCheckItem, ModsCheckUpdatesResult, ModsGetParams, ModsListParams};
+use mintcat_sdk::{ActionRequired, AppError, DownloadMode, JobRef, JobState, ModDetails, ModRef, ModUpdateCheckItem, ModsCheckUpdatesResult, ModsGetParams, ModsListParams, ModsUpdateBatchParams};
 use mintcat_source_api::{SearchRequest, SearchSortField, SortDirection, SourceError, SourceGameBinding, SourceMod, SourceVersion};
 use mintcat_source_local::{LocalSource, LocalSourceError};
 use serde::{Deserialize, Serialize};
@@ -78,9 +78,17 @@ pub struct ImportLocalRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LocalJobTarget { request: ImportLocalRequest, target: SourceAddTarget, module_lock_digest: String }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SourceCommitCheckpoint { key: String, request: SourceAddRequest, local: bool }
+struct SourceCommitCheckpoint {
+    key: String,
+    request: SourceAddRequest,
+    local: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    download: Option<ModsUpdateBatchParams>,
+}
+
+type SubmitDownloadResult = Result<Option<JobRef>, String>;
 
 #[derive(Clone)]
 pub struct SourceApplication {
@@ -109,7 +117,12 @@ impl SourceApplication {
         }
         Ok(SourceSearchResult { items,next_cursor:page.next_cursor })
     }
-    pub async fn add(&self, idempotency_key: &str, request: SourceAddRequest) -> Result<JobRef, SourceApplicationError> {
+    pub async fn add(
+        &self,
+        idempotency_key: &str,
+        request: SourceAddRequest,
+        submit_download: impl FnOnce(&str, &ModsUpdateBatchParams) -> SubmitDownloadResult + Send + 'static,
+    ) -> Result<JobRef, SourceApplicationError> {
         let input = serde_json::to_value(&request)?;
         let hash = request_hash(&input)?;
         if self.jobs.find_operation(self.authorization.owner_scope(),"mods.add",idempotency_key)?.is_some() {
@@ -127,12 +140,15 @@ impl SourceApplication {
             let job_id = registration.job.job_id.clone();
             tokio::spawn(async move {
                 let _admission = admission;
-                if let Err(error) = application.execute_add(&job_id,&key,&request,&target).await { application.fail(&job_id,&error); }
+                if let Err(error) = application.execute_add(&job_id, &key, &request, &target, submit_download).await { application.fail(&job_id,&error); }
             });
         }
         Ok(registration.job)
     }
-    async fn execute_add(&self, job_id: &str, key: &str, request: &SourceAddRequest, target: &SourceAddTarget) -> Result<(), SourceApplicationError> {
+    async fn execute_add(
+        &self, job_id: &str, key: &str, request: &SourceAddRequest, target: &SourceAddTarget,
+        submit_download: impl FnOnce(&str, &ModsUpdateBatchParams) -> SubmitDownloadResult,
+    ) -> Result<(), SourceApplicationError> {
         self.start(job_id)?;
         let (provider,binding,lock) = self.catalog.lookup(&request.reference.source_id,&target.game_id,Some(&request.reference.remote_game_key))?;
         if lock != self.module_lock_digest { return Err(SourceApplicationError::Invalid("active source module lock changed".into())); }
@@ -167,6 +183,7 @@ impl SourceApplication {
         self.checkpoint_commit(job_id, key, request, false)?;
         self.jobs.begin_commit(job_id)?;
         let mut result = self.library.commit_source_add(&self.authorization,key,request,target,&metadata)?;
+        let mut profile_mod_ids = vec![result.profile_mod_id.clone()];
         if request.include_dependencies.unwrap_or(true) {
             const MAX_DEPENDENCIES: usize = 20;
             let mut visited = std::collections::HashSet::new();
@@ -242,6 +259,7 @@ impl SourceApplication {
                         &dep_target,
                         &dep_metadata,
                     ) {
+                        profile_mod_ids.push(dep_committed.profile_mod_id);
                         result.content_revision = dep_committed.content_revision;
                         added_deps += 1;
                         queue.push_back(dep_item.mod_ref);
@@ -249,7 +267,18 @@ impl SourceApplication {
                 }
             }
         }
-        self.jobs.finish_commit(job_id,serde_json::to_value(result)?)?;
+        let download = ModsUpdateBatchParams {
+            profile_id: result.profile_id.clone(),
+            expected_content_revision: result.content_revision,
+            profile_mod_ids: Some(profile_mod_ids),
+            version_policy: None,
+            mode: Some(DownloadMode::PrepareAndApply),
+        };
+        self.save_commit_checkpoint(job_id, SourceCommitCheckpoint {
+            key: key.to_owned(), request: request.clone(), local: false, download: Some(download.clone()),
+        })?;
+        let result = Self::add_result(job_id, result, Some(&download), submit_download)?;
+        self.jobs.finish_commit(job_id, result)?;
         Ok(())
     }
     pub async fn refresh_mod_versions(
@@ -629,17 +658,43 @@ impl SourceApplication {
         Ok(result)
     }
     fn checkpoint_commit(&self, job_id:&str, key:&str, request:&SourceAddRequest, local:bool)->Result<(),SourceApplicationError> {
+        self.save_commit_checkpoint(job_id, SourceCommitCheckpoint {
+            key: key.to_owned(), request: request.clone(), local, download: None,
+        })
+    }
+
+    fn save_commit_checkpoint(&self, job_id: &str, checkpoint: SourceCommitCheckpoint) -> Result<(), SourceApplicationError> {
         let snapshot=self.jobs.get_job(self.authorization.owner_scope(),job_id)?;
         self.jobs.save_checkpoint(job_id,snapshot.last_seq,&WorkerCheckpoint {
             step:"source-commit".into(), resume_policy:ResumePolicy::InspectBeforeResume,
-            payload:json!({"key":key,"request":request,"local":local}),
+            payload: serde_json::to_value(checkpoint)?,
         })?;
         Ok(())
     }
 
+    fn add_result(
+        job_id: &str,
+        result: SourceAddResult,
+        download: Option<&ModsUpdateBatchParams>,
+        submit_download: impl FnOnce(&str, &ModsUpdateBatchParams) -> SubmitDownloadResult,
+    ) -> Result<serde_json::Value, SourceApplicationError> {
+        let mut value = serde_json::to_value(result)?;
+        if let Some(request) = download {
+            match submit_download(job_id, request) {
+                Ok(Some(download)) => value["downloadJobId"] = json!(download.job_id),
+                Ok(None) => {}
+                Err(code) => value["downloadErrorCode"] = json!(code),
+            }
+        }
+        Ok(value)
+    }
+
     /// Inspect the Library-owned transaction journal, never replay bytes or
     /// infer rollback from a crashed/lost native owner reply.
-    pub fn recover(&self, record:&RecoveryRecord)->Result<bool,SourceApplicationError> {
+    pub fn recover(
+        &self, record: &RecoveryRecord,
+        submit_download: impl FnOnce(&str, &ModsUpdateBatchParams) -> SubmitDownloadResult,
+    ) -> Result<bool, SourceApplicationError> {
         if !matches!(record.snapshot.command.as_str(),"mods.add"|"mods.importLocal") {return Ok(false);}
         let _admission=MaintenanceGate::enter_mutation(&self.layout)?;
         let job_id=&record.snapshot.job_id;
@@ -662,9 +717,10 @@ impl SourceApplication {
         if let Some(checkpoint)=record.checkpoint.as_ref().filter(|checkpoint|checkpoint.step=="source-commit") {
             let checkpoint:SourceCommitCheckpoint=serde_json::from_value(checkpoint.payload.clone())?;
             if let Some(result)=self.library.source_add_result(&self.authorization,&checkpoint.key,&checkpoint.request,checkpoint.local)? {
+                let result = Self::add_result(job_id, result, checkpoint.download.as_ref(), submit_download)?;
                 if state==CommitState::Unknown {
-                    self.jobs.finish_recovered_commit(job_id,serde_json::to_value(result)?)?;
-                } else { self.jobs.finish_commit(job_id,serde_json::to_value(result)?)?; }
+                    self.jobs.finish_recovered_commit(job_id, result)?;
+                } else { self.jobs.finish_commit(job_id, result)?; }
                 return Ok(true);
             }
         } else if matches!(state,CommitState::Unknown|CommitState::InProgress) {

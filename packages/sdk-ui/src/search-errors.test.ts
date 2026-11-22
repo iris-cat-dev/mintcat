@@ -2,7 +2,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import '../../../apps/desktop/src/ui-runtime';
 import { mountSearch } from '../../../modules/ui-search/ui';
-import { getSharedRuntime, kit, QueryCache } from './index';
+import { createOnlineModJobs, getSharedRuntime, kit, QueryCache, SessionStore } from './index';
 import type { Disposable, GameModuleList, UiContext } from './index';
 import type { CommandName, CommandParams, CommandResult } from '@mintcat/sdk-ts';
 
@@ -44,6 +44,7 @@ function contextFor(
   const configured: MockSourceState[] = sources.map(item => typeof item === 'string' ? { sourceId: item, credentialConfigured: false } : { ...item });
   const context: UiContext = {
     moduleId: 'mintcat.ui.search', signal: new AbortController().signal, kit,
+    onlineModJobs: createOnlineModJobs(new SessionStore()),
     own: value => value, onInventoryChanged: () => ({ dispose() {} }),
     async call<M extends CommandName>(method: M, params: CommandParams[M], idempotencyKey?: string): Promise<CommandResult[M]> {
       if (method === 'games.list') return (games ? await games() : { items: [] }) as CommandResult[M];

@@ -82,12 +82,12 @@ fn credential_import_uses_genuine_approved_vault_and_atomic_outcome_survives_res
     let legacy=rusqlite::Connection::open(&source).unwrap();
     legacy.execute("UPDATE oauths SET oauth='raw-test-secret' WHERE platform='mod.io'",[]).unwrap();drop(legacy);
     let before=fs::read(&source).unwrap();
-    assert!(matches!(library.import_legacy_checked(&source,&approved_digest,&Denied),Err(LibraryError::StaleOperation)));
+    assert!(matches!(library.import_legacy_checked(&source,&approved_digest,Some(&Denied)),Err(LibraryError::StaleOperation)));
     assert_eq!(library.write_epoch().unwrap(),0);
     let error=library.import_legacy(&source,&Denied).unwrap_err();assert!(matches!(error,LibraryError::CredentialVault {..}));assert!(!error.to_string().contains("raw-test-secret"));
     assert_eq!(library.snapshot().unwrap(),mintcat_library_service::LibrarySnapshot::default());
     let source_digest=LibraryStore::legacy_source_digest(&source).unwrap();
-    let vault=Vault::default();let report=library.import_legacy_checked(&source,&source_digest,&vault).unwrap();
+    let vault=Vault::default();let report=library.import_legacy_checked(&source,&source_digest,Some(&vault)).unwrap();
     assert_eq!(vault.0.borrow().get("keychain://fixture/modio").map(String::as_str),Some("raw-test-secret"));
     assert_eq!(fs::read(&source).unwrap(),before);
     let outcome=library.legacy_import_outcome(&source_digest).unwrap().unwrap();
@@ -101,4 +101,21 @@ fn credential_import_uses_genuine_approved_vault_and_atomic_outcome_survives_res
     assert!(matches!(restarted.legacy_import_outcome(&source_digest),Err(LibraryError::StaleOperation)));
     assert!(matches!(restarted.import_legacy(&source,&vault),Err(LibraryError::StaleOperation)));
     assert_eq!(restarted.get_global_setting("after-import").unwrap().as_deref(),Some("newer-data"));
+}
+
+#[test]
+fn approved_legacy_import_can_exclude_nonempty_credentials() {
+    let fixture = Fixture::new();
+    let library = LibraryStore::open(&fixture.layout).unwrap();
+    let source = fixture.root.path().join("legacy.sqlite");
+    fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../fixtures/baseline/legacy/mintcat-v0.6.sqlite"), &source).unwrap();
+    let db = rusqlite::Connection::open(&source).unwrap();
+    db.execute("UPDATE oauths SET oauth='excluded-test-secret' WHERE platform='mod.io'", []).unwrap();
+    drop(db);
+    let digest = LibraryStore::legacy_source_digest(&source).unwrap();
+    let report = library.import_legacy_checked(&source, &digest, None).unwrap();
+    assert_eq!(report.counts.mods, 3);
+    assert_eq!(report.imported_credentials, 0);
+    assert!(library.snapshot().unwrap().credentials.is_empty());
+    assert_eq!(LibraryStore::legacy_source_digest(&source).unwrap(), digest);
 }

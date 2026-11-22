@@ -1,8 +1,8 @@
 import type * as React from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import type { MenuProps } from 'antd';
-import type { GroupSummary, ModConflictItem, ModSummary, SourceSearchItem } from '@mintcat/sdk-ts';
-import { getSharedRuntime, navigateUi, pickLocalPath, presentUiError } from '@mintcat/sdk-ui';
+import type { DownloadOverlay, GroupSummary, ModConflictItem, ModSummary, SourceSearchItem } from '@mintcat/sdk-ts';
+import { getSharedRuntime, navigateUi, openExternalUrl, pickLocalPath, presentUiError } from '@mintcat/sdk-ui';
 import {
   canEditProfileContent,
   deploymentStatus,
@@ -81,7 +81,7 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
   const [importTab, setImportTab] = React.useState<ImportTab>('local');
   const [importTargetGroupId, setImportTargetGroupId] = React.useState<string | undefined>(undefined);
   const [urlInput, setUrlInput] = React.useState('');
-  const [urlSubmitting, setUrlSubmitting] = React.useState(false);
+  const [onlineSubmitting, setOnlineSubmitting] = React.useState(false);
   const [urlReport, setUrlReport] = React.useState<UrlBatchAddReport | undefined>();
   const [subscribedSelected, setSubscribedSelected] = React.useState<string[]>([]);
   const [conflictsOpen, setConflictsOpen] = React.useState(false);
@@ -100,6 +100,15 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
   const [collapsedSources, setCollapsedSources] = React.useState<string[]>([]);
   const [activeSort, setActiveSort] = React.useState<ModSortMode | undefined>(undefined);
   const [contextMenu, setContextMenu] = React.useState<ContextMenuState | undefined>(undefined);
+  const [tasksOpen, setTasksOpen] = React.useState(false);
+  const tasksButton = React.useRef<HTMLButtonElement>(null);
+  const tasksId = React.useId();
+  const closeTasksOnEscape = (event: React.KeyboardEvent): void => {
+    if (event.key !== 'Escape' || !tasksOpen) return;
+    event.stopPropagation();
+    setTasksOpen(false);
+    tasksButton.current?.focus();
+  };
   const lastClickedId = React.useRef<string | undefined>(undefined);
   const pointerDrag = React.useRef<{
     pointerId: number;
@@ -940,6 +949,7 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
     const map: Record<string, { label: string; iconName: keyof typeof Icons }> = {
       'mods.importLocal': { label: '导入本地模组', iconName: 'ImportOutlined' },
       'mods.add': { label: '添加在线模组', iconName: 'CloudDownloadOutlined' },
+      'library.download.apply': { label: '下载模组到本地缓存', iconName: 'CloudDownloadOutlined' },
       'mods.updateBatch': { label: '批量更新模组', iconName: 'CloudSyncOutlined' },
       'mods.setVersion': { label: '切换模组版本', iconName: 'SwapOutlined' },
       'mods.refreshVersions': { label: '刷新远端版本', iconName: 'ReloadOutlined' },
@@ -985,11 +995,31 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
     if (matched) return matched.displayName;
     return profileId.length > 18 ? `${profileId.slice(0, 14)}…` : profileId;
   };
-  const renderTask = (task: LibraryTask): ReactElement => {
+  const renderDownloadProgress = (operation: DownloadOverlay): ReactElement => {
+    const percent = operation.totalUnits ? Math.min(100, Math.floor(operation.completedUnits / operation.totalUnits * 100)) : 0;
+    return h(React.Fragment, null,
+      h(Antd.Progress, { size: 'small', percent, status: operation.state === 'failed' ? 'exception' : undefined }),
+      operation.items.length ? h('div', { className: 'library-operation-items' },
+        ...operation.items.map(item => {
+          const downloaded = formatByteSize(item.downloadedBytes);
+          const total = formatByteSize(item.totalBytes);
+          const sizeHint = downloaded && total ? `${downloaded} / ${total}` : downloaded;
+          return h('div', { key: item.profileModId, className: 'library-operation-item' },
+            h('span', { className: 'library-operation-item-name' }, items.find(mod => mod.profileModId === item.profileModId)?.displayName ?? item.profileModId),
+            h('span', { className: 'library-operation-item-meta' },
+              describePhase(item.transferState ?? operation.state),
+              sizeHint ? ` · ${sizeHint}` : '',
+              item.resolvedVersion ? ` · ${item.resolvedVersion}` : ''));
+        })) : null);
+  };
+  const renderTask = (task: LibraryTask, operation?: DownloadOverlay): ReactElement => {
     const cmd = describeCommand(task.job.command);
     const st = describeJobState(task.job.state);
     const isTerminal = terminalStates.includes(task.job.state);
     const errorInfo = task.job.error ? presentUiError(task.job.error, 'host') : undefined;
+    const isDownload = task.job.command === 'library.download.apply';
+    const authorizationUrl = isDownload && task.action?.kind === 'browser-download' && task.action.state === 'pending'
+      && typeof task.action.target.authorizationUrl === 'string' ? task.action.target.authorizationUrl : undefined;
     const timeText = formatTaskTime(task.job.updatedAt ?? task.job.createdAt);
     const techLines = [
       `任务命令：${task.job.command}`,
@@ -1013,7 +1043,7 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
           !isTerminal
             ? h(React.Fragment, null,
               h(Antd.Button, { size: 'small', onClick: () => actions.run(() => actions.cancelTask(task)) },
-                task.job.state === 'cancelling' ? '强制结束' : '取消任务'),
+                task.job.state === 'cancelling' ? '强制结束' : isDownload ? '取消下载' : '取消任务'),
               task.job.state === 'cancelling'
                 ? h(Antd.Button, { size: 'small', type: 'text', icon: icon('CloseOutlined'),
                   onClick: () => actions.dismissTask(task.job.jobId) }, '移除记录')
@@ -1028,6 +1058,13 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
       errorInfo ? h('div', { className: `library-task-alert library-task-alert--${st.tone === 'error' ? 'error' : 'warning'}` },
         h('div', { className: 'library-task-alert-title' }, icon('InfoCircleOutlined'), ' ', errorInfo.title),
         h('p', { className: 'library-task-alert-desc' }, errorInfo.description)) : null,
+      task.downloadErrorCode ? h('div', { className: 'library-task-alert' },
+        h('div', { className: 'library-task-alert-title' }, icon('InfoCircleOutlined'), ' 模组已添加，但未能启动缓存下载'),
+        h('p', { className: 'library-task-alert-desc' }, '错误代码：', task.downloadErrorCode)) : null,
+      operation ? renderDownloadProgress(operation) : null,
+      authorizationUrl ? h('div', { className: 'library-input-selection' },
+        h('div', { className: 'library-selection-title' }, '此文件需要先在来源网站完成下载授权。'),
+        h(Antd.Button, { size: 'small', icon: icon('ExportOutlined'), onClick: () => actions.run(() => openExternalUrl(authorizationUrl)) }, '打开来源下载页面')) : null,
       task.job.command === 'mods.importLocal' && task.action?.state === 'pending' && ['select-file', 'select-directory'].includes(task.action.kind)
         ? h('div', { className: 'library-input-selection' },
           h('div', { className: 'library-selection-title' },
@@ -1049,10 +1086,13 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
         h('pre', null, techLines.join('\n'))));
   };
   const operations = state.content?.operations ?? [];
+  const operationByJobId = new Map<string, DownloadOverlay>();
+  for (const operation of operations) if (operation.jobId) operationByJobId.set(operation.jobId, operation);
+  const taskIds = new Set(state.tasks.map(task => task.job.jobId));
+  const untrackedOperations = operations.filter(operation => !operation.jobId || !taskIds.has(operation.jobId));
   const hasTerminalTasks = state.tasks.some(task => terminalStates.includes(task.job.state));
-  const taskContent = h('div', { className: 'library-task-list' }, ...operations.map(operation => {
+  const taskContent = h('div', { className: 'library-task-list' }, ...untrackedOperations.map(operation => {
     const st = describeJobState(operation.state);
-    const percent = operation.totalUnits ? Math.min(100, Math.floor(operation.completedUnits / operation.totalUnits * 100)) : 0;
     return h('article', { key: `operation:${operation.operationId}`, className: `library-task-card library-task-card--${st.tone}` },
       h('div', { className: 'library-task-head' },
         h('div', { className: 'library-task-title-wrap' },
@@ -1064,26 +1104,18 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
             h('div', { className: 'library-task-sub' }, `进度：${operation.completedUnits} / ${operation.totalUnits} 个模组`))),
         operation.jobId && !terminalStates.includes(operation.state)
           ? h(Antd.Button, { size: 'small', onClick: () => actions.run(() => actions.cancelDownload(operation)) }, '取消下载') : null),
-      h(Antd.Progress, { size: 'small', percent, status: operation.state === 'failed' ? 'exception' : undefined }),
-      operation.items.length ? h('div', { className: 'library-operation-items' },
-        ...operation.items.map(item => {
-          const downloaded = formatByteSize(item.downloadedBytes);
-          const total = formatByteSize(item.totalBytes);
-          const sizeHint = downloaded && total ? `${downloaded} / ${total}` : downloaded;
-          return h('div', { key: item.profileModId, className: 'library-operation-item' },
-            h('span', { className: 'library-operation-item-name' }, items.find(mod => mod.profileModId === item.profileModId)?.displayName ?? item.profileModId),
-            h('span', { className: 'library-operation-item-meta' },
-              describePhase(item.transferState ?? operation.state),
-              sizeHint ? ` · ${sizeHint}` : '',
-              item.resolvedVersion ? ` · ${item.resolvedVersion}` : ''));
-        })) : null);
-  }), ...state.tasks.map(renderTask));
+      renderDownloadProgress(operation));
+  }), ...state.tasks.map(task => renderTask(task, operationByJobId.get(task.job.jobId))));
   const hasTasks = state.tasks.length > 0 || operations.length > 0;
+  React.useEffect(() => {
+    if (!hasTasks) setTasksOpen(false);
+  }, [hasTasks]);
   const activeTaskCount = state.tasks.filter(task => !terminalStates.includes(task.job.state) && task.job.state !== 'awaiting-approval').length
-    + operations.filter(op => !terminalStates.includes(op.state)).length;
-  const awaitingTaskCount = state.tasks.filter(task => task.job.state === 'awaiting-approval').length;
-  const succeededTaskCount = state.tasks.filter(task => task.job.state === 'succeeded').length;
-  const problemTaskCount = state.tasks.filter(task => task.job.state === 'failed' || task.job.state === 'recovery-required').length;
+    + untrackedOperations.filter(op => !terminalStates.includes(op.state) && op.state !== 'awaiting-approval').length;
+  const awaitingTaskCount = state.tasks.filter(task => task.job.state === 'awaiting-approval').length
+    + untrackedOperations.filter(operation => operation.state === 'awaiting-approval').length;
+  const succeededTaskCount = state.tasks.filter(task => task.job.state === 'succeeded' && !task.downloadErrorCode).length;
+  const problemTaskCount = state.tasks.filter(task => task.downloadErrorCode || task.job.state === 'failed' || task.job.state === 'recovery-required').length;
   const activeJobs = new Set([
     ...state.tasks.filter(task => !terminalStates.includes(task.job.state)).map(task => task.job.jobId),
     ...operations.filter(operation => !terminalStates.includes(operation.state)).map(operation => operation.jobId ?? operation.operationId),
@@ -1097,6 +1129,7 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
   };
   const toolbarNode = h('div', { className: 'library-toolbar', role: 'group', 'aria-label': '游戏与配置操作' },
     h(Antd.Select<string>, { ...toolbarSelect, className: 'library-picker library-game-select', 'aria-label': '游戏', value: state.gameId || undefined,
+      labelRender: item => item.value === 'game:drg' ? h('span', { className: 'library-sr-only' }, item.label) : item.label,
       prefix: h('span', { className: `library-game-emblem${currentGame?.gameId === 'game:drg' ? ' library-game-emblem--drg' : ''}`, 'aria-hidden': true }),
       options: state.games.map(game => ({ value: game.gameId, label: game.displayName })), onChange: (id: string) => actions.run(async () => {
         if (id === currentGame?.gameId) return;
@@ -1134,16 +1167,19 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
     { value: 'pending', label: '待处理', count: pendingIds.size },
   ];
   const statusHost = document.getElementById('mc-profile-status');
-  return h('div', { className: `mod-list-page-card library-page-${page}` },
-    toolbar ? createPortal(toolbarNode, toolbar, `library-toolbar:${state.generation}`) : toolbarNode,
-    needsApply && statusHost ? createPortal(h('span', { className: 'library-unsaved-badge', role: 'status' }, '有未应用变更'), statusHost) : null,
-    showBannerMessage ? h(Antd.Alert, { type: 'info', message: state.message, showIcon: true, closable: true, className: 'library-status' }) : null,
-    state.content && !canEditProfileContent(state.content) ? h(Antd.Alert, { type: 'warning', showIcon: true, className: 'library-status',
-      message: state.content.recoveryRequired ? '配置需要恢复，内容修改已锁定' : `后台任务 ${state.content.busyOperationId ?? ''} 正在修改内容`,
-      description: '搜索、切换配置和共享重命名仍然可用。' }) : null,
-    page === 'mods' ? h(React.Fragment, null,
-      h(GameBanner, { game: currentGame, change: gameChange }),
-      state.games.length ? h('div', { className: 'library-view-bar' },
+  const taskStatusNode = page === 'mods' && hasTasks ? h(Antd.Popover, {
+    trigger: 'click', placement: 'topLeft', open: tasksOpen, onOpenChange: setTasksOpen, destroyOnHidden: true,
+    content: h('section', { id: tasksId, className: 'library-task-popup', 'data-module': 'mintcat.library',
+      'aria-label': '后台任务与下载', onKeyDown: closeTasksOnEscape },
+      h('div', { className: 'library-task-popup-header' },
+        h(Antd.Button, { size: 'small', type: 'link', onClick: () => navigateUi('downloads') }, '打开下载管理'),
+        hasTerminalTasks ? h(Antd.Button, { size: 'small', type: 'link', onClick: actions.clearCompletedTasks }, '清除已完成') : null),
+      taskContent),
+  }, h('button', { type: 'button', ref: tasksButton, className: 'library-task-status-button',
+    'aria-expanded': tasksOpen, 'aria-controls': tasksOpen ? tasksId : undefined, onKeyDown: closeTasksOnEscape },
+    icon('CloudDownloadOutlined'), `后台任务 ${state.tasks.length} · 下载操作 ${operations.length}`)) : null;
+  const listTools = state.games.length ? h(React.Fragment, null,
+    h('div', { className: 'library-view-bar' },
         h('div', { className: 'library-filter-pills', role: 'group', 'aria-label': '模组筛选' },
           ...statusPills.map(item =>
             h('button', { key: item.value, type: 'button', className: `library-filter-pill${facets.status === item.value ? ' library-filter-active' : ''}`,
@@ -1210,8 +1246,8 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
               else if (key === 'cleanup') confirm('清理缺失的本地 Mod', '检查并清理当前配置中已丢失的本地 Mod（不会影响在线 Mod）。', actions.cleanupMissing);
             },
           } }, h(Antd.Button, { type: 'text', size: 'small', className: 'library-tool-icon', icon: icon('ToolOutlined'),
-            title: '模组维护', 'aria-label': '模组维护', 'aria-haspopup': 'menu' })))) : null,
-      state.games.length && (items.length > 0 || hasFacetFilter) && facetsOpen ? h('div', { className: 'library-facet-drawer', role: 'region', 'aria-label': '高级筛选条件' },
+            title: '模组维护', 'aria-label': '模组维护', 'aria-haspopup': 'menu' })))),
+    (items.length > 0 || hasFacetFilter) && facetsOpen ? h('div', { className: 'library-facet-drawer', role: 'region', 'aria-label': '高级筛选条件' },
         h('span', { className: 'library-facet-drawer-label' }, icon('FilterOutlined'), '条件筛选'),
         h('div', { className: 'library-facet-filters' },
           updatableIds.size > 0 || facets.updatesOnly ? h(Antd.Checkbox, {
@@ -1262,26 +1298,25 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
         h(Antd.Button, {
           size: 'small', type: 'text', className: 'library-facet-close',
           onClick: () => setFacetsOpen(false),
-        }, '收起')) : null,
-      hasTasks ? h(Antd.Collapse, { size: 'small', className: 'library-downloads', items: [{
-        key: 'tasks',
-        label: `后台任务 ${state.tasks.length} · 下载操作 ${operations.length}`,
-        extra: hasTerminalTasks ? h(Antd.Button, {
-          size: 'small', type: 'link',
-          onClick: (event: React.MouseEvent) => {
-            event.stopPropagation();
-            actions.clearCompletedTasks();
-          },
-        }, '清除已完成') : undefined,
-        children: taskContent,
-      }] }) : null,
-      h(FileListArea, { targetRef: fileDrop.listRef, scanning: fileDrop.hover === 'list',
-        newRowId: state.newImportRowId,
-        className: `library-table-area${!tableRows.length ? ' library-table-area--empty' : ''}${items.length > 0 && (multiSelect || selectedIds.length >= 2) ? ' library-table-area--dock-open' : ''}`,
-        onContextMenu: (event: React.MouseEvent) => {
-          if (state.profileId) openContextMenu(event, tableAreaMenu());
-        },
+        }, '收起')) : null) : null;
+  return h('div', { className: `mod-list-page-card library-page-${page}` },
+    toolbar ? createPortal(toolbarNode, toolbar, `library-toolbar:${state.generation}`) : toolbarNode,
+    needsApply && statusHost ? createPortal(h('span', { className: 'library-unsaved-badge', role: 'status' }, '有未应用变更'), statusHost) : null,
+    taskStatusNode && statusHost ? createPortal(taskStatusNode, statusHost) : null,
+    showBannerMessage ? h(Antd.Alert, { type: 'info', message: state.message, showIcon: true, closable: true, className: 'library-status' }) : null,
+    state.content && !canEditProfileContent(state.content) ? h(Antd.Alert, { type: 'warning', showIcon: true, className: 'library-status',
+      message: state.content.recoveryRequired ? '配置需要恢复，内容修改已锁定' : `后台任务 ${state.content.busyOperationId ?? ''} 正在修改内容`,
+      description: '搜索、切换配置和共享重命名仍然可用。' }) : null,
+    page === 'mods' ? h(FileListArea, {
+      targetRef: fileDrop.listRef, scanning: fileDrop.hover === 'list', newRowId: state.newImportRowId,
+      scrollKey: `${state.gameId}/${state.profileId}`,
+      className: `library-table-area${items.length > 0 && (multiSelect || selectedIds.length >= 2) ? ' library-table-area--dock-open' : ''}`,
+      onContextMenu: (event: React.MouseEvent) => {
+        if (state.profileId) openContextMenu(event, tableAreaMenu());
       },
+      banner: h(GameBanner, { game: currentGame, change: gameChange }),
+      tools: listTools,
+    },
         state.loading ? h('div', { className: 'library-loading', role: 'status' }, h(Antd.Spin, { size: 'small' }), ' 加载中…') : null,
         tableRows.length ? h('table', { className: 'library-mod-table', 'aria-label': '模组列表' },
           h('colgroup', null, ...MOD_COLUMNS.map(name => h('col', { key: name, className: `library-col-${name}` }))),
@@ -1332,7 +1367,7 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
                 h('span', { className: 'mc-empty-bento-text' }, '安装游戏插件后支持多套配置切换、拖拽排序与版本固定。')),
               h('button', { type: 'button', className: 'mc-empty-bento-item', onClick: () => navigateUi('cloud') },
                 h('div', { className: 'mc-empty-bento-head' }, icon('CloudUploadOutlined'), '备份与旧版迁移'),
-                h('span', { className: 'mc-empty-bento-text' }, '可从旧版数据库或离线便携归档恢复已有模组清单。'))) : null)) : null)) :
+                h('span', { className: 'mc-empty-bento-text' }, '可从旧版数据库或离线便携归档恢复已有模组清单。'))) : null)) : null) :
       h('div', { className: 'library-management-page' },
         h('div', { className: 'library-management-heading' },
           h('div', null, h('h2', null, '下载管理'),
@@ -1389,8 +1424,9 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
         batchButton('删除', 'DeleteOutlined', () => confirm('批量删除 Mod', `删除选中的 ${selectedIds.length} 个 Mod？`, () => actions.removeMods(selectedIds)), true),
         h('span', { className: 'library-controls-divider', 'aria-hidden': true }),
         h(Antd.Button, { size: 'small', type: 'text', icon: icon('CloseOutlined'), onClick: () => { setMultiSelect(false); setSelected([]); } }, '退出'))) : null,
-    page === 'mods' && state.games.length ? h('div', { className: 'home-footer-bar' },
+    page === 'mods' && (state.games.length || (!statusHost && taskStatusNode)) ? h('div', { className: 'home-footer-bar' },
       items.length ? h(Antd.Checkbox, { checked: multiSelect, onChange: (event: { target: { checked: boolean } }) => { setMultiSelect(event.target.checked); setSelected([]); } }, '批量选择') : null,
+      !statusHost ? taskStatusNode : null,
       h('span', { className: 'library-footer-spacer' }),
       h('span', { className: 'library-footer-status', role: 'status' },
         state.loading ? '正在加载' : state.pending ? '正在保存' : state.checkingUpdates ? '正在检查更新' : state.checkingConflicts ? '正在检测冲突' : activeJobs.size ? `${activeJobs.size} 个后台任务进行中` : state.content?.recoveryRequired ? '配置需要恢复' : state.mods ? '配置已加载' : '等待选择配置'),
@@ -1404,21 +1440,22 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
       title: '导入 / 添加模组',
       open: importModalOpen,
       footer: importTab === 'local' ? null : undefined,
-      okText: importTab === 'url' ? '解析并添加' : `导入所选 (${subscribedSelected.length})`,
+      okText: importTab === 'url' ? '解析、添加并下载' : `添加并下载所选 (${subscribedSelected.length})`,
       cancelText: '取消',
-      confirmLoading: importTab === 'url' ? urlSubmitting : false,
+      confirmLoading: importTab !== 'local' && onlineSubmitting,
       okButtonProps: {
         className: 'glass-primary-action',
-        disabled: importTab === 'url'
-          ? parseModUrlLines(urlInput).length === 0 || !writable
-          : subscribedSelected.length === 0 || !writable,
+        disabled: onlineSubmitting || !writable || (importTab === 'url'
+          ? parseModUrlLines(urlInput).length === 0
+          : subscribedSelected.length === 0),
       },
       onCancel: () => setImportModalOpen(false),
       onOk: () => {
+        if (onlineSubmitting) return;
         if (importTab === 'url') {
           const urls = parseModUrlLines(urlInput);
           if (!urls.length) return;
-          setUrlSubmitting(true);
+          setOnlineSubmitting(true);
           actions.run(async () => {
             try {
               const report = await actions.addModsFromUrls(urls, importTargetGroupId);
@@ -1426,7 +1463,7 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
               if (importTargetGroupId && report.added > 0) setGroupByPersisted('profile');
               if (report.failed.length === 0) setImportModalOpen(false);
             } finally {
-              setUrlSubmitting(false);
+              setOnlineSubmitting(false);
             }
           });
           return;
@@ -1434,10 +1471,15 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
         if (importTab === 'subscribed') {
           const chosen = state.subscribedItems.filter(item => subscribedSelected.includes(item.reference.remoteModId));
           if (!chosen.length) return;
+          setOnlineSubmitting(true);
           actions.run(async () => {
-            await actions.addSubscribedMods(chosen, importTargetGroupId);
-            if (importTargetGroupId) setGroupByPersisted('profile');
-            setImportModalOpen(false);
+            try {
+              await actions.addSubscribedMods(chosen, importTargetGroupId);
+              if (importTargetGroupId) setGroupByPersisted('profile');
+              setImportModalOpen(false);
+            } finally {
+              setOnlineSubmitting(false);
+            }
           });
         }
       },
@@ -1532,6 +1574,7 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
             }, '选择目录')),
           !importSupported && state.gameId ? h(Antd.Typography.Text, { type: 'secondary' }, '当前游戏暂不支持本地导入。') : null) : null,
         importTab === 'url' ? h('div', { className: 'library-import-tab-body' },
+          h(Antd.Typography.Text, { type: 'secondary' }, '添加后会尝试将模组文件下载到本地缓存，不会自动部署到游戏。'),
           h(Antd.Input.TextArea, {
             rows: 5,
             value: urlInput,
@@ -1548,7 +1591,9 @@ export function LibraryView({ subscribe, getSnapshot, actions, page, toolbar }: 
                 ...urlReport.failed.map(item => h('li', { key: item.url }, `${item.url}：${item.reason}`)))
               : undefined,
           }) : null) : null,
+        importTab === 'url' && urlReport?.added ? h(Antd.Button, { size: 'small', type: 'link', onClick: () => navigateUi('downloads') }, '查看下载管理') : null,
         importTab === 'subscribed' ? h('div', { className: 'library-import-tab-body' },
+          h(Antd.Typography.Text, { type: 'secondary' }, '添加后会尝试将模组文件下载到本地缓存，不会自动部署到游戏。'),
           h('div', { className: 'library-subscribed-toolbar' },
             h(Antd.Button, {
               size: 'small',
