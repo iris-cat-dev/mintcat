@@ -1,6 +1,6 @@
 import { COMMAND_SPECS } from '@mintcat/sdk-ts';
 import type { CommandName, CommandParams, CommandResult } from '@mintcat/sdk-ts';
-import { Disposables, QueryCache, SessionStore, createOnlineModJobs, getSharedRuntime, kit, mountGameSettings, mountReactView, presentUiError, renderUiError } from '@mintcat/sdk-ui';
+import { Disposables, QueryCache, SessionStore, createOnlineModJobs, getSharedRuntime, kit, mountGameSettings, mountReactView, presentUiError, renderUiError, tr } from '@mintcat/sdk-ui';
 import type { Disposable, GameModuleList, PageMount, UiContext, UiNavigationIcon, UiOnlineModJobs } from '@mintcat/sdk-ui';
 import { mountLibrary, mountDownloads, mountGameDirectories } from '../../../modules/library/ui';
 import { mountSearch } from '../../../modules/ui-search/ui';
@@ -15,6 +15,7 @@ import '../../../modules/feature-agent/ui/styles.css';
 import { requestApplication } from './daemon';
 import { publishNotification } from './chrome-notifications';
 import { mountAppearanceSettings, mountRuntimeSettings } from './settings-overview';
+import { LanguagePreference } from './appearance-preferences';
 
 interface Page {
   moduleId: string; route: string; title: string; subtitle?: string; icon: UiNavigationIcon;
@@ -25,7 +26,7 @@ interface MountedPage { page: Page; disposable?: Disposable; controller: AbortCo
 type MountedAgent = MountedPage & { disposable?: AgentPanel };
 type SetupWindow = { mode: 'main'; open(): Promise<void> } | { mode: 'guide'; legacyPath?: string; close(): Promise<void> };
 
-const agentPage = { moduleId: 'mintcat.feature.agent', route: '/mintcat.feature.agent/agent', title: 'Agent 助手', icon: 'robot', placement: 'titlebar', mount: mountAgentPage } satisfies Page;
+const agentPage = { moduleId: 'mintcat.feature.agent', route: '/mintcat.feature.agent/agent', title: tr('Agent 助手', 'Agent Assistant'), icon: 'robot', placement: 'titlebar', mount: mountAgentPage } satisfies Page;
 
 const libraryRoute = '/mintcat.library/library';
 const setupImportRoute = '/mintcat.desktop/setup';
@@ -33,15 +34,15 @@ const setupDirectoryRoute = '/mintcat.desktop/setup/game-directory';
 const setupDismissedKey = 'workbench/setup-dismissed';
 
 const builtinPages: readonly Page[] = [
-  { moduleId: 'mintcat.library', route: libraryRoute, title: '模组管理', icon: 'home', placement: 'sidebar', mount: mountLibrary },
-  { moduleId: 'mintcat.ui.search', route: '/mintcat.ui.search/search', title: '在线模组', icon: 'search', placement: 'sidebar', mount: mountSearch },
-  { moduleId: 'mintcat.library', route: '/mintcat.library/downloads', title: '下载管理', icon: 'downloads', placement: 'sidebar', mount: mountDownloads },
+  { moduleId: 'mintcat.library', route: libraryRoute, title: tr('模组管理', 'Mod Library'), icon: 'home', placement: 'sidebar', mount: mountLibrary },
+  { moduleId: 'mintcat.ui.search', route: '/mintcat.ui.search/search', title: tr('在线模组', 'Browse Mods'), icon: 'search', placement: 'sidebar', mount: mountSearch },
+  { moduleId: 'mintcat.library', route: '/mintcat.library/downloads', title: tr('下载管理', 'Downloads'), icon: 'downloads', placement: 'sidebar', mount: mountDownloads },
   agentPage,
-  { moduleId: 'mintcat.install', route: '/mintcat.install/tasks', title: '安装与打包', icon: 'install', placement: 'titlebar', mount: mountInstall },
+  { moduleId: 'mintcat.install', route: '/mintcat.install/tasks', title: tr('安装与打包', 'Install & Package'), icon: 'install', placement: 'titlebar', mount: mountInstall },
   {
     moduleId: 'mintcat.desktop.appearance',
     route: '/mintcat.desktop/settings',
-    title: '外观偏好',
+    title: tr('外观偏好', 'Appearance'),
     icon: 'settings',
     placement: 'settings',
     settingsGroup: 'system',
@@ -50,7 +51,7 @@ const builtinPages: readonly Page[] = [
   {
     moduleId: 'mintcat.library',
     route: '/mintcat.library/game-directories',
-    title: '游戏安装目录',
+    title: tr('游戏安装目录', 'Game Installations'),
     icon: 'settings',
     placement: 'settings',
     settingsGroup: 'game',
@@ -59,7 +60,7 @@ const builtinPages: readonly Page[] = [
   {
     moduleId: 'mintcat.feature.backup',
     route: '/mintcat.feature.backup/backups',
-    title: '备份与恢复',
+    title: tr('备份与恢复', 'Backup & Restore'),
     icon: 'cloud',
     placement: 'settings',
     settingsGroup: 'system',
@@ -68,7 +69,7 @@ const builtinPages: readonly Page[] = [
   {
     moduleId: 'mintcat.desktop.runtime',
     route: '/mintcat.desktop/runtime',
-    title: '扩展与服务',
+    title: tr('扩展与服务', 'Extensions & Services'),
     icon: 'proxy',
     placement: 'settings',
     settingsGroup: 'system',
@@ -83,11 +84,11 @@ const builtinPages: readonly Page[] = [
 
 const setupPages: readonly Page[] = [
   {
-    moduleId: 'mintcat.feature.backup', route: setupImportRoute, title: '导入旧配置', icon: 'local',
+    moduleId: 'mintcat.feature.backup', route: setupImportRoute, title: tr('导入旧配置', 'Import old profiles'), icon: 'local',
     placement: 'settings', setupStep: 'import', mount: mountBackupPage,
   },
   {
-    moduleId: 'mintcat.library', route: setupDirectoryRoute, title: '设置游戏路径', icon: 'local',
+    moduleId: 'mintcat.library', route: setupDirectoryRoute, title: tr('设置游戏路径', 'Set game folder'), icon: 'local',
     placement: 'settings', setupStep: 'directory', mount: mountGameDirectories,
   },
 ];
@@ -97,6 +98,7 @@ export class Workbench implements Disposable {
   private readonly onlineModJobs: UiOnlineModJobs;
   private readonly queries = new QueryCache();
   private readonly inventoryEvents = new EventTarget();
+  private readonly sidebarSelectionEvents = new EventTarget();
   private readonly navigation = kit.element('nav');
   private readonly content = kit.element('section');
   private readonly workspace = kit.element('div');
@@ -106,6 +108,7 @@ export class Workbench implements Disposable {
   private readonly gamesPanel = kit.element('details');
   private readonly notice = kit.element('div');
   private sidebarView?: Disposable;
+  private sidebarSelection = '';
   private settingsView?: Disposable;
   private renderedSettingsPages?: readonly Page[];
   private mounted?: MountedPage;
@@ -154,11 +157,11 @@ export class Workbench implements Disposable {
     this.session = new SessionStore(window.localStorage, `mintcat.workbench.session.v1/${encodeURIComponent(dataDir)}`);
     this.onlineModJobs = createOnlineModJobs(this.session);
     this.route = setup?.mode === 'guide' ? setupImportRoute : this.session.get('workbench/route', 1, '');
-    this.navigation.ariaLabel = '工作台导航'; this.navigation.className = 'app-sidebar';
+    this.navigation.ariaLabel = tr('工作台导航', 'Workbench navigation'); this.navigation.className = 'app-sidebar';
     this.workspace.className = 'workbench-content';
     this.bodyRow.className = 'workbench-body';
     this.settingsNav.className = 'settings-sidebar';
-    this.settingsNav.ariaLabel = '设置分类导航';
+    this.settingsNav.ariaLabel = tr('设置分类导航', 'Settings navigation');
     this.settingsNav.hidden = true;
     this.content.className = 'module-page'; this.auxiliaryRoot.className = 'module-panel-host';
     this.notice.role = 'status'; this.notice.className = 'module-notice';
@@ -200,15 +203,15 @@ export class Workbench implements Disposable {
       if (changed) {
         const games = inventory.modules.flatMap(module => module.enabled && module.game?.descriptor ? [{ moduleId: module.moduleId, game: module.game }] : []);
         this.pages = [...builtinPages, ...games.map(({ moduleId, game }): Page => ({
-          moduleId, route: `/${moduleId}/settings`, title: `${game.displayName}`, subtitle: '游戏运行参数', icon: 'settings', placement: 'settings', settingsGroup: 'game',
+          moduleId, route: `/${moduleId}/settings`, title: game.displayName, subtitle: tr('游戏运行参数', 'Game runtime options'), icon: 'settings', placement: 'settings', settingsGroup: 'game',
           mount: (root, context) => mountGameSettings(root, context, game.gameId),
         }))];
-        this.gamesPanel.replaceChildren(kit.element('summary', '游戏插件'));
+        this.gamesPanel.replaceChildren(kit.element('summary', tr('游戏插件', 'Game Plugins')));
         for (const module of inventory.modules) {
           if (!module.game) continue;
           const row = kit.element('div'); row.className = 'game-plugin-row';
           const name = kit.element('span', module.game.displayName); name.className = 'game-plugin-name';
-          const badge = kit.element('span', module.enabled ? '可用' : '未启用');
+          const badge = kit.element('span', module.enabled ? tr('可用', 'Enabled') : tr('未启用', 'Disabled'));
           badge.className = `game-plugin-badge ${module.enabled ? 'game-plugin-badge--enabled' : 'game-plugin-badge--disabled'}`;
           row.append(name, badge);
           if (module.digest) {
@@ -220,10 +223,14 @@ export class Workbench implements Disposable {
           this.gamesPanel.append(row);
         }
         if (!games.length) {
-          const empty = kit.element('p', '尚未安装游戏支持插件；模组管理、备份和 Agent 仍可使用。');
+          const empty = kit.element('p', tr('尚未安装游戏支持插件；模组管理、备份和 Agent 仍可使用。', 'No game support plugins are installed. You can still use the Mod Library, backups, and Agent.'));
           empty.className = 'game-plugin-empty';
           this.gamesPanel.append(empty);
         }
+        window.dispatchEvent(new CustomEvent('mintcat-ui-contributions', { detail: {
+          icons: [...new Set([...this.pages.map(page => page.icon), 'settings'])],
+          games: inventory.modules.flatMap(module => module.enabled && module.game ? [{ gameId: module.game.gameId, displayName: module.game.displayName }] : []),
+        } }));
         this.renderSlots();
         this.inventoryEvents.dispatchEvent(new Event('inventory'));
       }
@@ -236,7 +243,7 @@ export class Workbench implements Disposable {
         }
       }
       this.inventoryFailureTitle = undefined;
-      if (!this.closed && !this.notice.textContent) window.dispatchEvent(new CustomEvent('mintcat-ui-notice', { detail: '已连接独立后台' }));
+      if (!this.closed && !this.notice.textContent) window.dispatchEvent(new CustomEvent('mintcat-ui-notice', { detail: tr('已连接独立后台', 'Connected to daemon') }));
     } catch (error) {
       if (!this.closed) { this.showFailure(error, 'inventory'); if (!this.inventory) this.rescue(error); }
     }
@@ -263,7 +270,7 @@ export class Workbench implements Disposable {
     this.inventoryEvents.dispatchEvent(new Event('inventory'));
   }
   private allowDiscard(): boolean {
-    return !this.mounted?.dirty || window.confirm('离开未保存的页面？草稿将保留，后台任务继续运行。');
+    return !this.mounted?.dirty || window.confirm(tr('离开未保存的页面？草稿将保留，后台任务继续运行。', 'Leave this page with unsaved changes? Your draft is kept and background tasks continue.'));
   }
   private context(mounted: MountedPage): UiContext {
     const { page, controller, lifetime } = mounted; const signal = controller.signal;
@@ -332,7 +339,7 @@ export class Workbench implements Disposable {
     content.className = 'module-notice-text';
     const dismiss = kit.button('×', () => { this.clearNotice(); });
     dismiss.className = 'module-notice-dismiss';
-    dismiss.ariaLabel = '关闭提示';
+    dismiss.ariaLabel = tr('关闭提示', 'Dismiss notice');
     this.notice.replaceChildren(content, dismiss);
     this.noticeTimer = window.setTimeout(() => { this.clearNotice(); }, 5_000);
     window.dispatchEvent(new CustomEvent('mintcat-ui-notice', { detail: text }));
@@ -348,24 +355,42 @@ export class Workbench implements Disposable {
     renderUiError(body, error);
     const dismiss = kit.button('×', () => { this.clearNotice(); });
     dismiss.className = 'module-notice-dismiss';
-    dismiss.ariaLabel = '关闭提示';
+    dismiss.ariaLabel = tr('关闭提示', 'Dismiss notice');
     this.notice.classList.remove('mc-error-box');
     this.notice.replaceChildren(body, dismiss);
-    window.dispatchEvent(new CustomEvent('mintcat-ui-notice', { detail: `${error.title}：${error.description}` }));
+    window.dispatchEvent(new CustomEvent('mintcat-ui-notice', { detail: tr(`${error.title}：${error.description}`, `${error.title}: ${error.description}`) }));
   }
   private settingsPages(): Page[] { return this.pages.filter(page => page.placement === 'settings'); }
   private renderSlots(): void {
     if (this.closed || this.setup?.mode === 'guide') return;
-    this.sidebarView?.dispose();
     const { React, Antd, Icons } = getSharedRuntime(); const h = React.createElement;
     const icons = { home: Icons.AppstoreOutlined, search: Icons.CompassOutlined, settings: Icons.BgColorsOutlined, robot: Icons.RobotOutlined, cloud: Icons.CloudSyncOutlined, install: Icons.DeploymentUnitOutlined, proxy: Icons.ApiOutlined, local: Icons.ImportOutlined, downloads: Icons.CloudDownloadOutlined };
     const settings = this.settingsPages();
     const currentPage = this.pages.find(page => page.route === this.route);
     const isSettings = currentPage?.placement === 'settings';
-    const items = this.pages.filter(page => page.placement === 'sidebar').map(page => ({ key: page.route, title: page.title, 'aria-label': page.title, className: 'sidebar-route-item', label: h('span', { className: 'sidebar-link' }, h(icons[page.icon]), h('span', { className: 'sidebar-label' }, page.title)) }));
-    items.push({ key: '@settings', title: '设置', 'aria-label': '设置', className: 'sidebar-settings-item', label: h('span', { className: 'sidebar-link' }, h(Icons.SettingOutlined), h('span', { className: 'sidebar-label' }, '设置')) });
-    this.sidebarView = mountReactView(this.navigation,
-      h(Antd.Menu, { mode: 'inline', selectedKeys: [isSettings ? '@settings' : this.route], items, onClick: ({ key }) => { void this.navigate(key === '@settings' ? isSettings ? this.route : settings[0].route : key); } }));
+    this.sidebarSelection = isSettings ? '@settings' : this.route;
+    if (!this.sidebarView) {
+      const items = this.pages.filter(page => page.placement === 'sidebar').map(page => ({ key: page.route, title: page.title, 'aria-label': page.title, className: 'sidebar-route-item', label: h('span', { className: 'sidebar-link' }, h(icons[page.icon]), h('span', { className: 'sidebar-label' }, page.title)) }));
+      const settingsLabel = tr('设置', 'Settings');
+      items.push({ key: '@settings', title: settingsLabel, 'aria-label': settingsLabel, className: 'sidebar-settings-item', label: h('span', { className: 'sidebar-link' }, h(Icons.SettingOutlined), h('span', { className: 'sidebar-label' }, settingsLabel)) });
+      const subscribe = (listener: () => void): (() => void) => {
+        this.sidebarSelectionEvents.addEventListener('change', listener);
+        return () => this.sidebarSelectionEvents.removeEventListener('change', listener);
+      };
+      const getSelection = () => this.sidebarSelection;
+      const Sidebar = () => {
+        const selectedKey = React.useSyncExternalStore(subscribe, getSelection);
+        return h(Antd.Menu, { mode: 'inline', selectedKeys: [selectedKey], items,
+          onClick: ({ key }) => {
+            if (key !== '@settings') void this.navigate(key);
+            else if (this.sidebarSelection !== '@settings') void this.navigate(settings[0].route);
+          },
+        });
+      };
+      this.sidebarView = mountReactView(this.navigation, h(Sidebar));
+    } else {
+      this.sidebarSelectionEvents.dispatchEvent(new Event('change'));
+    }
     this.settingsNav.hidden = !isSettings;
     if (isSettings) {
       // Keep the links mounted between settings routes so focus and scroll stay in the rail.
@@ -391,7 +416,6 @@ export class Workbench implements Disposable {
         placement: currentPage?.placement ?? 'sidebar',
       },
     }));
-    window.dispatchEvent(new CustomEvent('mintcat-ui-contributions', { detail: { icons: [...new Set([...this.pages.map(page => page.icon), 'settings'])], games: this.inventory?.modules.flatMap(module => module.enabled && module.game ? [{ gameId: module.game.gameId, displayName: module.game.displayName }] : []) ?? [] } }));
   }
   private openAgent(): void {
     if (this.closed) return;
@@ -419,19 +443,20 @@ export class Workbench implements Disposable {
       this.session.set(setupDismissedKey, 1, true);
       if (this.setup?.mode === 'guide') void this.setup.close().catch(error => this.showFailure(error));
     };
-    const header = h('section', { className: 'settings-page-shell', 'aria-label': '首次启动引导' },
-      h(Antd.Steps, { size: 'small', current: importing ? 0 : 1, items: [{ title: '导入旧配置' }, { title: '设置游戏路径' }] }),
+    const header = h('section', { className: 'settings-page-shell', 'aria-label': tr('首次启动引导', 'First-run setup') },
+      h(Antd.Steps, { size: 'small', current: importing ? 0 : 1, items: [{ title: tr('导入旧配置', 'Import old profiles') }, { title: tr('设置游戏路径', 'Set game folder') }] }),
       h('div', { className: 'settings-group-card' },
         h('div', { className: 'settings-section-header' },
           h('div', null,
-            h('h2', { className: 'settings-section-title' }, importing ? '欢迎使用 MintCat' : '设置游戏路径'),
+            h('h2', { className: 'settings-section-title' }, importing ? tr('欢迎使用 MintCat', 'Welcome to MintCat') : tr('设置游戏路径', 'Set game folder')),
             h('p', { className: 'settings-section-desc' }, importing
-              ? '会自动查找默认位置的旧版配置。请审阅并批准导入，等迁移显示「已完成」后继续；也可以直接下一步。'
-              : '会自动查找所选游戏的 Steam 安装。路径找到后直接验证并注册；没找到时可手动浏览。'))),
+              ? tr('会自动查找默认位置的旧版配置。请审阅并批准导入，等迁移显示「已完成」后继续；也可以直接下一步。', 'MintCat looks for your old profiles in the default location. Review and approve the import, then wait until it completes before continuing. You can also skip to the next step.')
+              : tr('会自动查找所选游戏的 Steam 安装。路径找到后直接验证并注册；没找到时可手动浏览。', 'MintCat looks for the selected game’s Steam installation. If found, it verifies and registers the folder. Otherwise, browse for it manually.')))),
         h(Antd.Space, { wrap: true, style: { marginTop: 12 } },
-          h(Antd.Button, { onClick: importing ? finish : () => void this.navigate(setupImportRoute) }, importing ? '跳过引导' : '上一步'),
+          h(Antd.Button, { onClick: importing ? finish : () => void this.navigate(setupImportRoute) }, importing ? tr('跳过引导', 'Skip setup') : tr('上一步', 'Back')),
           h(Antd.Button, { type: 'primary', className: 'glass-primary-action', onClick: importing ? () => void this.navigate(setupDirectoryRoute) : finish },
-            importing ? '下一步：设置游戏路径' : '进入模组管理'))));
+            importing ? tr('下一步：设置游戏路径', 'Next: Set game folder') : tr('进入模组管理', 'Open Mod Library'))),
+        importing ? h(LanguagePreference) : null));
     mounted.lifetime.add(mountReactView(host, header));
     return body;
   }
@@ -469,9 +494,9 @@ export class Workbench implements Disposable {
   private pageError(error: unknown): void {
     this.unmountPage();
     const card = kit.element('div'); card.className = 'page-error-card';
-    const heading = kit.element('h2', '页面加载失败'); heading.className = 'page-error-title';
+    const heading = kit.element('h2', tr('页面加载失败', 'Page failed to load')); heading.className = 'page-error-title';
     const failure = kit.element('div'); renderUiError(failure, presentUiError(error));
-    const retry = kit.button('重新加载页面', () => { void this.navigate(this.route, true); });
+    const retry = kit.button(tr('重新加载页面', 'Reload page'), () => { void this.navigate(this.route, true); });
     retry.className = 'page-error-retry';
     card.append(heading, failure, retry);
     this.content.replaceChildren(card);

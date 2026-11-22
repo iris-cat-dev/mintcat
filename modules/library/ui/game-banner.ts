@@ -1,5 +1,5 @@
 import type { PointerEvent, ReactElement } from 'react';
-import { getSharedRuntime } from '@mintcat/sdk-ui';
+import { getSharedRuntime, tr } from '@mintcat/sdk-ui';
 import './library-atlas.css';
 
 type Scene = { gameId: string; displayName: string };
@@ -19,7 +19,7 @@ export function GameBanner({ game, change }: { game?: Scene; change?: GameChange
       h('div', { className: 'library-survey', 'aria-hidden': true },
         h('span', { className: 'survey-dust' }), h('span', { className: 'survey-dust survey-dust--far' }), h('span', { className: 'survey-lamp' })),
       h('span', { className: 'library-atlas-kicker', 'aria-hidden': true }, drg ? 'HOXXES IV' : 'MINERAL ATLAS'),
-      h('h2', { title: item?.displayName }, item?.displayName ?? '选择游戏'),
+      h('h2', { title: item?.displayName }, item?.displayName ?? tr('选择游戏', 'Select a game')),
       drg ? null : h('span', { className: 'library-atlas-caption', 'aria-hidden': true }, 'FIG. 01  /  QUARTZ'));
   }
   return h('div', { className: `atlas-stage${outgoing ? ' atlas-stage--switch' : ''}`,

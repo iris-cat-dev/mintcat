@@ -1,4 +1,4 @@
-import { getSharedRuntime } from '@mintcat/sdk-ui';
+import { getSharedRuntime, getUiLanguage, tr } from '@mintcat/sdk-ui';
 import type { ReactElement } from 'react';
 import './chrome-notifications.css';
 
@@ -6,7 +6,8 @@ interface Notice { id: number; title: string; time: Date; tone: 'info' | 'error'
 const notices = new EventTarget();
 let sequence = 0;
 const historyLimit = 40;
-const timeFormat = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const timeFormat = new Intl.DateTimeFormat(getUiLanguage(), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const countFormat = new Intl.NumberFormat(getUiLanguage());
 
 // Only user-facing summaries belong here; raw request parameters and diagnostics stay out of history.
 export function publishNotification(title: string, tone: Notice['tone'] = 'info'): void {
@@ -41,18 +42,20 @@ export function NotificationsButton(): ReactElement {
     return () => window.removeEventListener('keydown', escape);
   }, [open]);
   const unread = open ? 0 : items.filter(item => item.id > lastRead).length;
-  const content = h('section', { className: 'chrome-inbox', id: panelId, 'aria-label': '本次会话通知' },
+  const label = tr('通知消息', 'Notifications');
+  const content = h('section', { className: 'chrome-inbox', id: panelId, 'aria-label': tr('本次会话通知', 'Session notifications') },
     h('div', { className: 'chrome-inbox-heading' },
-      h('strong', null, '通知消息'),
-      items.length ? h(Antd.Button, { type: 'text', size: 'small', onClick: () => { setItems([]); trigger.current?.focus(); } }, '清空') : null),
+      h('strong', null, label),
+      items.length ? h(Antd.Button, { type: 'text', size: 'small', onClick: () => { setItems([]); trigger.current?.focus(); } }, tr('清空', 'Clear')) : null),
     items.length ? h('ul', { className: 'chrome-inbox-list' }, ...items.map(item =>
       h('li', { key: item.id },
-        h(item.tone === 'error' ? Icons.ExclamationCircleOutlined : Icons.InfoCircleOutlined, { 'aria-label': item.tone === 'error' ? '异常' : '提示', className: 'chrome-inbox-kind' }),
+        h(item.tone === 'error' ? Icons.ExclamationCircleOutlined : Icons.InfoCircleOutlined, { 'aria-label': item.tone === 'error' ? tr('异常', 'Error') : tr('提示', 'Information'), className: 'chrome-inbox-kind' }),
         h('div', null, h('div', { className: 'chrome-inbox-message' }, item.title),
           h('time', { dateTime: item.time.toISOString() }, timeFormat.format(item.time))))))
-      : h(Antd.Empty, { image: Antd.Empty.PRESENTED_IMAGE_SIMPLE, description: '本次会话暂无通知' }));
+      : h(Antd.Empty, { image: Antd.Empty.PRESENTED_IMAGE_SIMPLE, description: tr('本次会话暂无通知', 'No notifications this session') }));
   return h(Antd.Popover, { trigger: 'click', placement: 'bottomRight', open, onOpenChange: setOpen, content },
-    h(Antd.Button, { ref: trigger, type: 'text', title: '通知消息', 'aria-label': unread ? `通知消息，${unread} 条未读` : '通知消息',
+    h(Antd.Button, { ref: trigger, type: 'text', title: label,
+      'aria-label': unread ? tr(`通知消息，${countFormat.format(unread)} 条未读`, `Notifications, ${countFormat.format(unread)} unread`) : label,
       'aria-expanded': open, 'aria-controls': open ? panelId : undefined,
       icon: h(Antd.Badge, { count: unread, size: 'small', overflowCount: 9, offset: [1, -1] }, h(Icons.BellOutlined)) }));
 }

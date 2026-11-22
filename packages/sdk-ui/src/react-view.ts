@@ -1,8 +1,11 @@
 import type { ReactNode } from 'react';
 import type { ThemeConfig } from 'antd';
+import enUS from 'antd/locale/en_US';
+import zhCN from 'antd/locale/zh_CN';
 import type { Disposable } from './index';
 import { getSharedRuntime } from './index';
 import { nightCityConfig } from './night-city';
+import { getUiLanguage, tr } from './language';
 
 export type UiThemeName = 'Light' | 'Dark' | 'Pink' | 'Blue' | 'NightCity';
 export type UiNavigationIcon = 'home' | 'search' | 'settings' | 'robot' | 'cloud' | 'install' | 'proxy' | 'local' | 'downloads';
@@ -142,10 +145,12 @@ export function mountReactView(root: HTMLElement, node: ReactNode): Disposable {
       failure = error;
       queueMicrotask(() => { if (!closed) window.dispatchEvent(new CustomEvent('mintcat-ui-render-error', { detail: { root, error } })); });
     }
-    render(): ReactNode { return this.state.error ? React.createElement(Antd.Result, { status: 'error', title: '页面加载失败', subTitle: this.state.error.message }) : this.props.children; }
+    render(): ReactNode { return this.state.error ? React.createElement(Antd.Result, { status: 'error', title: tr('页面加载失败', 'Page failed to load'), subTitle: this.state.error.message }) : this.props.children; }
   }
   const render = (): void => {
-    if (!closed) renderer.render(React.createElement(Antd.ConfigProvider, { theme: themeConfig(getUiTheme()) }, React.createElement(Antd.App, { className: 'mintcat-ui-view' }, React.createElement(ViewBoundary, null, node))));
+    if (!closed) renderer.render(React.createElement(Antd.ConfigProvider, {
+      theme: themeConfig(getUiTheme()), locale: getUiLanguage() === 'en-US' ? enUS : zhCN,
+    }, React.createElement(Antd.App, { className: 'mintcat-ui-view' }, React.createElement(ViewBoundary, null, node))));
   };
   // Distinct palette keys prevent another root's cached light variables from
   // overriding a dark portal. Commit before observers see the new DOM theme.

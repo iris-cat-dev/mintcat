@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { getSharedRuntime, navigateUi } from '@mintcat/sdk-ui';
+import { getSharedRuntime, navigateUi, tr } from '@mintcat/sdk-ui';
 import './chrome-avatar.css';
 
 function GuestPortrait({ size }: { size: number }): ReactElement {
@@ -16,16 +16,16 @@ export function AvatarButton({ canInstall, canManageSources }: { canInstall: boo
   const { React, Antd, Icons } = getSharedRuntime();
   const h = React.createElement;
   const [open, setOpen] = React.useState(false);
-  const label = '用户菜单';
+  const label = tr('用户菜单', 'User menu');
   const identity = h('div', { className: 'chrome-avatar-identity' }, h(GuestPortrait, { size: 36 }),
-    h('div', null, h('strong', null, '本机访客'), h('small', null, '模组源凭据独立管理')));
+    h('div', null, h('strong', null, tr('本机访客', 'Local guest')), h('small', null, tr('模组源凭据独立管理', 'Mod source credentials are managed separately'))));
 
   return h(Antd.Dropdown, {
     trigger: ['click'], placement: 'bottomRight', open, onOpenChange: setOpen, autoFocus: true,
     menu: {
       items: [{ type: 'group', key: 'local-identity', label: identity, children: [
-        { key: 'sources', label: '模组源凭据', icon: h(Icons.KeyOutlined), disabled: !canManageSources },
-        { key: 'install', label: '安装与打包', icon: h(Icons.DeploymentUnitOutlined), disabled: !canInstall },
+        { key: 'sources', label: tr('模组源凭据', 'Mod source credentials'), icon: h(Icons.KeyOutlined), disabled: !canManageSources },
+        { key: 'install', label: tr('安装与打包', 'Installation and packaging'), icon: h(Icons.DeploymentUnitOutlined), disabled: !canInstall },
       ] }],
       onClick: ({ key }) => {
         setOpen(false);

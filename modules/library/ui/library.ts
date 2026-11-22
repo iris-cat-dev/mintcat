@@ -14,6 +14,7 @@ import {
   pickLocalPath,
   pickSavePath,
   publishUiSelection,
+  tr,
 } from '@mintcat/sdk-ui';
 import {
   canEditProfileContent,
@@ -153,7 +154,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
   const tracked = new Map<string, TrackedTask>();
   for (const task of saved.jobs ?? []) {
     tracked.set(task.jobId, { ...task, afterSeq: 0 });
-    if (task.deployTarget) state.deploying = { target: task.deployTarget, jobId: task.jobId, label: '读取部署状态' };
+    if (task.deployTarget) state.deploying = { target: task.deployTarget, jobId: task.jobId, label: tr('读取部署状态', 'Checking deployment status') };
   }
   const syncOnlineModJobs = (): void => {
     for (const { jobId, profileId, downloadFollowed } of context.onlineModJobs.list()) {
@@ -231,11 +232,11 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
           const items = [...first.items]; let cursor = first.nextCursor;
           while (cursor) {
             const pageResult = await context.call('mods.list', { ...params, cursor });
-            if (pageResult.contentRevision !== first.contentRevision) throw new Error('列表在加载期间发生变更，请刷新配置');
+            if (pageResult.contentRevision !== first.contentRevision) throw new Error(tr('列表在加载期间发生变更，请刷新配置', 'The mod list changed while loading. Refresh the profile.'));
             items.push(...pageResult.items); cursor = pageResult.nextCursor;
           }
           const groups = await context.call('groups.list', { profileId });
-          if (groups.contentRevision !== first.contentRevision) throw new Error('分组在加载期间发生变更，请刷新配置');
+          if (groups.contentRevision !== first.contentRevision) throw new Error(tr('分组在加载期间发生变更，请刷新配置', 'Mod groups changed while loading. Refresh the profile.'));
           return { mods: { ...first, items, nextCursor: undefined }, groups: groups.items };
         });
         if (session !== epoch || !alive()) return;
@@ -300,8 +301,8 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     await Promise.all([selectProfile(selectedProfile?.profileId ?? ''), loadReceipts(nextInstallationId)]);
     if (!alive() || session !== epoch || generation !== profileGeneration || gameId !== state.gameId) return;
     const support = state.games.find(item => item.gameId === gameId);
-    if (!support?.variants.length && alive()) update({ message: '此游戏的支持插件不可用；已有配置和模组元数据仍可浏览、编辑。发现安装目录、安装与本地导入需先安装游戏支持。' });
-    else if (!selectedProfile && alive()) update({ message: installations.length ? '请选择或新建配置。' : '请先在「设置 → 游戏安装目录」注册目录，再创建配置。' });
+    if (!support?.variants.length && alive()) update({ message: tr('此游戏的支持插件不可用；已有配置和模组元数据仍可浏览、编辑。发现安装目录、安装与本地导入需先安装游戏支持。', 'The support plugin for this game is unavailable. You can still view and edit existing profiles and mod metadata. Install game support to find installations, install mods, or import local files.') });
+    else if (!selectedProfile && alive()) update({ message: installations.length ? tr('请选择或新建配置。', 'Select or create a profile.') : tr('请先在「设置 → 游戏安装目录」注册目录，再创建配置。', 'Register an installation in Settings → Game Installations before creating a profile.') });
   };
   const loadInventory = async (): Promise<void> => {
     const generation = ++inventoryGeneration, session = epoch;
@@ -310,18 +311,20 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     const game = available.find(item => item.gameId === state.gameId) ?? available[0];
     update({ games: available, gameId: game?.gameId ?? '',
       ...(game ? selectedTarget(context, game) : { variantId: '', installationId: '' }),
-      message: available.length ? '' : '尚未安装游戏支持插件。安装游戏支持后可注册游戏并创建配置；备份和 Agent 仍可使用。' });
+      message: available.length ? '' : tr('尚未安装游戏支持插件。安装游戏支持后可注册游戏并创建配置；备份和 Agent 仍可使用。', 'No game support plugins are installed. Install game support to register a game and create profiles. Backups and Agent are still available.') });
     publish();
   };
   const writable = (): { profileId: string; revision: number } => {
     if (!canEditProfileContent(state.content) || !state.mods || state.mods.profileId !== state.profileId) {
-      throw new Error(state.content?.busyOperationId ? `配置内容由下载任务 ${state.content.busyOperationId} 锁定，请先查看或取消任务。` : '配置尚未加载或需要恢复，暂时无法修改内容。');
+      throw new Error(state.content?.busyOperationId
+        ? tr(`配置内容由下载任务 ${state.content.busyOperationId} 锁定，请先查看或取消任务。`, `Download task ${state.content.busyOperationId} has locked this profile. Check or cancel the task first.`)
+        : tr('配置尚未加载或需要恢复，暂时无法修改内容。', 'This profile has not loaded or needs to be recovered. Its contents cannot be edited yet.'));
     }
     return { profileId: state.profileId, revision: state.mods.contentRevision };
   };
   const mutate = async (operation: (profileId: string, revision: number) => Promise<unknown>): Promise<void> => {
     const { profileId, revision } = writable(), session = epoch;
-    if (state.pending) throw new Error('请等待当前操作完成');
+    if (state.pending) throw new Error(tr('请等待当前操作完成', 'Wait for the current operation to finish.'));
     update({ pending: true });
     try { await operation(profileId, revision); }
     finally {
@@ -334,7 +337,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
   };
   const profile = (): ProfileSummary => {
     const selected = state.profiles.find(item => item.profileId === state.profileId);
-    if (!selected) throw new Error('请选择配置');
+    if (!selected) throw new Error(tr('请选择配置', 'Select a profile.'));
     return selected;
   };
   const track = (jobId: string, profileId: string, deployTarget?: DeployTarget, showMessage = true): void => {
@@ -346,13 +349,13 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       return;
     }
     tracked.set(jobId, { profileId, afterSeq: 0, deployTarget }); persist();
-    if (showMessage) update({ message: '任务已启动，可在下载管理查看进度。' });
+    if (showMessage) update({ message: tr('任务已启动，可在下载管理查看进度。', 'Task started. Check its progress in Downloads.') });
   };
   const trackOnlineModAdd = (jobId: string, profileId: string): void => {
     context.onlineModJobs.track(jobId, profileId);
     if (!alive()) return;
     syncOnlineModJobs();
-    update({ message: '已提交模组添加任务，可在下载管理查看进度。' });
+    update({ message: tr('已提交模组添加任务，可在下载管理查看进度。', 'Mod add task submitted. Check its progress in Downloads.') });
   };
   const followAddDownload = (parentJobId: string, downloadJobId: string): void => {
     const parent = tracked.get(parentJobId);
@@ -379,8 +382,8 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     isSelected?: () => boolean;
   } = {}): Promise<{ snapshot: JobSnapshot; action?: ActionRequired }> => {
     const checkSelection = (): void => {
-      if (!alive()) throw new Error('页面已关闭');
-      if (options.isSelected?.() === false) throw new Error('应用目标已切换');
+      if (!alive()) throw new Error(tr('页面已关闭', 'The page has been closed.'));
+      if (options.isSelected?.() === false) throw new Error(tr('应用目标已切换', 'The deployment target has changed.'));
     };
     let afterSeq = 0;
     let actionId: string | undefined;
@@ -415,7 +418,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       }
       await new Promise(resolve => setTimeout(resolve, 250));
     }
-    throw new Error('等待后台任务响应超时，请在任务栏继续查看。');
+    throw new Error(tr('等待后台任务响应超时，请在任务栏继续查看。', 'The background task did not respond in time. Check the task list for updates.'));
   };
   const pollTasks = async (): Promise<void> => {
     syncOnlineModJobs();
@@ -521,7 +524,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     async refresh() { await loadInventory(); await loadProfiles(); await poll(); },
     async createProfile(name) {
       const gameId = state.gameId, session = epoch;
-      if (!state.installationId) throw new Error('请先注册游戏安装目录');
+      if (!state.installationId) throw new Error(tr('请先注册游戏安装目录', 'Register a game installation first.'));
       const created = await context.call('profiles.create', { gameId, name, active: true }, crypto.randomUUID());
       if (session === epoch && gameId === state.gameId && alive()) await loadProfiles(created.profileId);
     },
@@ -580,12 +583,12 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       if (session === epoch && target === state.profileId && alive()) await loadMods(target, true);
     },
     moveMod: (mod, position, groupId) => mutate((profileId, revision) => {
-      if (state.query.trim()) throw new Error('请先清除搜索筛选再调整顺序');
+      if (state.query.trim()) throw new Error(tr('请先清除搜索筛选再调整顺序', 'Clear the search filter before reordering mods.'));
       return context.call('mods.move', { profileId, profileModId: mod.profileModId,
         expectedContentRevision: revision, groupId, position }, crypto.randomUUID());
     }),
     async moveModsBatch(ids, groupId) {
-      if (state.query.trim()) throw new Error('请先清除搜索筛选再批量移动');
+      if (state.query.trim()) throw new Error(tr('请先清除搜索筛选再批量移动', 'Clear the search filter before moving multiple mods.'));
       const target = state.profileId, session = epoch;
       for (const profileModId of ids) {
         if (!alive() || session !== epoch || target !== state.profileId) return;
@@ -595,7 +598,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       }
     },
     async sortMods(mode) {
-      if (state.query.trim()) throw new Error('请先清除搜索筛选再排序');
+      if (state.query.trim()) throw new Error(tr('请先清除搜索筛选再排序', 'Clear the search filter before sorting mods.'));
       const target = state.profileId, session = epoch;
       const groups = new Set(state.mods?.items.map(mod => mod.groupId));
       for (const groupId of groups) {
@@ -637,12 +640,12 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       const { profileId, revision } = writable(), session = epoch;
       const originJobs = importJobs;
       const remoteGameKey = state.games.find(game => game.gameId === state.gameId)?.localRemoteGameKey;
-      if (!remoteGameKey) throw new Error('当前游戏暂不支持本地导入');
+      if (!remoteGameKey) throw new Error(tr('当前游戏暂不支持本地导入', 'This game does not support local imports.'));
       let chosenPath = preselectedPath ?? null;
       if (!chosenPath) {
         const picked = await pickLocalPath({
           kind: inputKind,
-          title: inputKind === 'file' ? '选择本地模组文件（.zip / .pak）' : '选择本地模组目录',
+          title: inputKind === 'file' ? tr('选择本地模组文件（.zip / .pak）', 'Select a local mod file (.zip / .pak)') : tr('选择本地模组目录', 'Select a local mod folder'),
           extensions: inputKind === 'file' ? ['zip', 'pak'] : undefined,
         });
         if (!picked) {
@@ -692,7 +695,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       const job = await context.call('jobs.get', { jobId: task.job.jobId });
       const updated = await context.call('jobs.cancel', { jobId: job.jobId, expectedRevision: job.lastSeq }, crypto.randomUUID());
       await poll();
-      if (updated.state === 'cancelled') update({ message: '后台任务已取消。' });
+      if (updated.state === 'cancelled') update({ message: tr('后台任务已取消。', 'Background task canceled.') });
     },
     async rejectSelection(task) {
       if (!task.action) return;
@@ -700,9 +703,9 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       await context.call('actions.reject', { actionId: action.actionId, expectedRevision: action.revision, reason: '用户取消选择' }, crypto.randomUUID()); await poll();
     },
     async approveSelection(task, path) {
-      if (!task.action || task.job.command !== 'mods.importLocal') throw new Error('任务不是本地导入选择');
+      if (!task.action || task.job.command !== 'mods.importLocal') throw new Error(tr('任务不是本地导入选择', 'This task is not asking for a local import path.'));
       const action = await context.call('actions.get', { actionId: task.action.actionId });
-      if (!['select-file', 'select-directory'].includes(action.kind) || action.state !== 'pending') throw new Error('选择请求已失效');
+      if (!['select-file', 'select-directory'].includes(action.kind) || action.state !== 'pending') throw new Error(tr('选择请求已失效', 'The selection request is no longer active.'));
       await context.call('actions.approve', { actionId: action.actionId, expectedRevision: action.revision,
         response: { selectedPath: path.trim() } }, crypto.randomUUID()); await poll();
     },
@@ -726,18 +729,18 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     },
     async openModPage(mod) {
       const url = modSourceUrl(mod);
-      if (!url) throw new Error('该模组没有可打开的在线源主页链接');
+      if (!url) throw new Error(tr('该模组没有可打开的在线源主页链接', 'This mod has no online source page to open.'));
       await openExternalUrl(url);
     },
     async copyModLinks(mods) {
       const urls = [...new Set(mods.map(mod => modSourceUrl(mod)).filter((url): url is string => Boolean(url)))];
-      if (!urls.length) throw new Error('所选模组中没有可复制的在线链接');
+      if (!urls.length) throw new Error(tr('所选模组中没有可复制的在线链接', 'The selected mods have no online links to copy.'));
       await copyTextToClipboard(urls.join('\n'));
-      update({ message: `已复制 ${urls.length} 条模组链接到剪贴板。` });
+      update({ message: tr(`已复制 ${urls.length} 条模组链接到剪贴板。`, `Copied ${urls.length} mod ${urls.length === 1 ? 'link' : 'links'} to the clipboard.`) });
     },
     async checkUpdates(profileModIds) {
       const target = state.profileId, session = epoch;
-      if (!target) throw new Error('请先选择配置');
+      if (!target) throw new Error(tr('请先选择配置', 'Select a profile first.'));
       update({ checkingUpdates: true });
       try {
         const result = await context.call('mods.checkUpdates', {
@@ -750,7 +753,8 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
         invalidate(target);
         update({
           updateChecks: nextChecks,
-          message: `已检查 ${result.checkedCount} 个在线模组：${result.updatedCount} 个有新版本，${result.unavailableCount} 个在线不可用。`,
+          message: tr(`已检查 ${result.checkedCount} 个在线模组：${result.updatedCount} 个有新版本，${result.unavailableCount} 个在线不可用。`,
+            `Checked ${result.checkedCount} online ${result.checkedCount === 1 ? 'mod' : 'mods'}: ${result.updatedCount} with updates, ${result.unavailableCount} unavailable.`),
         });
         await loadMods(target, true);
       } finally {
@@ -770,7 +774,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     },
     async checkConflicts() {
       const target = state.profileId, session = epoch;
-      if (!target) throw new Error('请先选择配置');
+      if (!target) throw new Error(tr('请先选择配置', 'Select a profile first.'));
       update({ checkingConflicts: true });
       try {
         const result = await context.call('mods.checkConflicts', { profileId: target });
@@ -780,8 +784,10 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
           conflictChecked: true,
           conflictSkippedIds: result.skippedProfileModIds,
           message: result.conflicts.length
-            ? `冲突检测完成（已检 ${result.checkedCount} 个缓存模组）：发现 ${result.conflicts.length} 处文件覆盖冲突。`
-            : `冲突检测完成（已检 ${result.checkedCount} 个缓存模组）：未发现文件冲突${result.skippedProfileModIds.length ? `（跳过 ${result.skippedProfileModIds.length} 个未下载缓存的模组）` : ''}。`,
+            ? tr(`冲突检测完成（已检 ${result.checkedCount} 个缓存模组）：发现 ${result.conflicts.length} 处文件覆盖冲突。`,
+              `Conflict check complete (${result.checkedCount} cached ${result.checkedCount === 1 ? 'mod' : 'mods'} checked): ${result.conflicts.length} file overwrite ${result.conflicts.length === 1 ? 'conflict' : 'conflicts'} found.`)
+            : tr(`冲突检测完成（已检 ${result.checkedCount} 个缓存模组）：未发现文件冲突${result.skippedProfileModIds.length ? `（跳过 ${result.skippedProfileModIds.length} 个未下载缓存的模组）` : ''}。`,
+              `Conflict check complete (${result.checkedCount} cached ${result.checkedCount === 1 ? 'mod' : 'mods'} checked): no file conflicts found${result.skippedProfileModIds.length ? `; skipped ${result.skippedProfileModIds.length} ${result.skippedProfileModIds.length === 1 ? 'mod' : 'mods'} without cached files` : ''}.`),
         });
       } finally {
         if (alive() && session === epoch) update({ checkingConflicts: false });
@@ -789,11 +795,11 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     },
     async exportMod(mod) {
       const target = state.profileId;
-      if (!target) throw new Error('请先选择配置');
-      if (!mod.appliedArtifactDigest) throw new Error('该模组尚未下载缓存文件，请先更新或下载后再导出');
+      if (!target) throw new Error(tr('请先选择配置', 'Select a profile first.'));
+      if (!mod.appliedArtifactDigest) throw new Error(tr('该模组尚未下载缓存文件，请先更新或下载后再导出', 'This mod has no cached file. Update or download it before exporting.'));
       const safeName = mod.displayName.replace(/[\\/:*?"<>|]/g, '_').trim() || mod.profileModId;
       const destinationPath = await pickSavePath({
-        title: `导出模组缓存：${mod.displayName}`,
+        title: tr(`导出模组缓存：${mod.displayName}`, `Export cached mod: ${mod.displayName}`),
         defaultName: `${safeName}.zip`,
         extensions: ['zip', 'pak'],
       });
@@ -803,25 +809,26 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
         profileModId: mod.profileModId,
         destinationPath,
       }, crypto.randomUUID());
-      update({ message: `已导出 ${mod.displayName}（${result.detectedFormat}，${result.fileSize} 字节）到 ${result.destinationPath}` });
+      update({ message: tr(`已导出 ${mod.displayName}（${result.detectedFormat}，${result.fileSize} 字节）到 ${result.destinationPath}`,
+        `Exported ${mod.displayName} (${result.detectedFormat}, ${result.fileSize} ${result.fileSize === 1 ? 'byte' : 'bytes'}) to ${result.destinationPath}`) });
     },
     async addModsFromUrls(urls, groupId) {
       const targetGame = state.gameId;
       const { profileId } = writable();
-      if (!targetGame) throw new Error('请先选择游戏');
+      if (!targetGame) throw new Error(tr('请先选择游戏', 'Select a game first.'));
       let added = 0, previousDownloadId: string | undefined;
       const failed: Array<{ url: string; reason: string }> = [];
       for (const [index, rawUrl] of urls.entries()) {
         if (!alive()) break;
         try {
           if (previousDownloadId && !(await waitForDownloadBeforeNextAdd(previousDownloadId))) {
-            failed.push(...urls.slice(index).map(url => ({ url, reason: '请先在下载管理处理等待确认的下载，再添加剩余模组。' })));
+            failed.push(...urls.slice(index).map(url => ({ url, reason: tr('请先在下载管理处理等待确认的下载，再添加剩余模组。', 'Resolve the pending download in Downloads before adding the remaining mods.') })));
             break;
           }
           previousDownloadId = undefined;
           const resolved = await context.call('sources.resolveUrl', { gameId: targetGame, url: rawUrl });
           const currentState = await context.call('profiles.contentState', { profileId });
-          if (!currentState.writable) throw new Error('配置当前正在被其他任务修改，请稍后重试');
+          if (!currentState.writable) throw new Error(tr('配置当前正在被其他任务修改，请稍后重试', 'Another task is modifying this profile. Try again later.'));
           const job = await context.call('mods.add', {
             profileId,
             reference: resolved.reference,
@@ -844,13 +851,14 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       invalidate(profileId);
       if (alive() && profileId === state.profileId) {
         await Promise.all([loadMods(profileId, true), poll()]);
-        update({ message: `URL 批量添加完成：成功 ${added} 个${failed.length ? `，失败 ${failed.length} 个` : ''}。` });
+        update({ message: tr(`URL 批量添加完成：成功 ${added} 个${failed.length ? `，失败 ${failed.length} 个` : ''}。`,
+          `Finished adding from URLs: ${added} added${failed.length ? `, ${failed.length} failed` : ''}.`) });
       }
       return { added, failed };
     },
     async loadSubscribed(append = false) {
       const targetGame = state.gameId, session = epoch;
-      if (!targetGame) throw new Error('请先选择游戏');
+      if (!targetGame) throw new Error(tr('请先选择游戏', 'Select a game first.'));
       update({ loadingSubscribed: true });
       try {
         const result = await context.call('sources.listSubscribed', {
@@ -879,7 +887,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
         }
         previousDownloadId = undefined;
         const currentState = await context.call('profiles.contentState', { profileId });
-        if (!currentState.writable) throw new Error('配置当前正在被其他任务修改，请稍后重试');
+        if (!currentState.writable) throw new Error(tr('配置当前正在被其他任务修改，请稍后重试', 'Another task is modifying this profile. Try again later.'));
         const job = await context.call('mods.add', {
           profileId,
           reference: item.reference,
@@ -897,17 +905,19 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       invalidate(profileId);
       if (alive() && profileId === state.profileId) {
         await Promise.all([loadMods(profileId, true), poll()]);
-        update({ message: `已添加 ${added} 个 mod.io 订阅模组。${waitingForApproval ? '请先在下载管理处理等待确认的下载，再添加剩余模组。' : ''}` });
+        update({ message: tr(`已添加 ${added} 个 mod.io 订阅模组。`, `Added ${added} subscribed ${added === 1 ? 'mod' : 'mods'} from mod.io.`)
+          + (waitingForApproval ? tr('请先在下载管理处理等待确认的下载，再添加剩余模组。', ' Resolve the pending download in Downloads before adding the remaining mods.') : '') });
       }
     },
     async launchGame() {
       const game = state.games.find(item => item.gameId === state.gameId);
       const variant = game?.variants.find(item => item.variantId === state.variantId) ?? game?.variants[0];
       if (!variant?.storeAppId) {
-        throw new Error('当前游戏变体未声明 Steam App ID，请手动启动游戏');
+        throw new Error(tr('当前游戏变体未声明 Steam App ID，请手动启动游戏', 'This game variant does not specify a Steam App ID. Launch the game manually.'));
       }
       await launchSteamGame(variant.storeAppId);
-      update({ message: `已请求 Steam 启动 ${game?.displayName ?? state.gameId}（AppID ${variant.storeAppId}）。` });
+      update({ message: tr(`已请求 Steam 启动 ${game?.displayName ?? state.gameId}（AppID ${variant.storeAppId}）。`,
+        `Asked Steam to launch ${game?.displayName ?? state.gameId} (App ID ${variant.storeAppId}).`) });
     },
     async quickInstall() {
       const status = deploymentStatus(state);
@@ -916,9 +926,9 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       const { profileId, revision } = writable();
       let contentRevision = revision;
       const { gameId, installationId, variantId } = state;
-      if (contentRevision !== state.content?.contentRevision) throw new Error('配置内容已变化，请刷新后重新应用');
+      if (contentRevision !== state.content?.contentRevision) throw new Error(tr('配置内容已变化，请刷新后重新应用', 'The profile contents have changed. Refresh and apply the profile again.'));
       if (!installationId || !variantId) {
-        throw new Error('请先在「设置 → 游戏安装目录」注册安装目录并选择游戏变体');
+        throw new Error(tr('请先在「设置 → 游戏安装目录」注册安装目录并选择游戏变体', 'Register an installation and select a game variant in Settings → Game Installations first.'));
       }
       const target = { gameId, installationId, variantId, profileId };
       const selection = selectionEpoch;
@@ -931,18 +941,18 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
         if (!isSelected()) return false;
         const live = await context.call('profiles.contentState', { profileId });
         if (!isSelected()) return false;
-        if (!matchesContent(live)) throw new Error('配置内容或锁定状态已变化，请刷新后重新应用');
+        if (!matchesContent(live)) throw new Error(tr('配置内容或锁定状态已变化，请刷新后重新应用', 'The profile contents or lock status have changed. Refresh and apply the profile again.'));
         return true;
       };
       const progress = (value: DeployProgress): void => {
         if (isSelected()) update({ deploying: { target, ...value } });
       };
       let handedOff = false;
-      update({ deploying: { target, label: '校验模组' }, deploySweep: undefined, message: '' });
+      update({ deploying: { target, label: tr('校验模组', 'Verifying mods') }, deploySweep: undefined, message: '' });
       try {
         const detectAtRevision = async (refresh = false) => {
           if (refresh) {
-            progress({ label: '重新校验模组' });
+            progress({ label: tr('重新校验模组', 'Verifying mods again') });
             if (!await refreshCurrentContent()) return;
           }
           const result = await context.call('install.detectInputs', { profileId });
@@ -952,7 +962,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
         let detected = await detectAtRevision();
         if (!detected) return;
         if (detected.items.some(item => !item.verified && item.legacyCacheAvailable)) {
-          progress({ label: '恢复旧版模组缓存' });
+          progress({ label: tr('恢复旧版模组缓存', 'Restoring legacy mod cache') });
           const restored = await context.call('install.restoreLegacyCache', {
             profileId, expectedContentRevision: contentRevision,
           }, crypto.randomUUID());
@@ -962,7 +972,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
             detected = await detectAtRevision(true);
             if (!detected) return;
           } else if (restored.contentRevision !== contentRevision) {
-            throw new Error('配置内容已变化，请刷新后重新应用');
+            throw new Error(tr('配置内容已变化，请刷新后重新应用', 'The profile contents have changed. Refresh and apply the profile again.'));
           }
         }
         const sourceOf = (item: DetectedInstallInput): string | undefined =>
@@ -972,7 +982,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
           return !item.verified && (source === 'modio' || source === 'modcat' || source === 'nexusmods');
         }).map(item => item.profileModId);
         if (downloadIds.length) {
-          progress({ label: '准备下载缺失模组' });
+          progress({ label: tr('准备下载缺失模组', 'Preparing to download missing mods') });
           const job = await context.call('mods.updateBatch', {
             profileId, expectedContentRevision: contentRevision, profileModIds: downloadIds,
             mode: 'prepare-and-apply', versionPolicy: 'selected',
@@ -984,16 +994,16 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
           });
           if (!isSelected()) return;
           if (snapshot.state === 'awaiting-approval') {
-            throw new Error('下载需要手动操作。请在下载管理完成操作，下载完成后重新应用配置。');
+            throw new Error(tr('下载需要手动操作。请在下载管理完成操作，下载完成后重新应用配置。', 'The download requires your input. Complete it in Downloads, then apply the profile again.'));
           }
-          if (snapshot.state === 'cancelled') throw new Error('下载已取消，未应用配置。');
-          if (snapshot.state !== 'succeeded') throw new Error('下载失败，未应用配置。请在下载管理查看详情。');
+          if (snapshot.state === 'cancelled') throw new Error(tr('下载已取消，未应用配置。', 'The download was canceled. The profile was not applied.'));
+          if (snapshot.state !== 'succeeded') throw new Error(tr('下载失败，未应用配置。请在下载管理查看详情。', 'The download failed and the profile was not applied. Check Downloads for details.'));
           const result = snapshot.result;
           if (snapshot.command !== 'library.download.apply' || !result || typeof result !== 'object'
             || !('applied' in result) || result.applied !== true || !('contentRevision' in result)
             || typeof result.contentRevision !== 'number' || !Number.isSafeInteger(result.contentRevision)
             || result.contentRevision < contentRevision) {
-            throw new Error('无法确认下载已写入当前配置，请在下载管理查看详情。');
+            throw new Error(tr('无法确认下载已写入当前配置，请在下载管理查看详情。', 'Could not confirm that the download was saved to the current profile. Check Downloads for details.'));
           }
           // Only the download's committed result may advance the revision for this Apply.
           contentRevision = result.contentRevision;
@@ -1001,22 +1011,26 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
           if (!detected) return;
         }
         const blockers = [
-          { items: detected.items.filter(item => item.verified && !item.format), issue: '格式无法识别', fix: '请改用受支持的模组文件或禁用这些模组' },
-          { items: detected.items.filter(item => !item.verified && sourceOf(item) === 'local'), issue: '本地文件缺失或无法验证', fix: '请重新导入本地文件或禁用这些模组' },
-          { items: detected.items.filter(item => !item.verified && sourceOf(item) !== 'local'), issue: '仍缺少可用的下载缓存', fix: '请在下载管理检查下载，或禁用无法下载的模组' },
+          { items: detected.items.filter(item => item.verified && !item.format),
+            issue: tr('格式无法识别', 'unrecognized file format'), fix: tr('请改用受支持的模组文件或禁用这些模组', 'Use supported mod files or disable the affected mods') },
+          { items: detected.items.filter(item => !item.verified && sourceOf(item) === 'local'),
+            issue: tr('本地文件缺失或无法验证', 'local files missing or unverifiable'), fix: tr('请重新导入本地文件或禁用这些模组', 'Reimport the local files or disable the affected mods') },
+          { items: detected.items.filter(item => !item.verified && sourceOf(item) !== 'local'),
+            issue: tr('仍缺少可用的下载缓存', 'no usable cached download'), fix: tr('请在下载管理检查下载，或禁用无法下载的模组', 'Check Downloads or disable the mods that cannot be downloaded') },
         ];
         const problems = blockers.filter(({ items }) => items.length).map(({ items, issue, fix }) => {
           const names = items.slice(0, 3).map(item =>
-            state.mods?.items.find(mod => mod.profileModId === item.profileModId)?.displayName ?? item.profileModId).join('、');
-          return `${items.length} 个已启用模组${issue}（如 ${names}），${fix}。`;
+            state.mods?.items.find(mod => mod.profileModId === item.profileModId)?.displayName ?? item.profileModId).join(tr('、', ', '));
+          return tr(`${items.length} 个已启用模组${issue}（如 ${names}），${fix}。`,
+            `${items.length} enabled ${items.length === 1 ? 'mod' : 'mods'}: ${issue} (e.g., ${names}). ${fix}.`);
         });
-        if (problems.length) throw new Error(problems.join(''));
-        progress({ label: '读取游戏设置' });
+        if (problems.length) throw new Error(problems.join(tr('', ' ')));
+        progress({ label: tr('读取游戏设置', 'Reading game settings') });
         const settings = await context.request<{ values: Record<string, Json>; revision: number }>('settings.get', {
           scope: { kind: 'game', gameId }, section: 'game',
         });
         if (!isSelected() || !await refreshCurrentContent()) return;
-        progress({ label: '提交安装计划' });
+        progress({ label: tr('提交安装计划', 'Submitting installation plan') });
         const planJob = await context.call('install.plan', {
           profileId, revision: selected.revision, contentRevision, gameId, installationId,
           options: { variantId, settingsRevision: settings.revision, settings: settings.values,
@@ -1028,33 +1042,36 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
         track(planJob.jobId, profileId, undefined, isSelected());
         const { snapshot, action } = await waitForJobActionOrTerminal(planJob.jobId, { progress });
         if (!action || action.kind !== 'install-approval' || action.state !== 'pending') {
-          throw new Error(`安装计划未进入待批准状态：${snapshot.error?.messageKey ?? snapshot.state}`);
+          throw new Error(tr(`安装计划未进入待批准状态：${snapshot.error?.messageKey ?? snapshot.state}`,
+            `The installation plan did not reach the approval stage: ${snapshot.error?.messageKey ?? snapshot.state}`));
         }
         const plan = snapshot.result as { planId?: string; planHash?: string } | undefined;
         if (!plan?.planId || plan.planHash !== action.planHash || action.operationId !== plan.planId) {
-          throw new Error('安装计划与审批目标不匹配，已拒绝部署');
+          throw new Error(tr('安装计划与审批目标不匹配，已拒绝部署', 'The installation plan does not match the approval target. Deployment was rejected.'));
         }
         const liveContent = isSelected() ? await context.call('profiles.contentState', { profileId }).catch(() => undefined) : undefined;
         const canApprove = isSelected() && matchesContent(liveContent);
-        if (!canApprove || !window.confirm(`确认将配置“${selected.displayName}”应用到游戏目录？\n\n启用模组数：${detected.items.length}\n计划哈希：${plan.planHash.slice(0, 20)}…`)) {
+        if (!canApprove || !window.confirm(tr(`确认将配置“${selected.displayName}”应用到游戏目录？\n\n启用模组数：${detected.items.length}\n计划哈希：${plan.planHash.slice(0, 20)}…`,
+          `Apply the “${selected.displayName}” profile to the game folder?\n\nEnabled mods: ${detected.items.length}\nPlan hash: ${plan.planHash.slice(0, 20)}…`))) {
           await context.call('actions.reject', {
             actionId: action.actionId, expectedRevision: action.revision, reason: '应用已取消或目标已切换',
           }, crypto.randomUUID());
-          if (isSelected()) update({ message: canApprove ? '已取消应用配置。' : '配置内容或锁定状态已变化，请刷新后重新应用。' });
+          if (isSelected()) update({ message: canApprove ? tr('已取消应用配置。', 'Applying the profile was canceled.')
+            : tr('配置内容或锁定状态已变化，请刷新后重新应用。', 'The profile contents or lock status have changed. Refresh and apply the profile again.') });
           return;
         }
-        progress({ label: '提交人工批准' });
+        progress({ label: tr('提交人工批准', 'Submitting approval') });
         await context.call('actions.approve', {
           actionId: action.actionId, expectedRevision: action.revision, response: { approved: true },
         }, crypto.randomUUID());
         if (!await refreshCurrentContent()) return;
-        progress({ label: '提交部署' });
+        progress({ label: tr('提交部署', 'Submitting deployment') });
         const applyJob = await context.call('install.apply', {
           planId: plan.planId, planHash: plan.planHash, approvalRef: action.actionId,
         }, crypto.randomUUID());
         localApply = { jobId: applyJob.jobId, planHash: plan.planHash, selection, contentRevision };
         handedOff = true;
-        update({ deploying: { target, jobId: applyJob.jobId, label: '读取部署状态' } });
+        update({ deploying: { target, jobId: applyJob.jobId, label: tr('读取部署状态', 'Checking deployment status') } });
         track(applyJob.jobId, profileId, target, isSelected());
         await poll();
       } catch (error) {
@@ -1066,7 +1083,7 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
     async quickUninstall() {
       const latestReceipt = state.receipts?.items[0];
       if (!latestReceipt || latestReceipt.installationId !== state.installationId) {
-        throw new Error('当前游戏安装目录没有可卸载的活动收据');
+        throw new Error(tr('当前游戏安装目录没有可卸载的活动收据', 'This game installation has no active deployment receipt to uninstall.'));
       }
       const job = await context.call('install.uninstall', {
         installationId: state.installationId,
@@ -1076,9 +1093,11 @@ function mountLibraryPage(root: HTMLElement, context: UiContext, page: LibraryPa
       track(job.jobId, state.profileId);
       const { snapshot, action } = await waitForJobActionOrTerminal(job.jobId);
       if (!action || action.kind !== 'uninstall-approval') {
-        throw new Error(`卸载任务未进入待批准状态：${snapshot.error?.messageKey ?? snapshot.state}`);
+        throw new Error(tr(`卸载任务未进入待批准状态：${snapshot.error?.messageKey ?? snapshot.state}`,
+          `The uninstall task did not reach the approval stage: ${snapshot.error?.messageKey ?? snapshot.state}`));
       }
-      if (!window.confirm(`确认卸载已部署的模组文件？\n\n收据：${latestReceipt.receiptId.slice(0, 12)}…（${latestReceipt.fileCount} 个文件）`)) {
+      if (!window.confirm(tr(`确认卸载已部署的模组文件？\n\n收据：${latestReceipt.receiptId.slice(0, 12)}…（${latestReceipt.fileCount} 个文件）`,
+        `Uninstall the deployed mod files?\n\nReceipt: ${latestReceipt.receiptId.slice(0, 12)}… (${latestReceipt.fileCount} ${latestReceipt.fileCount === 1 ? 'file' : 'files'})`))) {
         await context.call('actions.reject', {
           actionId: action.actionId,
           expectedRevision: action.revision,

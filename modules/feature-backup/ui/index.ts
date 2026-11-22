@@ -1,5 +1,5 @@
 import type { ActionRequired, JobRef, JobSnapshot } from '@mintcat/sdk-ts';
-import { getSharedRuntime, mountReactView, presentUiError } from '@mintcat/sdk-ui';
+import { getSharedRuntime, mountReactView, presentUiError, tr } from '@mintcat/sdk-ui';
 import type { Disposable, Json, UiContext } from '@mintcat/sdk-ui';
 import { BackupView, isLegacyImportAction, legacyImportScope, portableRestoreScope } from './view';
 import type { BackupModel, PendingRequest, TaskView, TrackedTask } from './view';
@@ -19,7 +19,7 @@ const mutationMethods: Record<keyof MutationParams, true> = {
   'library.import-legacy': true, 'library.config-import': true,
 };
 
-const libraryNotEmptyMessage = '当前模组库不符合导入条件：不会覆盖已有配置档案（Profile）或其他库数据。请在独立的空模组库中重试。如果来源是便携 .json 归档，请使用「恢复归档」，该流程也要求目标为空。';
+const libraryNotEmptyMessage = tr('当前模组库不符合导入条件：不会覆盖已有配置档案（Profile）或其他库数据。请在独立的空模组库中重试。如果来源是便携 .json 归档，请使用「恢复归档」，该流程也要求目标为空。', 'Import cannot overwrite existing profiles or other library data. Try again in a separate, empty mod library. For a portable .json archive, use Restore Archive, which also requires an empty library.');
 function isLibraryNotEmpty(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'messageKey' in error && error.messageKey === 'library.not_empty';
 }
@@ -60,16 +60,22 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext, gui
     if (typeof error === 'object' && error !== null && 'appError' in error) {
       if (isLibraryNotEmpty(error.appError)) return libraryNotEmptyMessage;
       const failure = presentUiError(error);
-      return `${failure.title}：${failure.description}`;
+      return tr(`${failure.title}：${failure.description}`, `${failure.title}: ${failure.description}`);
     }
     const detail = error instanceof Error ? error.message : typeof error === 'string' ? error : JSON.stringify(error, null, 2) ?? String(error);
     return /permission|forbidden|unauthorized|access.denied/i.test(detail)
-      ? `权限不足，请检查当前请求的授权。\n${detail}` : `操作失败：${detail}`;
+      ? tr(`权限不足，请检查当前请求的授权。\n${detail}`, `Permission denied. Check the permissions for this request.\n${detail}`)
+      : tr(`操作失败：${detail}`, `Operation failed: ${detail}`);
   };
   const required = (key: 'output' | 'source' | 'legacySource' | 'configSource'): string => {
-    const labels = { output: '输出归档路径', source: '待恢复归档路径', legacySource: '旧版 SQLite 路径', configSource: '配置快照路径' };
+    const labels = {
+      output: tr('输出归档路径', 'output archive path'),
+      source: tr('待恢复归档路径', 'archive path to restore'),
+      legacySource: tr('旧版 SQLite 路径', 'legacy SQLite path'),
+      configSource: tr('配置快照路径', 'configuration snapshot path'),
+    };
     const value = fields[key].trim();
-    if (!value) throw new Error(`请填写${labels[key]}`);
+    if (!value) throw new Error(tr(`请填写${labels[key]}`, `Enter the ${labels[key]}.`));
     return value;
   };
   const run = context.guard(async (name: string, action: () => Promise<void>) => {
@@ -97,7 +103,7 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext, gui
       track(job, request.targetPath);
       tasks.pending = tasks.pending.filter(item => item.key !== request.key);
       persistTasks();
-      model.status = `已登记后台任务 ${job.jobId}，请在下方查看持久状态与输出。`; changed();
+      model.status = tr(`已登记后台任务 ${job.jobId}，请在下方查看持久状态与输出。`, `Background job ${job.jobId} was registered. See its status and output below.`); changed();
     } catch (error) {
       if (!active() || generation !== pageGeneration) return;
       if (typeof error === 'object' && error !== null && 'appError' in error) {
@@ -120,7 +126,7 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext, gui
     if (!active()) return;
     const generation = ++refreshGeneration;
     const page = pageGeneration;
-    model.historyLoading = true; model.historyError = ''; changed();
+    model.historyLoading = true; model.historyError = ''; model.cloudUnconfigured = false; changed();
     try {
       const records = await context.query('cloud-history', () => context.request<BackupModel['records']>('backup.cloud.list', {}));
       if (!active() || generation !== refreshGeneration || page !== pageGeneration) return;
@@ -128,6 +134,7 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext, gui
     } catch (error) {
       if (active() && generation === refreshGeneration && page === pageGeneration) {
         model.records = []; model.historyError = describeError(error);
+        model.cloudUnconfigured = presentUiError(error).kind === 'cloud-prerequisite';
       }
     } finally {
       if (active() && generation === refreshGeneration && page === pageGeneration) { model.historyLoading = false; changed(); }
@@ -138,18 +145,21 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext, gui
     const current = await context.call('actions.get', { actionId: reviewed.actionId });
     if (!active() || generation !== pageGeneration) return;
     if (current.state !== 'pending' || JSON.stringify(current) !== JSON.stringify(reviewed)) {
-      await poll(); throw new Error('批准对象已发生变化或不再等待批准，请重新审阅当前后台操作。');
+      await poll(); throw new Error(tr('批准对象已发生变化或不再等待批准，请重新审阅当前后台操作。', 'The approval target changed or is no longer pending. Review the current background operation again.'));
     }
-    if (current.kind !== 'backup-owner-import' || task.actionId !== current.actionId) throw new Error('该操作不是刚刚审阅的备份导入。');
+    if (current.kind !== 'backup-owner-import' || task.actionId !== current.actionId) throw new Error(tr('该操作不是刚刚审阅的备份导入。', 'This is not the backup import you just reviewed.'));
     const legacy = isLegacyImportAction(current);
-    const credentialChoice = legacy ? `\n导入旧版凭据：${importCredentials ? '是（已明确勾选）' : '否'}` : '';
-    if (!window.confirm(`是否独立批准本次冻结导入？\n${legacy ? legacyImportScope : portableRestoreScope}${credentialChoice}\n\n${JSON.stringify(current, null, 2)}`)) return;
+    const credentialChoice = legacy ? '\n' + (importCredentials
+      ? tr('导入旧版凭据：是（已明确勾选）', 'Import legacy credentials: Yes (explicitly selected)')
+      : tr('导入旧版凭据：否', 'Import legacy credentials: No')) : '';
+    const scope = legacy ? legacyImportScope : portableRestoreScope;
+    if (!window.confirm(`${tr('是否独立批准本次冻结导入？', 'Approve this exact import as an independent reviewer?')}\n${scope}${credentialChoice}\n\n${JSON.stringify(current, null, 2)}`)) return;
     if (!active() || generation !== pageGeneration) return;
     await context.call('actions.approve', {
       actionId: current.actionId, expectedRevision: current.revision, response: { approved: true, importCredentials: legacy && importCredentials },
     }, crypto.randomUUID());
     if (!active() || generation !== pageGeneration) return;
-    model.status = `已提交任务 ${task.jobId} 的批准。请在下方查看任务结果。`; changed();
+    model.status = tr(`已提交任务 ${task.jobId} 的批准。请在下方查看任务结果。`, `Approval was submitted for job ${task.jobId}. See the result below.`); changed();
     await poll();
   };
   const viewFor = (task: TrackedTask): TaskView => {
@@ -202,7 +212,7 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext, gui
   };
   const model: BackupModel = {
     fields, tasks, records: [], views: new Map(), expandedJobs: new Set(), busy: '', status: '', statusError: false,
-    historyLoading: false, historyError: '', existingJob: '',
+    historyLoading: false, historyError: '', cloudUnconfigured: false, existingJob: '',
     subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     getRevision: () => revision,
     updateField: (key, value) => { if (active()) { Object.assign(fields, { [key]: value }); persistFields(); changed(); } },
@@ -224,10 +234,10 @@ export async function mountBackupPage(root: HTMLElement, context: UiContext, gui
     poll,
     attach: async () => {
       const generation = pageGeneration;
-      const jobId = model.existingJob.trim(); if (!jobId) throw new Error('请填写后台任务 ID');
+      const jobId = model.existingJob.trim(); if (!jobId) throw new Error(tr('请填写后台任务 ID', 'Enter a background job ID.'));
       const snapshot = await context.call('jobs.get', { jobId });
       if (!active() || generation !== pageGeneration) return;
-      if (!Object.prototype.hasOwnProperty.call(mutationMethods, snapshot.command)) throw new Error('该任务不是备份或 Library 导入操作');
+      if (!Object.prototype.hasOwnProperty.call(mutationMethods, snapshot.command)) throw new Error(tr('该任务不是备份或 Library 导入操作', 'This is not a backup or library import job.'));
       track({ jobId: snapshot.jobId }); await poll();
     },
     clearCompletedTasks: () => {

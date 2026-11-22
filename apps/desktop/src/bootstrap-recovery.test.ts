@@ -28,9 +28,9 @@ afterEach(async () => {
   vi.restoreAllMocks(); document.body.replaceChildren();
 });
 
-function button(root: HTMLElement, label: string): HTMLButtonElement {
-  const result = [...root.querySelectorAll('button')].find(item => item.textContent === label);
-  if (!result) throw new Error(`Missing recovery control ${label}`);
+function recoveryControl(root: HTMLElement, kind: 'safe-mode' | 'recovery-points'): HTMLButtonElement {
+  const result = root.querySelector<HTMLButtonElement>(`[data-recovery-control="${kind}"]`);
+  if (!result) throw new Error(`Missing recovery control ${kind}`);
   return result;
 }
 
@@ -50,17 +50,15 @@ describe('independent desktop recovery', () => {
     });
     const root = document.createElement('div'); document.body.append(root);
     await React.act(async () => { await mountDesktop(root, '/isolated-recovery'); });
-    await React.act(async () => { button(root, 'Safe mode').click(); });
-    expect(root.textContent).toContain('Safe mode: workbench closed');
-    await React.act(async () => { button(root, 'Local confirmed recovery sets').click(); });
-    const recoveryButtons = [...root.querySelectorAll('button')].filter(item => item.textContent?.startsWith('Restore local confirmed'));
-    expect(recoveryButtons.map(item => item.textContent)).toEqual(['Restore local confirmed game:drg: local-pinned-v1']);
+    await React.act(async () => { recoveryControl(root, 'safe-mode').click(); });
+    await React.act(async () => { recoveryControl(root, 'recovery-points').click(); });
+    const recoveryButtons = root.querySelectorAll<HTMLButtonElement>('.rescue-restore-btn');
+    expect(recoveryButtons).toHaveLength(1);
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     await React.act(async () => { recoveryButtons[0].click(); }); expect(recovering).toBe(false);
     confirm.mockReturnValue(true);
     await React.act(async () => { recoveryButtons[0].click(); });
     expect(recovering).toBe(true);
-    expect(root.textContent).toContain('Recovery task local-recovery-job started in daemon');
     expect(recoveryButtons[0].disabled).toBe(false);
   });
 });

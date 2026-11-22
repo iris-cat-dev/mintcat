@@ -7,6 +7,19 @@ interface WindowSurface {
   material: 'glass' | 'solid';
 }
 
+const glassPreference = 'mintcat.ui.window-glass';
+const glassPreferenceChanged = 'mintcat-window-glass-preference';
+
+export function getWindowGlassEnabled(): boolean {
+  try { return localStorage.getItem(glassPreference) !== 'false'; }
+  catch { return true; }
+}
+
+export function setWindowGlassEnabled(enabled: boolean): void {
+  localStorage.setItem(glassPreference, String(enabled));
+  window.dispatchEvent(new Event(glassPreferenceChanged));
+}
+
 export function initializeWindowSurface(native: boolean): () => void {
   const root = document.documentElement;
   root.dataset.windowMaterial = 'solid';
@@ -32,7 +45,7 @@ export function initializeWindowSurface(native: boolean): () => void {
         try {
           const result = await invoke<WindowSurface>('desktop_window_surface', {
             dark: isDarkUiTheme(getUiTheme()),
-            reduceTransparency: transparency.matches,
+            reduceTransparency: !getWindowGlassEnabled() || transparency.matches,
             observe: true,
           });
           if (!disposed && applied === revision) {
@@ -53,6 +66,7 @@ export function initializeWindowSurface(native: boolean): () => void {
     if (!pending) settled = synchronize();
   };
   window.addEventListener('mintcat-ui-theme', changed);
+  window.addEventListener(glassPreferenceChanged, changed);
   transparency.addEventListener('change', changed);
   void listen('mintcat-window-transparency', changed).then(release => {
     if (disposed) release();
@@ -64,6 +78,7 @@ export function initializeWindowSurface(native: boolean): () => void {
     disposed = true;
     root.dataset.windowMaterial = 'solid';
     window.removeEventListener('mintcat-ui-theme', changed);
+    window.removeEventListener(glassPreferenceChanged, changed);
     transparency.removeEventListener('change', changed);
     unlisten?.();
     void settled.then(() => invoke('desktop_window_surface', { dark: isDarkUiTheme(getUiTheme()), reduceTransparency: true, observe: false })).catch(() => {

@@ -1,5 +1,5 @@
 import type { HTMLAttributes, ReactNode, RefObject } from 'react';
-import { getSharedRuntime, subscribeFileDrag } from '@mintcat/sdk-ui';
+import { getSharedRuntime, subscribeFileDrag, tr } from '@mintcat/sdk-ui';
 import './library-file-drop.css';
 
 type Target = 'list' | 'modal';
@@ -70,5 +70,5 @@ export function FileListArea({ targetRef, scanning, newRowId, banner, tools, scr
       React.createElement('div', { className: 'library-scroll-banner' }, banner),
       React.createElement('div', { className: 'library-scroll-tools', ref: toolsRef }, tools),
       React.createElement('div', { ...areaProps, ref: targetRef }, children)),
-    scanning ? React.createElement('span', { className: 'library-file-caption', role: 'status' }, '松开以导入本地模组') : null);
+    scanning ? React.createElement('span', { className: 'library-file-caption', role: 'status' }, tr('松开以导入本地模组', 'Drop to import local mods')) : null);
 }

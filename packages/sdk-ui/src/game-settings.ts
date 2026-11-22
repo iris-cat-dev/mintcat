@@ -1,4 +1,6 @@
 import type { Disposable, Json, UiContext } from './index';
+import { tr } from './language';
+
 export interface GameUiDescriptor {
   gameId: string; displayName: string;
   settingsSchemaVersion: number;
@@ -27,9 +29,9 @@ export async function mountGameSettings(root: HTMLElement, context: UiContext, g
   revisionBadge.className = 'game-settings-badge';
   const dirtyBadge = context.kit.element('span');
   const syncBadges = (): void => {
-    revisionBadge.textContent = `修订 #${revision}`;
+    revisionBadge.textContent = tr(`修订 #${revision}`, `Revision #${revision}`);
     dirtyBadge.className = `game-settings-badge ${dirty ? 'game-settings-badge--dirty' : 'game-settings-badge--clean'}`;
-    dirtyBadge.textContent = dirty ? '未保存修改' : '已同步';
+    dirtyBadge.textContent = dirty ? tr('未保存修改', 'Unsaved changes') : tr('已同步', 'In sync');
   };
   const saveDraft = (): void => {
     syncBadges();
@@ -43,9 +45,9 @@ export async function mountGameSettings(root: HTMLElement, context: UiContext, g
   header.className = 'game-settings-header';
   const heading = context.kit.element('div');
   heading.className = 'game-settings-heading';
-  const title = context.kit.element('h2', `${binding.displayName} 游戏设置`);
+  const title = context.kit.element('h2', tr(`${binding.displayName} 游戏设置`, `${binding.displayName} Game Settings`));
   title.className = 'game-settings-title';
-  const subtitle = context.kit.element('p', `配置当前游戏的启动参数与运行选项 · 作用域 ${binding.gameId}`);
+  const subtitle = context.kit.element('p', tr(`配置当前游戏的启动参数与运行选项 · 作用域 ${binding.gameId}`, `Configure launch arguments and runtime options · Scope: ${binding.gameId}`));
   subtitle.className = 'game-settings-subtitle';
   heading.append(title, subtitle);
   const badges = context.kit.element('div');
@@ -74,12 +76,12 @@ export async function mountGameSettings(root: HTMLElement, context: UiContext, g
       const select = context.kit.element('select');
       select.className = 'game-settings-control';
       controls.set(key, select);
-      const unset = context.kit.element('option', `请选择 ${field.title ?? key}`);
+      const unset = context.kit.element('option', tr(`请选择 ${field.title ?? key}`, `Select ${field.title ?? key}`));
       unset.value = ''; unset.disabled = true; select.append(unset);
       select.required = descriptor.settingsSchema.required?.includes(key) ?? false;
       for (const value of field.enum ?? [true, false]) {
         const display = field.type === 'boolean' && !field.enum
-          ? (value === true ? '启用 (true)' : '禁用 (false)')
+          ? (value === true ? tr('启用 (true)', 'Enabled (true)') : tr('禁用 (false)', 'Disabled (false)'))
           : String(value);
         const option = context.kit.element('option', display);
         option.value = JSON.stringify(value);
@@ -93,7 +95,7 @@ export async function mountGameSettings(root: HTMLElement, context: UiContext, g
       input.className = 'game-settings-control';
       controls.set(key, input);
       input.type = field.type === 'number' ? 'number' : 'text';
-      input.placeholder = field.type === 'number' ? '输入数值…' : '输入配置内容…';
+      input.placeholder = field.type === 'number' ? tr('输入数值…', 'Enter a number…') : tr('输入配置内容…', 'Enter a value…');
       input.required = descriptor.settingsSchema.required?.includes(key) ?? false;
       input.value = String(values[key] ?? '');
       input.addEventListener('input', () => { if (field.type === 'number' && input.value === '') delete values[key]; else values[key] = field.type === 'number' ? Number(input.value) : input.value; editGeneration++; dirty = true; context.dirty(true); saveDraft(); });
@@ -102,7 +104,7 @@ export async function mountGameSettings(root: HTMLElement, context: UiContext, g
     fieldsContainer.append(label);
   }
   if (!fields.length) {
-    const empty = context.kit.element('p', '当前游戏插件未声明额外设置项。');
+    const empty = context.kit.element('p', tr('当前游戏插件未声明额外设置项。', 'This game plugin does not provide any additional settings.'));
     empty.className = 'game-settings-empty';
     fieldsContainer.append(empty);
   }
@@ -111,19 +113,19 @@ export async function mountGameSettings(root: HTMLElement, context: UiContext, g
     Object.assign(values, authoritative);
     for (const [key, control] of controls) control.value = control instanceof HTMLSelectElement ? values[key] === undefined ? '' : JSON.stringify(values[key]) : String(values[key] ?? '');
   };
-  const save = context.kit.button('保存设置', () => { form.requestSubmit(); });
+  const save = context.kit.button(tr('保存设置', 'Save Settings'), () => { form.requestSubmit(); });
   save.className = 'game-settings-save';
-  const discard = context.kit.button('放弃草稿并重新加载', context.guard(async () => {
-    if (dirty && !window.confirm('放弃未保存的游戏设置修改，并重新读取当前生效值？')) return;
+  const discard = context.kit.button(tr('放弃草稿并重新加载', 'Discard Draft and Reload'), context.guard(async () => {
+    if (dirty && !window.confirm(tr('放弃未保存的游戏设置修改，并重新读取当前生效值？', 'Discard unsaved game settings and reload the saved values?'))) return;
     if (pending) return;
     pending = true;
     const discardedGeneration = editGeneration;
     save.disabled = discard.disabled = true;
     try {
       const current = await context.request<{ values: Record<string, Json>; revision: number }>('settings.get', { scope, section: 'game' });
-      if (editGeneration !== discardedGeneration) { context.notify('存在更新的未保存修改，未覆盖当前草稿'); return; }
+      if (editGeneration !== discardedGeneration) { context.notify(tr('存在更新的未保存修改，未覆盖当前草稿', 'The draft was kept because there are newer unsaved changes.')); return; }
       replaceValues(current.values); revision = current.revision; dirty = false; editGeneration++;
-      context.dirty(false); saveDraft(); context.notify('已重新加载游戏设置并丢弃草稿', '游戏设置已重新加载');
+      context.dirty(false); saveDraft(); context.notify(tr('已重新加载游戏设置并丢弃草稿', 'Game settings reloaded and draft discarded'), tr('游戏设置已重新加载', 'Game Settings Reloaded'));
     } catch (error) { context.notify(error instanceof Error ? error.message : String(error)); }
     finally { pending = false; if (!context.signal.aborted) save.disabled = discard.disabled = false; }
   }));
@@ -152,7 +154,8 @@ export async function mountGameSettings(root: HTMLElement, context: UiContext, g
           dirty = editGeneration !== submittedGeneration;
           if (!dirty) replaceValues(updated.values);
           context.dirty(dirty); saveDraft();
-          context.notify(dirty ? '已提交保存，较新的输入仍保留在草稿中' : '游戏设置已保存', '游戏设置已保存');
+          const savedNotice = tr('游戏设置已保存', 'Game Settings Saved');
+          context.notify(dirty ? tr('已提交保存，较新的输入仍保留在草稿中', 'Settings saved. Newer changes are still in the draft.') : savedNotice, savedNotice);
         }
       } catch (error) { context.notify(error instanceof Error ? error.message : String(error)); }
       finally { pending = false; if (!context.signal.aborted) save.disabled = discard.disabled = false; }

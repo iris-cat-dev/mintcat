@@ -1,4 +1,4 @@
-import { getSharedRuntime, getUiTheme, mountReactView, navigateUi, openExternalUrl, setUiTheme } from '@mintcat/sdk-ui';
+import { getSharedRuntime, getUiTheme, mountReactView, navigateUi, openExternalUrl, setUiTheme, tr } from '@mintcat/sdk-ui';
 import type { Disposable, UiNavigationIcon, UiSelection } from '@mintcat/sdk-ui';
 import type { ReactElement } from 'react';
 import type { AgentIndicatorStatus } from '../../../modules/feature-agent/ui';
@@ -21,7 +21,7 @@ export function mountChrome(header: HTMLElement, footer: HTMLElement, brandRoot:
       try { return window.localStorage.getItem('mintcat.sidebar.collapsed') === 'true'; }
       catch { return false; }
     });
-    const label = collapsed ? '展开侧栏' : '收起侧栏';
+    const label = collapsed ? tr('展开侧栏', 'Expand sidebar') : tr('收起侧栏', 'Collapse sidebar');
     return h('div', { className: 'sidebar-brand', 'data-tauri-drag-region': true },
       h('div', { className: 'brand-lockup' },
         h('span', { className: 'brand-icon-shell', 'aria-hidden': true },
@@ -88,7 +88,7 @@ export function mountChrome(header: HTMLElement, footer: HTMLElement, brandRoot:
     const { message } = Antd.App.useApp();
     const theme = getUiTheme();
     const [skinOpen, setSkinOpen] = React.useState(false);
-    const agentLabel = `MintCat Agent${agent.waiting ? '，等待回复' : ''}${agent.unread ? '，有未读回复' : ''}`;
+    const agentLabel = `MintCat Agent${agent.waiting ? tr('，等待回复', ', waiting for a reply') : ''}${agent.unread ? tr('，有未读回复', ', unread reply') : ''}`;
     return h('div', { className: 'title-bar' },
       h('div', { className: 'window-drag-strip', 'data-tauri-drag-region': true }),
       h('div', { className: 'toolbar-region' }, h('div', { id: 'mc-page-toolbar', className: 'page-toolbar' }),
@@ -96,22 +96,22 @@ export function mountChrome(header: HTMLElement, footer: HTMLElement, brandRoot:
           ? h('div', { className: 'chrome-fallback-toolbar chrome-context-toolbar' },
             h('div', { className: 'chrome-context-breadcrumb' },
               h('span', { className: 'chrome-context-badge' }, h(Icons.SettingOutlined)),
-              h('span', { className: 'chrome-context-root' }, '设置')),
+              h('span', { className: 'chrome-context-root' }, tr('设置', 'Settings'))),
             h('span', { className: 'chrome-context-spacer', 'data-tauri-drag-region': true }),
-            h(Antd.Button, { className: 'chrome-back-btn', icon: h(Icons.ArrowLeftOutlined), disabled: !available('home'), onClick: () => navigateUi('home') }, '返回模组管理'))
+            h(Antd.Button, { className: 'chrome-back-btn', icon: h(Icons.ArrowLeftOutlined), disabled: !available('home'), onClick: () => navigateUi('home') }, tr('返回模组管理', 'Back to Mod Library')))
           : isInstall
           ? h('div', { className: 'chrome-fallback-toolbar chrome-context-toolbar' },
             h('div', { className: 'chrome-context-breadcrumb' },
               h('span', { className: 'chrome-context-badge' }, h(Icons.DeploymentUnitOutlined)),
-              h('span', { className: 'chrome-context-root' }, '安装与打包')),
+              h('span', { className: 'chrome-context-root' }, tr('安装与打包', 'Install & Package'))),
             h('span', { className: 'chrome-context-spacer', 'data-tauri-drag-region': true }),
-            h(Antd.Button, { className: 'chrome-back-btn', icon: h(Icons.ArrowLeftOutlined), disabled: !available('home'), onClick: () => navigateUi('home') }, '返回模组管理'))
+            h(Antd.Button, { className: 'chrome-back-btn', icon: h(Icons.ArrowLeftOutlined), disabled: !available('home'), onClick: () => navigateUi('home') }, tr('返回模组管理', 'Back to Mod Library')))
           : h('div', { className: 'chrome-fallback-toolbar' },
-            h(Antd.Button, { className: 'chrome-game', icon: h(Icons.AppstoreOutlined), disabled: !available('home'), onClick: () => navigateUi('home') }, game?.displayName ?? '选择游戏'),
+            h(Antd.Button, { className: 'chrome-game', icon: h(Icons.AppstoreOutlined), disabled: !available('home'), onClick: () => navigateUi('home') }, game?.displayName ?? tr('选择游戏', 'Select game')),
             h(Antd.Button, { className: 'chrome-search', icon: h(Icons.SearchOutlined), disabled: !available('search'), onClick: () => navigateUi('search') },
-              h('span', { className: 'chrome-search-placeholder' }, '搜索在线模组、作者或描述…'),
+              h('span', { className: 'chrome-search-placeholder' }, tr('搜索在线模组、作者或描述…', 'Search mods, authors, or descriptions…')),
               h('kbd', { className: 'chrome-search-kbd', 'aria-hidden': true }, '⌘K')))),
-      h('div', { className: 'chrome-utilities', role: 'group', 'aria-label': '工作台工具' },
+      h('div', { className: 'chrome-utilities', role: 'group', 'aria-label': tr('工作台工具', 'Workbench tools') },
         h(Antd.Button, { type: 'text', className: `chrome-agent-btn${agent.unread ? ' chrome-agent-btn--unread' : ''}`, 'aria-label': agentLabel, title: agentLabel,
           'aria-expanded': agent.open, 'aria-controls': agent.open ? 'mintcat-agent-drawer' : undefined,
           'aria-busy': agent.waiting, disabled: !available('robot'), onClick: () => navigateUi('robot'),
@@ -122,10 +122,10 @@ export function mountChrome(header: HTMLElement, footer: HTMLElement, brandRoot:
             h('circle', { className: 'agent-eye', cx: 9, cy: 11.5, r: 1.55 }),
             h('circle', { className: 'agent-eye agent-eye-right', cx: 15, cy: 11.5, r: 1.55 })) }),
         h(NotificationsButton),
-        h(Antd.Button, { type: 'text', 'aria-label': '帮助文档', title: '帮助文档', icon: h(Icons.QuestionCircleOutlined),
-          onClick: () => { void openExternalUrl('https://www.mintcat.work/docs/').catch(() => { void message.error('无法打开浏览器，请访问 www.mintcat.work/docs/'); }); } }),
+        h(Antd.Button, { type: 'text', 'aria-label': tr('帮助文档', 'Help'), title: tr('帮助文档', 'Help'), icon: h(Icons.QuestionCircleOutlined),
+          onClick: () => { void openExternalUrl('https://www.mintcat.work/docs/').catch(() => { void message.error(tr('无法打开浏览器，请访问 www.mintcat.work/docs/', 'Could not open the browser. Visit www.mintcat.work/docs/.')); }); } }),
         h(Antd.Popover, { trigger: 'click', placement: 'bottomRight', open: skinOpen, onOpenChange: setSkinOpen, arrow: false,
-          title: '界面皮肤', content: h('div', { className: 'chrome-skin-options' }, ...THEME_OPTIONS.map(option =>
+          title: tr('界面皮肤', 'Theme'), content: h('div', { className: 'chrome-skin-options' }, ...THEME_OPTIONS.map(option =>
             h('button', { key: option.id, type: 'button', 'aria-pressed': theme === option.id,
               style: { backgroundColor: option.windowBg, color: option.text, borderColor: theme === option.id ? option.accent : undefined },
               onClick: () => {
@@ -137,33 +137,34 @@ export function mountChrome(header: HTMLElement, footer: HTMLElement, brandRoot:
               } },
             h('span', { className: 'chrome-skin-swatch', style: { backgroundColor: option.accent } },
               theme === option.id ? h(Icons.CheckOutlined) : null), option.name))) },
-          h(Antd.Button, { type: 'text', icon: h(Icons.SkinOutlined), title: '皮肤', 'aria-label': '皮肤', 'aria-expanded': skinOpen })),
-        h(Antd.Button, { type: 'text', title: '云同步', 'aria-label': '云同步', icon: h(Icons.CloudSyncOutlined), disabled: !available('cloud'),
+          h(Antd.Button, { type: 'text', icon: h(Icons.SkinOutlined), title: tr('皮肤', 'Theme'), 'aria-label': tr('皮肤', 'Theme'), 'aria-expanded': skinOpen })),
+        h(Antd.Button, { type: 'text', title: tr('云同步', 'Cloud sync'), 'aria-label': tr('云同步', 'Cloud sync'), icon: h(Icons.CloudSyncOutlined), disabled: !available('cloud'),
           onClick: () => window.dispatchEvent(new Event('mintcat-open-cloud-sync')) }),
         h(AvatarButton, { canInstall: available('install'), canManageSources: available('proxy') })));
   }
   function StatusBar(): ReactElement {
-    const [text, update] = React.useState(native ? '正在连接独立后台…' : '浏览器预览 · 未连接原生后台');
+    const readyLabel = tr('已连接独立后台', 'Connected to daemon');
+    const [text, update] = React.useState(native ? tr('正在连接独立后台…', 'Connecting to daemon…') : tr('浏览器预览 · 未连接原生后台', 'Browser preview · no native daemon'));
     const [daemonReady, setDaemonReady] = React.useState(false);
     React.useEffect(() => {
       const handler = (event: Event): void => {
         const detail = (event as CustomEvent<string>).detail;
-        if (detail.startsWith('已连接独立后台')) setDaemonReady(true);
+        if (detail === readyLabel) setDaemonReady(true);
         update(detail);
       };
       window.addEventListener('mintcat-ui-notice', handler); return () => window.removeEventListener('mintcat-ui-notice', handler);
-    }, []);
-    const connected = daemonReady || text.startsWith('已连接独立后台');
-    const secondaryNotice = connected && !text.startsWith('已连接独立后台') ? text : '';
+    }, [readyLabel]);
+    const connected = daemonReady || text === readyLabel;
+    const secondaryNotice = connected && text !== readyLabel ? text : '';
     return h('div', { className: 'status-bar' },
       h('div', { className: 'status-left' },
-        h('span', { role: 'status', className: `status-pill ${connected ? 'status-pill--connected' : 'status-pill--idle'}`, title: connected ? '已连接独立后台' : text },
+        h('span', { role: 'status', className: `status-pill ${connected ? 'status-pill--connected' : 'status-pill--idle'}`, title: connected ? readyLabel : text },
           h('span', { className: `status-dot ${connected ? 'status-dot--connected' : 'status-dot--idle'}` }),
-          connected ? '已连接独立后台' : text),
+          connected ? readyLabel : text),
         h('span', { id: 'mc-profile-status' }),
         secondaryNotice ? h('span', { className: 'status-secondary-notice', title: secondaryNotice }, secondaryNotice) : null),
-      h(Antd.Tooltip, { title: '后台状态、日志与恢复' },
-        h(Antd.Button, { type: 'text', size: 'small', className: 'status-rescue-btn', icon: h(Icons.ToolOutlined), onClick: openRescue, 'aria-label': '后台状态、日志与恢复' }, '诊断与恢复')));
+      h(Antd.Tooltip, { title: tr('后台状态、日志与恢复', 'Daemon status, logs, and recovery') },
+        h(Antd.Button, { type: 'text', size: 'small', className: 'status-rescue-btn', icon: h(Icons.ToolOutlined), onClick: openRescue, 'aria-label': tr('后台状态、日志与恢复', 'Daemon status, logs, and recovery') }, tr('诊断与恢复', 'Diagnostics & Recovery'))));
   }
   const title = mountReactView(header, h(TitleBar)); const status = mountReactView(footer, h(StatusBar)); const brand = mountReactView(brandRoot, h(Brand));
   return { dispose() { title.dispose(); status.dispose(); brand.dispose(); } };

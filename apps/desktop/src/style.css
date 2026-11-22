@@ -398,7 +398,6 @@ body {
   .chrome-agent-btn[aria-busy="true"] .agent-eye-right { animation-delay: -.6s; }
   .chrome-utilities .ant-btn:hover .anticon, .chrome-utilities .ant-btn:focus-visible .anticon { animation: mc-tool-lift .35s cubic-bezier(.22,.8,.3,1); }
   .chrome-utilities .ant-btn:active { transform: scale(.94); }
-  .app-sidebar .ant-menu-item-selected .sidebar-link .anticon { animation: mc-tool-lift .35s ease-out; }
   @keyframes mc-agent-eye { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
   @keyframes mc-tool-lift { 36% { transform: translateY(-2px) rotate(-9deg) scale(1.15); } 75% { transform: rotate(4deg); } }
   ::view-transition-old(root) { animation: none; }
@@ -741,10 +740,7 @@ body {
   overflow: auto;
   background: var(--mc-workspace-bg);
 }
-.module-page > [data-module] {
-  min-height: 100%;
-  animation: mc-page-enter .24s cubic-bezier(.22, 1, .36, 1) both;
-}
+.module-page > [data-module] { min-height: 100%; }
 
 /* Shared Onboarding / Empty Hero Card */
 .mc-empty-hero {
@@ -1083,7 +1079,7 @@ button.mc-empty-bento-item:hover {
 }
 .rescue > summary::-webkit-details-marker { display: none; }
 .rescue > summary::after {
-  content: '点击收起';
+  content: attr(data-collapse-label);
   font-size: 11px;
   font-weight: 500;
   padding: 2px 8px;
@@ -1329,10 +1325,6 @@ button.mc-empty-bento-item:hover {
 }
 .game-settings button:disabled { cursor: not-allowed; opacity: .55; }
 
-@keyframes mc-page-enter {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
 @keyframes mc-notice-in {
   from { opacity: 0; transform: translateY(-6px) scale(.99); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -1340,7 +1332,6 @@ button.mc-empty-bento-item:hover {
 
 [data-module] { isolation: isolate; }
 @media (prefers-reduced-motion: reduce) {
-  .module-page > [data-module],
   .mc-empty-hero-orb,
   .module-notice,
   .rescue[open] { animation: none !important; }

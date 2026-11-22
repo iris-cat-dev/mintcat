@@ -1,4 +1,4 @@
-import { getSharedRuntime, mountReactView } from '@mintcat/sdk-ui';
+import { getSharedRuntime, mountReactView, tr } from '@mintcat/sdk-ui';
 import type { Disposable, UiContext } from '@mintcat/sdk-ui';
 import type { ActionRequired, JobEvent, JobRef } from '@mintcat/sdk-ts';
 import { ProxyView } from './view';
@@ -25,7 +25,7 @@ export async function mountProxyPage(root: HTMLElement, context: UiContext): Pro
   };
   const errorText = (error: unknown): string => {
     const message = error instanceof Error ? error.message : typeof error === 'string' ? error : JSON.stringify(error);
-    return `操作失败：${message}。若提示 permission / 权限不足，请检查守护进程授予的模块权限；系统修改仍须独立人工批准及原生系统授权。`;
+    return tr(`操作失败：${message}。若提示 permission / 权限不足，请检查守护进程授予的模块权限；系统修改仍须独立人工批准及原生系统授权。`, `Operation failed: ${message}. If access was denied, check the module permissions granted by the daemon. System changes still require separate manual approval and OS authorization.`);
   };
   const save = (): void => {
     context.saveState('digest', 1, model.digest.trim());
@@ -73,7 +73,7 @@ export async function mountProxyPage(root: HTMLElement, context: UiContext): Pro
           tasks.push(task);
           update({ tasks });
         } catch (error) {
-          if (active()) { const message = `代理任务 ${jobId}：${errorText(error)}`; update({ error: message }); context.notify(message); }
+          if (active()) { const message = `${tr(`代理任务 ${jobId}：`, `Proxy job ${jobId}: `)}${errorText(error)}`; update({ error: message }); context.notify(message); }
         }
       }
     } catch (error) {
@@ -101,9 +101,9 @@ export async function mountProxyPage(root: HTMLElement, context: UiContext): Pro
   const approve = async (reviewed: ActionRequired, jobId: string): Promise<unknown> => {
     const current = await context.call('actions.get', { actionId: reviewed.actionId });
     if (!active()) return;
-    if (current.state !== 'pending' || current.kind !== 'proxy-system-operation' || current.operationId !== `proxy:${jobId}` || JSON.stringify(current) !== JSON.stringify(reviewed)) throw new Error('代理批准内容已变化；请刷新并重新审核当前不可变目标');
+    if (current.state !== 'pending' || current.kind !== 'proxy-system-operation' || current.operationId !== `proxy:${jobId}` || JSON.stringify(current) !== JSON.stringify(reviewed)) throw new Error(tr('代理批准内容已变化；请刷新并重新审核当前不可变目标', 'The proxy approval details changed. Refresh and review the current target again.'));
     const response = { approved: true };
-    if (!window.confirm(`作为人工审核者，批准此精确的代理系统操作？\n\n${JSON.stringify({ action: current, response }, null, 2)}`)) return;
+    if (!window.confirm(`${tr('作为人工审核者，批准此精确的代理系统操作？', 'Approve this exact proxy system operation as a human reviewer?')}\n\n${JSON.stringify({ action: current, response }, null, 2)}`)) return;
     const job = await context.call('actions.approve', { actionId: current.actionId, expectedRevision: current.revision, response }, crypto.randomUUID());
     track(job);
     return job;
@@ -120,7 +120,7 @@ export async function mountProxyPage(root: HTMLElement, context: UiContext): Pro
     attach: async () => {
       const snapshot = await context.call('jobs.get', { jobId: model.existing.trim() });
       if (!active()) return;
-      if (!snapshot.command.startsWith('proxy.')) throw new Error('此任务不是代理操作');
+      if (!snapshot.command.startsWith('proxy.')) throw new Error(tr('此任务不是代理操作', 'This is not a proxy job.'));
       track(snapshot);
       return snapshot;
     },

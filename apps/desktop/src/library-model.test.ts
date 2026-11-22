@@ -9,10 +9,13 @@ import {
   extractGameVersionTags,
   groupDropTarget,
   matchesModFacets,
+  modApprovalLabel,
+  modCategoryLabel,
+  modCategoryTags,
   modDisplayVersion,
   modDropTarget,
   modHasUpdate,
-  modMetadataLabels,
+  modMultiplayerRequirement,
   modSourceUrl,
   overlayProgressPercent,
   parseModUrlLines,
@@ -106,16 +109,17 @@ describe('deployment status', () => {
 
 describe('actual mod metadata labels', () => {
   it('does not infer multiplayer compatibility or certification from missing metadata', () => {
-    expect(modMetadataLabels([], '')).toEqual({ category: '—', multiplayer: '—', approval: '—' });
-    expect(modMetadataLabels(['Future category'], 'Custom review')).toEqual({
-      category: 'Future category', multiplayer: '—', approval: 'Custom review',
-    });
+    expect(modCategoryTags([])).toEqual([]);
+    expect(modMultiplayerRequirement([])).toBeUndefined();
+    expect(modApprovalLabel('')).toBe('—');
+    expect(modCategoryLabel('Future category')).toBe('Future category');
+    expect(modApprovalLabel('Custom review')).toBe('Custom review');
   });
 
   it('keeps categories separate and prioritizes the strict all-player requirement', () => {
-    expect(modMetadataLabels(['Optional', 'QoL', 'RequiredByAll'], 'Sandbox')).toEqual({
-      category: 'QoL', multiplayer: '全员必装', approval: '沙盒',
-    });
+    const tags = ['Optional', 'QoL', 'RequiredByAll'];
+    expect(modCategoryTags(tags)).toEqual(['QoL']);
+    expect(modMultiplayerRequirement(tags)).toBe('RequiredByAll');
   });
 });
 
@@ -167,10 +171,10 @@ describe('list drag sorting', () => {
 });
 
 describe('parity helpers for metadata, facets, sorting, URLs and progress', () => {
-  it('maps unavailable approval to dash and separates game version tags from category tags', () => {
-    expect(modMetadataLabels(['1.40', 'v1.39.2', 'QoL', 'Verified', 'Optional'], 'unavailable')).toEqual({
-      category: 'QoL', multiplayer: '客户端可选', approval: '—',
-    });
+  it('separates category, version, multiplayer, and approval tags by stable IDs', () => {
+    const tags = ['1.40', 'v1.39.2', 'QoL', 'Verified', 'Optional'];
+    expect(modCategoryTags(tags)).toEqual(['QoL']);
+    expect(modMultiplayerRequirement(tags)).toBe('Optional');
     expect(extractGameVersionTags(['1.40', 'QoL', 'v1.39.2', 'RequiredByAll'])).toEqual(['1.40', 'v1.39.2']);
   });
 
@@ -210,7 +214,7 @@ describe('parity helpers for metadata, facets, sorting, URLs and progress', () =
     };
     expect(modHasUpdate(baseMod)).toBe(true);
     expect(matchesModFacets(baseMod, {
-      status: 'disabled', sourceId: 'modio', approval: 'Verified', multiplayer: '全员必装', category: 'QoL', updatesOnly: true,
+      status: 'disabled', sourceId: 'modio', approval: 'Verified', multiplayer: 'RequiredByAll', category: 'QoL', updatesOnly: true,
     }, new Set(), new Set(['pm-1']))).toBe(true);
     expect(matchesModFacets(baseMod, {
       status: 'disabled', sourceId: '', approval: '', multiplayer: '', category: '', updatesOnly: true,

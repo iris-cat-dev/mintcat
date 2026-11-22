@@ -7,6 +7,7 @@ import type {
   DownloadOverlayItem,
   ProfilesContentStateResult,
 } from '@mintcat/sdk-ts';
+import { tr } from '@mintcat/sdk-ui';
 import type { LibraryState } from './library';
 
 export interface ModDownloadOverlay {
@@ -32,7 +33,9 @@ export interface ModFacetFilters {
   updatesOnly?: boolean;
 }
 
-const MULTIPLAYER_TAGS = new Set(['RequiredByAll', 'RecommendedForAll', 'Optional']);
+export const MULTIPLAYER_TAGS = ['RequiredByAll', 'RecommendedForAll', 'Optional'] as const;
+type MultiplayerRequirement = typeof MULTIPLAYER_TAGS[number];
+const MULTIPLAYER_TAG_SET = new Set<string>(MULTIPLAYER_TAGS);
 const APPROVAL_TAGS = new Set(['Verified', 'Auto-Verified', 'Approved', 'Sandbox']);
 const VERSION_TAG_PATTERN = /^v?\d+\.\d+(\.\d+)*$/i;
 const TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled']);
@@ -84,17 +87,27 @@ export function sameDeployTarget(a: DeployTarget, b: DeployTarget): boolean {
 export function deployJobProgress(job: JobSnapshot, event?: JobEvent): DeployProgress {
   const planning = job.command === 'install.plan';
   const labels: Record<JobSnapshot['state'], string> = job.command === 'library.download.apply' ? {
-    queued: '下载排队中', preparing: '准备下载缺失模组', running: '下载缺失模组',
-    'awaiting-approval': '下载等待手动操作', committing: '写入模组缓存',
-    cancelling: '正在取消下载', succeeded: '模组下载完成',
-    cancelled: '下载已取消', failed: '下载失败', 'recovery-required': '下载需要恢复',
+    queued: tr('下载排队中', 'Download queued'),
+    preparing: tr('准备下载缺失模组', 'Preparing to download missing mods'),
+    running: tr('下载缺失模组', 'Downloading missing mods'),
+    'awaiting-approval': tr('下载等待手动操作', 'Download needs your attention'),
+    committing: tr('写入模组缓存', 'Writing to the mod cache'),
+    cancelling: tr('正在取消下载', 'Cancelling download'),
+    succeeded: tr('模组下载完成', 'Mod download complete'),
+    cancelled: tr('下载已取消', 'Download cancelled'),
+    failed: tr('下载失败', 'Download failed'),
+    'recovery-required': tr('下载需要恢复', 'Download needs recovery'),
   } : {
-    queued: planning ? '计划排队中' : '部署排队中',
-    preparing: planning ? '准备安装计划' : '准备部署',
-    running: planning ? '生成安装计划' : '部署中',
-    'awaiting-approval': '等待人工批准', committing: '写入游戏目录',
-    cancelling: '正在取消', succeeded: planning ? '计划已批准' : '核对部署收据',
-    cancelled: '部署已取消', failed: '部署失败', 'recovery-required': '需要恢复',
+    queued: planning ? tr('计划排队中', 'Plan queued') : tr('部署排队中', 'Deployment queued'),
+    preparing: planning ? tr('准备安装计划', 'Preparing the install plan') : tr('准备部署', 'Preparing deployment'),
+    running: planning ? tr('生成安装计划', 'Creating the install plan') : tr('部署中', 'Deploying'),
+    'awaiting-approval': tr('等待人工批准', 'Waiting for approval'),
+    committing: tr('写入游戏目录', 'Writing to the game folder'),
+    cancelling: tr('正在取消', 'Cancelling'),
+    succeeded: planning ? tr('计划已批准', 'Plan approved') : tr('核对部署收据', 'Checking deployment receipts'),
+    cancelled: tr('部署已取消', 'Deployment cancelled'),
+    failed: tr('部署失败', 'Deployment failed'),
+    'recovery-required': tr('需要恢复', 'Recovery required'),
   };
   const label = labels[job.state];
   // Units belong to one event, not to the whole deployment or a previous stage.
@@ -124,19 +137,53 @@ export function overlayProgressPercent(overlay: ModDownloadOverlay | undefined):
   return Math.min(100, Math.floor((completed / total) * 100));
 }
 
+export function downloadPhaseLabel(phase?: string, fallbackState?: JobSnapshot['state']): string {
+  switch (phase) {
+    case 'download-queued':
+    case 'queued': return tr('等待调度', 'Queued');
+    case 'download-preparing':
+    case 'preparing': return tr('正在解析模组元数据', 'Reading mod metadata');
+    case 'awaiting-approval': return tr('等待确认', 'Awaiting confirmation');
+    case 'running':
+    case 'download-running':
+    case 'downloading': return tr('正在下载模组文件', 'Downloading mod files');
+    case 'verifying': return tr('正在校验文件完整性', 'Verifying files');
+    case 'publishing': return tr('正在写入模组缓存', 'Writing to the mod cache');
+    case 'commit-started':
+    case 'committing': return tr('正在写入配置', 'Saving profile');
+    case 'completed': return tr('下载完成', 'Download complete');
+    case 'commit-finished':
+    case 'recovered-commit-finished':
+    case 'download-succeeded':
+    case 'succeeded': return tr('已完成', 'Completed');
+    case 'download-failed':
+    case 'failed': return tr('下载失败', 'Download failed');
+    case 'cancel-requested':
+    case 'cancelling': return tr('正在取消', 'Cancelling');
+    case 'download-cancelled':
+    case 'cancelled-at-safe-point':
+    case 'cancelled-from-recovery':
+    case 'cancelled': return tr('已取消', 'Cancelled');
+    case 'download-recovery-required':
+    case 'commit-state-unknown':
+    case 'recovery-required': return tr('任务已中断，无法自动继续', 'Task interrupted and cannot resume automatically');
+    default: return fallbackState ? downloadPhaseLabel(fallbackState) : tr('处理中', 'Processing');
+  }
+}
+
 export function pendingVersionLabel(overlay: ModDownloadOverlay | undefined): string | undefined {
   if (!overlay?.item.pendingSelection) return undefined;
   const selection = overlay.item.pendingSelection;
   const version = selection.kind === 'auto'
-    ? `auto → ${overlay.item.resolvedVersion}`
+    ? tr(`自动 → ${overlay.item.resolvedVersion}`, `Auto → ${overlay.item.resolvedVersion}`)
     : selection.versionId ?? overlay.item.resolvedVersion;
   const completed = overlay.item.downloadedBytes ?? overlay.operation.completedUnits;
   const total = overlay.item.totalBytes ?? overlay.operation.totalUnits;
   const progress = total === 0
     ? 0
     : Math.min(100, Math.floor((completed / total) * 100));
-  const state = overlay.item.transferState ?? overlay.operation.state;
-  return `Pending ${version} · ${state} · ${progress}%`;
+  const state = downloadPhaseLabel(overlay.item.transferState ?? overlay.operation.state);
+  return tr(`待处理 ${version} · ${state} · ${progress}%`, `Pending ${version} · ${state} · ${progress}%`);
 }
 
 export function extractGameVersionTags(tags: readonly string[]): string[] {
@@ -145,35 +192,51 @@ export function extractGameVersionTags(tags: readonly string[]): string[] {
     .filter(tag => VERSION_TAG_PATTERN.test(tag));
 }
 
-export function modMetadataLabels(tags: readonly string[], approvalStatus: string): {
-  category: string; multiplayer: string; approval: string;
-} {
-  const category = tags
-    .map(tag => tag.trim())
-    .filter(tag =>
-      tag.length > 0
-      && !MULTIPLAYER_TAGS.has(tag)
-      && !APPROVAL_TAGS.has(tag)
-      && !VERSION_TAG_PATTERN.test(tag),
-    )
-    .join(' / ');
-  const multiplayer = tags.includes('RequiredByAll') ? '全员必装'
-    : tags.includes('RecommendedForAll') ? '推荐全员'
-    : tags.includes('Optional') ? '客户端可选' : '—';
-  const normalizedApproval = approvalStatus.trim();
-  const approval = normalizedApproval === 'Verified' ? '已验证'
-    : normalizedApproval === 'Approved' ? '已批准'
-    : normalizedApproval === 'Sandbox' ? '沙盒'
-    : !normalizedApproval || normalizedApproval === 'unavailable' ? '—'
-    : normalizedApproval;
-  return { category: category || '—', multiplayer, approval };
+export function modCategoryTags(tags: readonly string[]): string[] {
+  return tags.map(tag => tag.trim()).filter(tag =>
+    tag.length > 0
+    && !MULTIPLAYER_TAG_SET.has(tag)
+    && !APPROVAL_TAGS.has(tag)
+    && !VERSION_TAG_PATTERN.test(tag),
+  );
+}
+
+export function modCategoryLabel(category: string): string {
+  return category === 'QoL' ? tr('QoL', 'Quality of life') : category;
+}
+
+export function modMultiplayerRequirement(tags: readonly string[]): MultiplayerRequirement | undefined {
+  return MULTIPLAYER_TAGS.find(tag => tags.includes(tag));
+}
+
+export function modMultiplayerLabel(requirement?: MultiplayerRequirement): string {
+  switch (requirement) {
+    case 'RequiredByAll': return tr('全员必装', 'Required for all');
+    case 'RecommendedForAll': return tr('推荐全员', 'Recommended for all');
+    case 'Optional': return tr('客户端可选', 'Client optional');
+    default: return '—';
+  }
+}
+
+function isUngradedApproval(approval: string): boolean {
+  const status = approval.trim();
+  return !status || status === 'unavailable' || status === '—';
+}
+
+export function modApprovalLabel(approval: string): string {
+  switch (approval.trim()) {
+    case 'Verified': return tr('已验证', 'Verified');
+    case 'Approved': return tr('已批准', 'Approved');
+    case 'Sandbox': return tr('沙盒', 'Sandbox');
+    default: return isUngradedApproval(approval) ? '—' : approval.trim();
+  }
 }
 
 export function formatVersionText(versionId?: string, displayVersion?: string): string {
   const display = displayVersion?.trim();
   if (display) return display;
   if (!versionId) return '—';
-  if (versionId === 'legacy-unversioned') return '未标明版本';
+  if (versionId === 'legacy-unversioned') return tr('未标明版本', 'Unversioned');
   if (versionId.startsWith('sha256:')) return `${versionId.slice(7, 15)}`;
   return versionId;
 }
@@ -268,19 +331,15 @@ export function matchesModFacets(
   if (facets.status === 'pending' && !pendingIds.has(mod.profileModId)) return false;
   if (facets.updatesOnly && !updatableIds.has(mod.profileModId)) return false;
   if (facets.sourceId && mod.mod.sourceId !== facets.sourceId) return false;
-  const meta = modMetadataLabels(mod.tags, mod.approvalStatus);
   if (facets.approval) {
     if (facets.approval === 'none') {
-      if (meta.approval !== '—') return false;
+      if (!isUngradedApproval(mod.approvalStatus)) return false;
     } else if (mod.approvalStatus !== facets.approval) {
       return false;
     }
   }
-  if (facets.multiplayer && meta.multiplayer !== facets.multiplayer) return false;
-  if (facets.category) {
-    const categories = meta.category === '—' ? [] : meta.category.split(' / ');
-    if (!categories.includes(facets.category)) return false;
-  }
+  if (facets.multiplayer && modMultiplayerRequirement(mod.tags) !== facets.multiplayer) return false;
+  if (facets.category && !modCategoryTags(mod.tags).includes(facets.category)) return false;
   return true;
 }
 

@@ -5,7 +5,7 @@ import * as Antd from 'antd';
 import * as Icons from '@ant-design/icons';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { bindSharedRuntime, kit, setUiTheme, getUiTheme } from '@mintcat/sdk-ui';
+import { bindSharedRuntime, kit, setUiTheme, getUiTheme, getUiLanguage, tr } from '@mintcat/sdk-ui';
 import type { FileDragEvent, PickLocalPathOptions, PickSavePathOptions } from '@mintcat/sdk-ui';
 
 async function openExternalUrl(url: string): Promise<void> {
@@ -17,7 +17,7 @@ async function openExternalUrl(url: string): Promise<void> {
 }
 
 async function openDataDir(dataDir: string): Promise<void> {
-  if (!isTauri()) throw new Error('仅桌面客户端支持打开本地数据目录');
+  if (!isTauri()) throw new Error(tr('仅桌面客户端支持打开本地数据目录', 'Opening the local data folder requires the desktop app'));
   await invoke('open_data_dir', { dataDir });
 }
 
@@ -40,7 +40,7 @@ async function pickSavePath(options: PickSavePathOptions): Promise<string | null
 }
 
 async function launchSteamGame(appId: string): Promise<void> {
-  if (!isTauri()) throw new Error('仅桌面客户端支持直接启动 Steam 游戏');
+  if (!isTauri()) throw new Error(tr('仅桌面客户端支持直接启动 Steam 游戏', 'Launching Steam games requires the desktop app'));
   await invoke('launch_steam_game', { appId });
 }
 
@@ -93,3 +93,4 @@ bindSharedRuntime({
   onFileDrag,
 });
 setUiTheme(getUiTheme());
+document.documentElement.lang = getUiLanguage();

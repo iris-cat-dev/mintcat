@@ -4,6 +4,8 @@ export { getLastUiSelection, getUiTheme, isDarkUiTheme, mountReactView, navigate
 export type { UiNavigationIcon, UiSelection, UiThemeName } from './react-view';
 export { presentUiError, renderUiError } from './error-presentation';
 export type { UiErrorContext, UiErrorKind, UiErrorPresentation } from './error-presentation';
+export { getUiLanguage, saveUiLanguage, tr } from './language';
+export type { UiLanguage } from './language';
 export {
   SOURCE_AUTH_GUIDES,
   SOURCE_NAMES,
@@ -20,6 +22,7 @@ import type * as ReactDOMRuntime from 'react-dom/client';
 import type * as AntdRuntime from 'antd';
 import type * as IconsRuntime from '@ant-design/icons';
 import type { createPortal as CreatePortal, flushSync as FlushSync } from 'react-dom';
+import { tr } from './language';
 
 export interface Disposable { dispose(): void }
 export class Disposables implements Disposable {
@@ -222,9 +225,9 @@ export function getSharedRuntime(): Readonly<SharedRuntime> {
 }
 export async function openExternalUrl(rawUrl: string): Promise<void> {
   let parsed: URL;
-  try { parsed = new URL(rawUrl); } catch { throw new Error('无效的外部链接地址'); }
+  try { parsed = new URL(rawUrl); } catch { throw new Error(tr('无效的外部链接地址', 'Invalid external link')); }
   if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
-    throw new Error('仅允许打开不含内嵌凭据的 HTTPS 外部链接');
+    throw new Error(tr('仅允许打开不含内嵌凭据的 HTTPS 外部链接', 'Only HTTPS links without embedded credentials can be opened'));
   }
   const normalized = parsed.toString();
   const opener = runtimeRealm[runtimeSlot]?.openExternalUrl;
@@ -236,7 +239,7 @@ export async function openExternalUrl(rawUrl: string): Promise<void> {
 }
 export async function openDataDir(dataDir: string): Promise<void> {
   const opener = runtimeRealm[runtimeSlot]?.openDataDir;
-  if (!opener) throw new Error('当前环境不支持直接打开系统目录');
+  if (!opener) throw new Error(tr('当前环境不支持直接打开系统目录', 'Opening folders directly is not supported in this environment'));
   await opener(dataDir);
 }
 export async function pickLocalPath(options: PickLocalPathOptions): Promise<string | null> {
@@ -251,9 +254,9 @@ export async function pickSavePath(options: PickSavePathOptions): Promise<string
 }
 export async function launchSteamGame(appId: string): Promise<void> {
   const trimmed = appId.trim();
-  if (!/^\d{1,12}$/.test(trimmed)) throw new Error('无效的 Steam App ID');
+  if (!/^\d{1,12}$/.test(trimmed)) throw new Error(tr('无效的 Steam App ID', 'Invalid Steam App ID'));
   const launcher = runtimeRealm[runtimeSlot]?.launchSteamGame;
-  if (!launcher) throw new Error('当前环境不支持直接启动游戏');
+  if (!launcher) throw new Error(tr('当前环境不支持直接启动游戏', 'Launching games directly is not supported in this environment'));
   await launcher(trimmed);
 }
 export function subscribeFileDrag(handler: (event: FileDragEvent) => void): () => void {
