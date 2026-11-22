@@ -129,6 +129,27 @@ impl Drop for ActiveRequest {
     }
 }
 
+// sockaddr_un limits the spelling of a path, not the location of the socket.
+// For long paths, address the same runtime directory through a short private
+// symlink during bind/connect. The socket, its permissions and the instance
+// lock all stay in the original directory; no global cwd change is needed.
+#[cfg(unix)]
+fn socket_address(endpoint: &Path) -> io::Result<(std::borrow::Cow<'_, Path>, Option<tempfile::TempDir>)> {
+    use std::{borrow::Cow, os::unix::net::SocketAddr};
+    if SocketAddr::from_pathname(endpoint).is_ok() {
+        return Ok((Cow::Borrowed(endpoint), None));
+    }
+    let alias = tempfile::Builder::new()
+        .prefix("mintcat-ipc-")
+        .permissions(fs::Permissions::from_mode(0o700))
+        .tempdir_in("/tmp")?;
+    let directory = alias.path().join("r");
+    let runtime = endpoint.parent().expect("runtime socket has a parent");
+    std::os::unix::fs::symlink(std::path::absolute(runtime)?, &directory)?;
+    let address = directory.join(endpoint.file_name().expect("runtime socket has a name"));
+    Ok((Cow::Owned(address), Some(alias)))
+}
+
 #[cfg(unix)]
 impl IpcServer {
     pub fn bind(paths: &RuntimePaths) -> Result<Self, IpcError> {
@@ -138,12 +159,13 @@ impl IpcServer {
 
         let lock_path = layout.runtime_dir.join("daemon.lock");
         let instance_lock = InstanceLock::acquire(&lock_path)?;
+        let (address, _alias) = socket_address(&layout.endpoint)?;
         if layout.endpoint.exists() {
             let endpoint_type = fs::symlink_metadata(&layout.endpoint)?.file_type();
             if !endpoint_type.is_socket() {
                 fs::remove_file(&layout.endpoint)?;
             } else {
-                match std::os::unix::net::UnixStream::connect(&layout.endpoint) {
+                match std::os::unix::net::UnixStream::connect(&*address) {
                     Ok(_) => return Err(IpcError::InstanceRunning(lock_path)),
                     Err(error)
                         if matches!(
@@ -157,7 +179,7 @@ impl IpcServer {
                 }
             }
         }
-        let listener = UnixListener::bind(&layout.endpoint)?;
+        let listener = UnixListener::bind(&*address)?;
         fs::set_permissions(&layout.endpoint, fs::Permissions::from_mode(0o600))?;
 
         Ok(Self {
@@ -270,7 +292,8 @@ impl InstanceLock {
 impl IpcClient {
     pub async fn connect(paths: &RuntimePaths) -> Result<Self, IpcError> {
         let endpoint = paths.layout().endpoint;
-        let mut stream = time::timeout(HANDSHAKE_TIMEOUT, UnixStream::connect(&endpoint))
+        let (address, _alias) = socket_address(&endpoint)?;
+        let mut stream = time::timeout(HANDSHAKE_TIMEOUT, UnixStream::connect(&*address))
             .await
             .map_err(|_| IpcError::Deadline)?
             .map_err(|error| IpcError::Unavailable(format!("{}: {error}", endpoint.display())))?;
@@ -738,6 +761,30 @@ mod tests {
         drop(client);
         shutdown_tx.send(()).unwrap();
         task.await.unwrap().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn long_data_directory_supports_authenticated_ipc_and_stale_socket_recovery() {
+        let sandbox = tempdir().unwrap();
+        let paths = RuntimePaths::new(sandbox.path().join("矿".repeat(40))).unwrap();
+        let layout = paths.initialize(RuntimeEnvironment::Test).unwrap();
+        // Simulate a crashed listener, leaving a socket inode at the real endpoint.
+        let (address, alias) = super::socket_address(&layout.endpoint).unwrap();
+        drop(std::os::unix::net::UnixListener::bind(&*address).unwrap());
+        drop(alias);
+
+        let server = IpcServer::bind(&paths).unwrap();
+        let generation = server.ready().generation_id;
+        let (stop, stopped) = oneshot::channel();
+        let serving = tokio::spawn(server.run(
+            Arc::new(|_| async { Ok(json!({})) }),
+            async { stopped.await.unwrap(); },
+        ));
+        assert_eq!(IpcClient::connect(&paths).await.unwrap().generation_id, generation);
+        stop.send(()).unwrap();
+        serving.await.unwrap().unwrap();
+        assert!(!layout.endpoint.exists());
     }
 
     #[cfg(unix)]
