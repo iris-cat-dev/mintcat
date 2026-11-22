@@ -67,6 +67,9 @@ pub struct SourceAddResult {
     pub mod_id: String,
     pub content_revision: u64,
     pub changed: bool,
+    /// Older, journaled job results cannot attest that a row was inserted.
+    #[serde(default)]
+    pub profile_mod_created: bool,
 }
 
 impl OwnerStore {
@@ -236,7 +239,7 @@ impl OwnerStore {
             }
         }
         let content_revision = if changed { bump_content_revision(&transaction,&profile.profile_id,now)? } else { profile.content_revision };
-        let result = SourceAddResult { operation_id: operation_id.clone(), profile_id:profile.profile_id, profile_mod_id, mod_id, content_revision, changed };
+        let result = SourceAddResult { operation_id: operation_id.clone(), profile_id:profile.profile_id, profile_mod_id, mod_id, content_revision, changed, profile_mod_created: new_profile_mod };
         record_mutation(&transaction,authorization,scope,idempotency_key,&inputs_hash,&operation_id,&result,now)?;
         if changed { insert_application_event(&transaction,"mod.added",&serde_json::to_value(&result)?,now)?; }
         transaction.commit()?;
@@ -448,6 +451,7 @@ mod tests {
         assert_eq!(store.snapshot().unwrap(),before);
         artifact.verified=true;
         let added=store.commit_local_source_add(&auth,"local",&request,&target,&metadata,&artifact,"generation").unwrap();
+        assert!(added.profile_mod_created);
         let snapshot=store.snapshot().unwrap();
         assert_eq!(snapshot.profile_content_bindings[0].artifact_digest,digest);
         assert_eq!(snapshot.profile_content_bindings[0].profile_mod_id,added.profile_mod_id);
@@ -464,6 +468,7 @@ mod tests {
         let target=store.source_add_target(&auth,&request).unwrap();
         let duplicate=store.commit_local_source_add(&auth,"new-request",&request,&target,&metadata,&artifact,"generation").unwrap();
         assert!(!duplicate.changed);
+        assert!(!duplicate.profile_mod_created);
         assert_eq!(duplicate.content_revision,added.content_revision);
         let after=store.snapshot().unwrap();
         assert_eq!(after.operation_leases,snapshot.operation_leases);
