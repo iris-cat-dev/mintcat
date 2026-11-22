@@ -319,29 +319,12 @@ async fn dispatch(state: Arc<DaemonState>, request: ValidatedRequest, principal:
             let installation_id = input.installation_id.clone();
             let id2 = id.clone();
             tokio::task::spawn_blocking(move || {
-                let receipts = state
+                let summary = state
                     .install
                     .service()
-                    .active_receipts(&installation_id)
+                    .receipt_summary(&installation_id)
                     .map_err(|error| Box::new(mintcat_install::install_app_error(&id2, &error)))?;
-                let items = receipts
-                    .into_iter()
-                    .map(|receipt| mintcat_sdk::InstallReceiptSummary {
-                        receipt_id: receipt.receipt_id,
-                        installation_id: receipt.installation_id,
-                        profile_revision: receipt.profile_revision,
-                        plan_hash: receipt.plan_hash,
-                        file_count: receipt.files.len() as u64,
-                        committed_at_ms: receipt.committed_at_ms.max(0) as u64,
-                    })
-                    .collect();
-                value(
-                    &id2,
-                    mintcat_sdk::InstallReceiptsResult {
-                        installation_id,
-                        items,
-                    },
-                )
+                value(&id2, summary)
             })
             .await
             .map_err(|error| Box::new(internal_error(&id, error.to_string())))?

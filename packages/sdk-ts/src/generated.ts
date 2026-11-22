@@ -1240,8 +1240,17 @@ export interface InstallReceiptSummary {
   "committedAtMs": number;
 }
 
+export interface DeployedProfile {
+  "profileId": Identifier;
+  "profileIncarnationId": Identifier;
+  "contentRevision": number;
+  "installationIncarnationId": Identifier;
+  "variantId": Identifier;
+}
+
 export interface InstallReceiptsResult {
   "installationId": Identifier;
+  "deployedProfile"?: DeployedProfile;
   "items": Array<InstallReceiptSummary>;
 }
 
@@ -6180,6 +6189,35 @@ export const CORE_SCHEMA: Record<string, unknown> = {
         }
       }
     },
+    "DeployedProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "profileIncarnationId",
+        "contentRevision",
+        "installationIncarnationId",
+        "variantId"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileIncarnationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "installationIncarnationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "variantId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
     "InstallReceiptsResult": {
       "type": "object",
       "additionalProperties": false,
@@ -6190,6 +6228,9 @@ export const CORE_SCHEMA: Record<string, unknown> = {
       "properties": {
         "installationId": {
           "$ref": "#/$defs/Identifier"
+        },
+        "deployedProfile": {
+          "$ref": "#/$defs/DeployedProfile"
         },
         "items": {
           "type": "array",

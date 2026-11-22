@@ -432,13 +432,36 @@ impl InstallService {
         Ok(stored.plan)
     }
 
-    pub fn active_receipts(
+    pub fn receipt_summary(
         &self,
         installation_id: &str,
-    ) -> Result<Vec<mintcat_runtime_file_transactions::InstallReceipt>, InstallError> {
-        Ok(self
-            .transactions
-            .active_receipts_for_installation(installation_id)?)
+    ) -> Result<mintcat_sdk::InstallReceiptsResult, InstallError> {
+        let receipts = self.transactions.active_receipts_for_installation(installation_id)?;
+        // Only the head of the active chain describes the current deployment.
+        // A plan that has not committed has no linked receipt.
+        let deployed_profile = match receipts.first().filter(|r| r.owner_scope == self.authorization.owner_scope()) {
+            Some(head) => self.plans.plan_for_receipt(&head.receipt_id)?.map(|plan| {
+                mintcat_sdk::DeployedProfile {
+                    profile_id: plan.profile.profile_id,
+                    profile_incarnation_id: plan.profile.profile_incarnation_id,
+                    content_revision: plan.profile.content_revision,
+                    installation_incarnation_id: plan.profile.installation_incarnation_id,
+                    variant_id: plan.variant_id,
+                }
+            }),
+            None => None,
+        };
+        let items = receipts.into_iter().map(|receipt| mintcat_sdk::InstallReceiptSummary {
+            receipt_id: receipt.receipt_id,
+            installation_id: receipt.installation_id,
+            profile_revision: receipt.profile_revision,
+            plan_hash: receipt.plan_hash,
+            file_count: receipt.files.len() as u64,
+            committed_at_ms: receipt.committed_at_ms.max(0) as u64,
+        }).collect();
+        Ok(mintcat_sdk::InstallReceiptsResult {
+            installation_id: installation_id.to_owned(), items, deployed_profile,
+        })
     }
 
     pub fn recovery_build_request(&self, plan_id: &str) -> Result<BuildRequest, InstallError> {

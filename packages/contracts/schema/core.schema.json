@@ -4673,6 +4673,35 @@
         }
       }
     },
+    "DeployedProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileId",
+        "profileIncarnationId",
+        "contentRevision",
+        "installationIncarnationId",
+        "variantId"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "profileIncarnationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contentRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "installationIncarnationId": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "variantId": {
+          "$ref": "#/$defs/Identifier"
+        }
+      }
+    },
     "InstallReceiptsResult": {
       "type": "object",
       "additionalProperties": false,
@@ -4683,6 +4712,9 @@
       "properties": {
         "installationId": {
           "$ref": "#/$defs/Identifier"
+        },
+        "deployedProfile": {
+          "$ref": "#/$defs/DeployedProfile"
         },
         "items": {
           "type": "array",

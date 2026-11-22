@@ -913,6 +913,8 @@ fn drg_pack_install_and_uninstall_run_without_a_gui_and_report_first_wins() {
 
     let plan = fixture.plan(0);
     assert!(plan.required_approvals.contains("native-code-execution"));
+    let summary = || fixture.service.receipt_summary("installation:0").unwrap();
+    assert!(summary().items.is_empty()); // Packing and planning did not deploy anything.
     let applied = fixture
         .service
         .apply(
@@ -925,8 +927,29 @@ fn drg_pack_install_and_uninstall_run_without_a_gui_and_report_first_wins() {
     let receipt = applied.receipt.unwrap();
     assert!(fixture.root.join(&fixture.output_path).is_file());
     assert_eq!(receipt.plan_hash, plan.plan_hash);
+    let deployed = summary().deployed_profile.unwrap();
+    assert_eq!(deployed.profile_id, plan.profile.profile_id);
+    assert_eq!(deployed.profile_incarnation_id, plan.profile.profile_incarnation_id);
+    assert_eq!(deployed.installation_incarnation_id, plan.profile.installation_incarnation_id);
+    assert_eq!(deployed.variant_id, plan.variant_id);
+    assert_eq!(deployed.content_revision, CONTENT_REVISION);
 
-    let replacement_plan = fixture.plan(0);
+    let mut build = fixture.request(0);
+    let authorization = LibraryAuthorization::new(OWNER, [CONTENT_WRITE_PERMISSION]);
+    for input in build.input_metadata.drain(..) {
+        fixture.library.set_profile_mod_enabled(&authorization, &SetProfileModEnabled {
+            idempotency_key: format!("disable-{}", input.profile_mod_id),
+            profile_id: build.profile_id.clone(),
+            profile_mod_id: input.profile_mod_id,
+            expected_content_revision: build.expected_content_revision,
+            enabled: false,
+        }).unwrap();
+        build.expected_content_revision += 1;
+    }
+    let replacement_plan = fixture.service.plan_install(PlanInstallRequest { build, expires_in_ms: 60_000 },
+        &FileCancellation::default()).unwrap();
+    assert!(replacement_plan.profile.ordered_inputs.is_empty());
+    assert_eq!(summary().deployed_profile.unwrap().content_revision, CONTENT_REVISION);
     let replacement_receipt = fixture
         .service
         .apply(
@@ -939,6 +962,9 @@ fn drg_pack_install_and_uninstall_run_without_a_gui_and_report_first_wins() {
         .receipt
         .unwrap();
     assert_ne!(replacement_receipt.receipt_id, receipt.receipt_id);
+    let replaced = summary();
+    assert_eq!(replaced.items[0].receipt_id, replacement_receipt.receipt_id);
+    assert_eq!(replaced.deployed_profile.unwrap().content_revision, CONTENT_REVISION + 2);
 
     let uninstalled = fixture
         .service
@@ -957,6 +983,9 @@ fn drg_pack_install_and_uninstall_run_without_a_gui_and_report_first_wins() {
     );
     assert_eq!(uninstalled.processed_receipt_ids.len(), 2);
     assert!(!fixture.root.join(&fixture.output_path).exists());
+    let cleared = summary();
+    assert!(cleared.items.is_empty());
+    assert!(cleared.deployed_profile.is_none());
     assert!(uninstalled.foreign_files_untouched);
 }
 
@@ -1094,6 +1123,7 @@ fn cancellation_profile_change_target_change_and_build_failure_preserve_old_inst
         Err(InstallError::ProfileChanged { .. })
     ));
     assert_eq!(fs::read(&target).unwrap(), b"old-before-cancel");
+    assert!(fixture.service.receipt_summary("installation:0").unwrap().deployed_profile.is_none());
 
     let target_fixture = GameFixture::new(FixtureGame::RogueCore, 1);
     let target = target_fixture.root.join(&target_fixture.output_path);
